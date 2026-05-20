@@ -22,3 +22,8 @@ all_amino_acid_residues = canonical_amino_acid_residues + ["X"]
 
 # Including Gaps
 gapped_amino_acid_residues = all_amino_acid_residues + ["-"]
+
+# Turn them into dictionaries
+# Todo : Give a simple example for both
+all_amino_acid_dictionary = {k: index for index, k in enumerate(gapped_amino_acid_residues)}
+gapped_amino_acid_dictionary = {k: index for index, k in enumerate(gapped_amino_acid_residues)}
