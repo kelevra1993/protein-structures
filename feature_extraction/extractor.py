@@ -49,3 +49,31 @@ class FeatureExtractor():
 
     # TODO Function For Cluster Averaging using extra msa to assigned cluster centers
     # - Must be properly explained
+
+    # TODO Apply Cluster Averaging for deletion and profiling
+    # - Must be properly explained
+
+    # TODO Crop extra msa count
+
+    # TODO Create Full MSA Feature
+
+    # TODO Create Extra MSA Feature
+
+    # TODO Get First Sequence
+    # TODO Get One Hot Encoding
+    # TODO Get Residue indexes
+
+    # first_sequence = sequences[0]
+    # target_feat = onehot_encode_aa_type(seq=first_sequence, include_gap_token=False)
+    # residue_index = torch.arange(len(first_sequence))
+
+    # variables of your object at the end.
+    # return {
+    #     'msa_feat': msa_feat,
+    #     'extra_msa_feat': extra_msa_feat,
+    #     'target_feat': target_feat,
+    #     'residue_index': residue_index
+    # }
+
+    # Try to add a simple test with an input file.
+    # Test without seed so randompermutations are just not considered
