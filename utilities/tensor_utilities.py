@@ -49,8 +49,7 @@ def unsqueeze_tensor(input: torch.Tensor, direction: str, number: int = 1) -> to
 
 
 def specialised_one_hot_encoder(input_tensor: torch.Tensor,
-                                bin_tensor: torch.Tensor,
-                                dtype: torch.dtype = torch.float64) -> torch.Tensor:
+                                bin_tensor: torch.Tensor) -> torch.Tensor:
     """Todo Add documentaiton"""
 
     # Add A Dummy Dimension At The End Of Input Tensor For Broadcasting
@@ -67,4 +66,4 @@ def specialised_one_hot_encoder(input_tensor: torch.Tensor,
     output = nn.functional.one_hot(indices, num_classes=bin_tensor.size(-1))
 
     # Todo properly specify the output dimension
-    return output.to(dtype)
+    return output
