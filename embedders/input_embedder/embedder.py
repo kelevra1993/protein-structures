@@ -1,24 +1,22 @@
-"""
-c_m -> msa_embedding
-c_z -> pair_representation_embedding
-tf_dim -> input feature embedding or input_sequence_feature_dimension
-(basically normally just the number of canonical amino acids ? Just to be restated)
-msa_feat_dim -> input_msa_feature_dimension
-vbins -> Number of relative amino acids to consider on the left and on the right of our amino acid :
- number_neighbooring_amino_acids
-f_e -> input_extra_msa_feature_dimension (normally 25)
-c_e -> extra_msa_embeddding
-"""
-import os
-
 import torch
 from torch import nn
 
-from utilities.tensor_utilities import specialised_one_hot_encoder
+from utilities.tensor_utilities import specialised_one_hot_encoder, get_device
 
 
 class InputEmbedder(nn.Module):
     """
+    InputEmbedder module for AlphaFold II.
+
+    This module is responsible for creating the initial MSA, pair, and extra MSA representations
+    by embedding and combining various input features. It processes sequence features, MSA features,
+    and residue indices to establish the foundation for subsequent architectural blocks.
+
+    It performs:
+    1.  Pair representation initialization via an outer sum of embedded sequence features.
+    2.  Relative position embedding using residue indices.
+    3.  MSA representation initialization by combining sequence and MSA features.
+    4.  Extra MSA feature embedding.
     """
 
     def __init__(self, input_sequence_feature_dimension: int,
@@ -26,7 +24,17 @@ class InputEmbedder(nn.Module):
                  msa_embedding: int, extra_msa_embeddding: int, pair_representation_embedding: int,
                  number_neighbouring_amino_acids: int, device: torch.device, dtype: torch.dtype):
         """
+        Initializes the InputEmbedder with specified dimensions and settings.
 
+        :param input_sequence_feature_dimension: Dimension of target sequence features (usually 21).
+        :param input_msa_feature_dimension: Dimension of input MSA features (usually 49).
+        :param input_extra_msa_feature_dimension: Dimension of extra MSA features (usually 25).
+        :param msa_embedding: Hidden dimension for the MSA representation (msa_embedding_dimension).
+        :param extra_msa_embeddding: Hidden dimension for the extra MSA stack (extra_msa_embedding_dimension).
+        :param pair_representation_embedding: Hidden dimension for the pair representation (pair_representation_dimension).
+        :param number_neighbouring_amino_acids: Window size for relative position encoding.
+        :param device: Hardware device for tensor operations.
+        :param dtype: Data type for floating-point tensors.
         """
         super().__init__()
 
@@ -75,7 +83,17 @@ class InputEmbedder(nn.Module):
                                                   dtype=self.dtype, device=self.device)
 
     def compute_relative_positions(self, residue_index):
-        """"""
+        """
+        Computes the relative position embedding between all pairs of residues.
+
+        This method calculates the distance between every pair of residue indices,
+        encodes these distances into a set of bins (one-hot), and embeds them into
+        the pair representation space. This allows the model to be aware of the 
+        linear distance along the sequence.
+
+        :param residue_index: Tensor of shape (number_residues,) containing residue indices.
+        :return: Relative position embedding of shape (number_residues, number_residues, pair_representation_dimension).
+        """
 
         outer_difference = residue_index.unsqueeze(-1) - residue_index.unsqueeze(-2)
         outer_difference = specialised_one_hot_encoder(input_tensor=outer_difference,
@@ -85,8 +103,24 @@ class InputEmbedder(nn.Module):
 
         return relative_positions
 
-    def forward(self, input_sequence_feature, input_msa_feature, residue_index_feature,extra_msa_feature):
-        """"""
+    def forward(self, input_sequence_feature, input_msa_feature, residue_index_feature, extra_msa_feature):
+        """
+        Executes the InputEmbedder forward pass to generate initial representations.
+
+        This method transforms the raw features into the internal representations used by 
+        the Evoformer and Extra MSA stacks. It combines target sequence information 
+        with MSA and spatial (relative position) data.
+
+        :param input_sequence_feature: Tensor of shape (number_residues, input_sequence_feature_dimension).
+        :param input_msa_feature: Tensor of shape (number_clusters, number_residues, msa_feature_dimension).
+        :param residue_index_feature: Tensor of shape (number_residues,).
+        :param extra_msa_feature: Tensor of shape (number_extra_sequences, number_residues, input_extra_msa_feature_dimension).
+        
+        :return: A tuple containing:
+            - msa_representation: (number_clusters, number_residues, msa_embedding_dimension).
+            - pair_representation: (number_residues, number_residues, pair_representation_dimension).
+            - extra_msa_representation: (number_extra_sequences, number_residues, extra_msa_embedding_dimension).
+        """
 
         input_embedded_i = self.input_sequence_pair_rep_embedder_i(input_sequence_feature)
         input_embedded_j = self.input_sequence_pair_rep_embedder_j(input_sequence_feature)
@@ -128,6 +162,8 @@ extractor = FeatureExtractor(
     seed=0
 )
 
+computer_device = get_device()
+
 input_embedder = InputEmbedder(
     input_sequence_feature_dimension=extractor.input_sequence_feature.shape[-1],
     input_msa_feature_dimension=extractor.input_msa_feature.shape[-1],
@@ -136,15 +172,15 @@ input_embedder = InputEmbedder(
     extra_msa_embeddding=64,
     pair_representation_embedding=128,
     number_neighbouring_amino_acids=32,
-    device=torch.device("mps"),
+    device=computer_device,
     dtype=extractor.dtype
 )
 
-msa_rep, pair_rep,extra_msa_rep = input_embedder(
-    input_sequence_feature=extractor.input_sequence_feature.to(torch.device("mps")),
-    input_msa_feature=extractor.input_msa_feature.to(torch.device("mps")),
-    residue_index_feature=extractor.residue_index_feature.to(torch.device("mps")),
-    extra_msa_feature=extractor.input_extra_msa_feature.to(torch.device("mps"))
+msa_rep, pair_rep, extra_msa_rep = input_embedder(
+    input_sequence_feature=extractor.input_sequence_feature.to(computer_device),
+    input_msa_feature=extractor.input_msa_feature.to(computer_device),
+    residue_index_feature=extractor.residue_index_feature.to(computer_device),
+    extra_msa_feature=extractor.input_extra_msa_feature.to(computer_device)
 )
 
 print(f"MSA representation shape: {msa_rep.shape}")
