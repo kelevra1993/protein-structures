@@ -6,7 +6,7 @@ from typing import List, Dict
 
 def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
                           output_tensor_names: List[str],
-                          reference_folder: str | Path, batch_size: tuple[int]):
+                          reference_folder: str | Path, batch_size: int):
     """
     Performs a deterministic regression test on a PyTorch module's forward pass.
 
@@ -62,4 +62,4 @@ def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, 
         expected_batched_output_tensor = expected_output_tensor.unsqueeze(0).broadcast_to(expected_out_batch_shape)
 
         assert torch.allclose(batched_output_tensor, expected_batched_output_tensor, atol=1e-5), \
-            f'Problem With output {output_tensor_name} For Simple Check.'
+            f'Problem With output {output_tensor_name} For Batched Check.'
