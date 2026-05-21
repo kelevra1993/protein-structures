@@ -1,6 +1,6 @@
 """
-This module contains the FeatureExtractor class, which is responsible for processing Multiple Sequence Alignment (MSA) data
-from .a3m files into a set of features suitable for the AlphaFold II architecture. It handles sequence unique-ing,
+This module contains the FeatureExtractor class, which is responsible for processing Multiple Sequence Alignment (MSA)
+data from .a3m files into a set of features suitable for the AlphaFold II architecture. It handles sequence unique-ing,
 MSA clustering, sequence masking, and the calculation of profiles and deletion features.
 
 Naming Conventions for Tensor Shapes:
@@ -21,7 +21,7 @@ from torch import nn
 from typing import Optional, List, Tuple
 
 from utilities.constants import all_amino_acid_dictionary, gapped_amino_acid_dictionary
-from utilities.tensor_utilities import print_tensor_shape,print_tensor_type,  unsqueeze_tensor
+from utilities.tensor_utilities import print_tensor_shape, print_tensor_type, unsqueeze_tensor
 
 
 class FeatureExtractor:
@@ -80,7 +80,8 @@ class FeatureExtractor:
         self.total_amino_acid_distribution = self.global_msa_sequence_tensor.mean(dim=0, keepdim=True)
 
         # self.input_msa_sequence_tensor shape: (number_clusters, number_residues, number_gapped_amino_acids)
-        # self.input_extra_msa_sequence_tensor shape: (number_extra_sequences, number_residues, number_gapped_amino_acids)
+        # self.input_extra_msa_sequence_tensor shape:
+        # (number_extra_sequences, number_residues, number_gapped_amino_acids)
         # self.input_msa_deletion_count_tensor shape: (number_clusters, number_residues)
         # self.input_extra_msa_deletion_count_tensor shape: (number_extra_sequences, number_residues)
         (self.input_msa_sequence_tensor, self.input_extra_msa_sequence_tensor,
@@ -91,7 +92,8 @@ class FeatureExtractor:
         self.number_extra_sequences = self.input_extra_msa_sequence_tensor.shape[0]
 
         self.mask_probability = mask_probability
-        # Modifies self.input_msa_sequence_tensor to shape: (number_clusters, number_residues, number_masked_amino_acids)
+        # Modifies self.input_msa_sequence_tensor to shape:
+        # (number_clusters, number_residues, number_masked_amino_acids)
         self.mask_cluster_centers(seed=self.seed)
 
         # self.assignments_tensor shape: (number_extra_sequences,)
@@ -461,4 +463,3 @@ class FeatureExtractor:
         extra_msa_has_deletion = (extra_msa_deletion_value > 0)
 
         return input_cluster_deletion_value, input_cluster_has_deletion, extra_msa_deletion_value, extra_msa_has_deletion
-
