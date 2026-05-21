@@ -9,11 +9,8 @@ import torch
 from torch import nn
 from typing import Optional
 
-# Todo Use math for the arctan ?
-import math
 
 # Todo make sure that every time we create tensor we have set the device and the dtype
-
 from utilities.constants import all_amino_acid_dictionary, gapped_amino_acid_dictionary
 from utilities.tensor_utilities import get_device, print_shape, unsqueeze_tensor
 
