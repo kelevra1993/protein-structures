@@ -23,3 +23,16 @@ def print_shape(tensor: torch.Tensor, name: Optional[str] = ""):
 
 def print_tensor_list(tensor, round=4):
     print(np.round(tensor.tolist(), round))
+
+def unsqueeze_tensor(input: torch.Tensor, direction: str, number: int=1) -> torch.Tensor:
+    """
+    todo add documentation
+    """
+    if direction not in ["left", "right"]:
+        print("Warning : direction must either be left or right")
+        raise NotImplementedError
+
+    for i in range(number):
+        input = input.unsqueeze(dim=-1 if direction == "right" else 0)
+
+    return input

@@ -15,7 +15,7 @@ import math
 # Todo make sure that every time we create tensor we have set the device and the dtype
 
 from utilities.constants import all_amino_acid_dictionary, gapped_amino_acid_dictionary
-from utilities.tensor_utilities import get_device, print_shape
+from utilities.tensor_utilities import get_device, print_shape, unsqueeze_tensor
 
 
 class FeatureExtractor:
@@ -25,7 +25,8 @@ class FeatureExtractor:
     Todo add dtype type
     """
 
-    def __init__(self, file_path: str, number_cluster_sequences: int, mask_probability: float, device, dtype,
+    def __init__(self, file_path: str, maximum_cluster_sequences: int, maximum_extra_msa_sequences: int,
+                 mask_probability: float, device, dtype,
                  seed: Optional[int] = None):
         """
         # Add documentation
@@ -38,15 +39,25 @@ class FeatureExtractor:
         self.seed = seed
 
         # Maximum Number Of Sequences Per MSA Cluster (That Goes Into The MSA Embedder)
-        self.number_cluster_sequences = number_cluster_sequences
+        # Maximum Number Of Sequences In Extra MSA (That Goes Into The MSA Stack)
+        self.maximum_cluster_sequences = maximum_cluster_sequences
+        self.maximum_extra_msa_sequences = maximum_extra_msa_sequences
 
         # Fetch all sequences in the msa file
         self.unprocessed_sequences = self.load_a3m_file()
 
-
         # Fetch MSA Sequence Tensor : Removing Duplications After 'insertion' removal
         # Fetch Deletion Count Keeping Track Of Consecutive Insertion On The Left
         self.msa_sequence_tensor, self.msa_deletion_count_tensor = self.compute_unique_sequences()
+
+        # Get Input Sequence Tensor (Un-modified) -> shape : (number_residues, 21)
+        self.input_sequence = self.msa_sequence_tensor[0]
+        self.input_sequence_feature = self.one_hot_encode_amino_acid_types(
+            sequence=self.input_sequence,
+            include_gap_token=False)
+
+        # Residue Index Tensor That Will Be Used For Embedding -> shape (number_residues,)
+        self.residue_index_feature = torch.arange(len(self.input_sequence))
 
         # Number Of Residues And Total Sequences
         self.number_residues = len(self.unprocessed_sequences[0])
@@ -64,12 +75,41 @@ class FeatureExtractor:
         self.number_clusters = self.input_msa_sequence_tensor.shape[0]
         self.number_extra_sequences = self.extra_msa_sequence_tensor.shape[0]
 
-        # Masking Probability For More Robust Training
+        # Masking Probability For More Robust Training (Affects self.input_msa_sequence_tensor)
         self.mask_probability = mask_probability
         self.mask_cluster_centers(seed=self.seed)
 
         # Cluster Assignments For Extra MSA Sequences And Associated Assignment Counts On Input MSA Sequence
         self.assignments_tensor, self.assignments_count_tensor = self.assign_cluster()
+
+        # Compute Contributions Of Extra MSA Data To MSA Data, While Averaging It All
+        self.cluster_deletion_contributions, self.cluster_profile = self.summarize_extra_msa_feature_to_kept_msa()
+
+        # Limit Number Of Extra MSA Features
+        # Affects self.extra_msa_sequence_tensor And self.extra_msa_deletion_count_tensor
+        self.crop_extra_msa_features(seed=self.seed)
+
+        # Get Deletion Values That Will Ultimately Be In The MSA Input And Extra MSA Input
+        (self.input_cluster_deletion_value, self.input_cluster_has_deletion, self.extra_msa_deletion_value,
+         self.extra_msa_has_deletion) = self.get_deletion_input_features()
+
+        # Create Input MSA Feature
+        self.input_msa_feature = torch.cat(tensors=[
+            self.input_msa_sequence_tensor,
+            self.input_cluster_has_deletion,
+            self.input_cluster_deletion_value,
+            self.cluster_profile,
+            self.cluster_deletion_contributions.unsqueeze(-1)], dim=-1)
+
+        # Create Input Extra MSA Feature
+        self.input_extra_msa_feature = torch.cat(tensors=[
+            # Adding 23 column to mimic masked input
+            torch.nn.functional.pad(self.extra_msa_sequence_tensor, (0, 1), value=0),
+            self.extra_msa_has_deletion,
+            self.extra_msa_deletion_value], dim=-1)
+
+        print_shape(self.input_msa_feature)
+        print_shape(self.input_extra_msa_feature)
 
     # Todo Implement loading of a3m file.
     def load_a3m_file(self):
@@ -152,7 +192,7 @@ class FeatureExtractor:
     def select_cluster_centers(self, seed: int | None = None):
         """"""
 
-        max_msa_clusters = min(self.number_cluster_sequences, self.total_sequences)
+        max_msa_clusters = min(self.maximum_cluster_sequences, self.total_sequences)
 
         # TODO Try to understand this seed
         gen = None
@@ -231,7 +271,7 @@ class FeatureExtractor:
         replacement_tensor = replacement_tensor.to(device=self.device, dtype=self.dtype)
 
         # Modifies The Input MSA Sequence Tensor
-        self.input_msa_sequence_tensor = nn.functional.pad(self.input_msa_sequence_tensor, (0,1),value=0)
+        self.input_msa_sequence_tensor = nn.functional.pad(self.input_msa_sequence_tensor, (0, 1), value=0)
         self.input_msa_sequence_tensor[indices_to_change] = replacement_tensor[indices_to_change].to(dtype=self.dtype)
 
     def assign_cluster(self):
@@ -252,39 +292,86 @@ class FeatureExtractor:
 
     # TODO Function For Cluster Averaging using extra msa to assigned cluster centers
     # - Must be properly explained
+    # todo : Note only applied for deletion and profile ????
+    def cluster_average(self, feature: torch.Tensor, extra_feature: torch.Tensor):
+        """"""
+
+        # todo Add the shapes of the input tensors in the docstring
+        missing_dimensions = feature.ndim - 1
+        assignments_tensor = unsqueeze_tensor(self.assignments_tensor, direction="right", number=missing_dimensions)
+        assignments_counts = unsqueeze_tensor(self.assignments_count_tensor, direction="right",
+                                              number=missing_dimensions)
+
+        # Broadcast To Match Extra MSA Feature Tensors
+        assignments_tensor = torch.broadcast_to(assignments_tensor, size=extra_feature.shape)
+
+        # Broadcast To Match MSA Feature Tensors (but inherently not necessary)
+        # print_shape(assignments_counts)
+        cluster_assignment_count = torch.broadcast_to(assignments_counts, size=feature.shape)
+
+        accumulated_features = torch.scatter_add(input=feature, src=extra_feature, dim=0, index=assignments_tensor)
+        cluster_average = accumulated_features * 1 / (cluster_assignment_count + 1)
+
+        return cluster_average
 
     # TODO Apply Cluster Averaging for deletion and profiling
     # - Must be properly explained
+    def summarize_extra_msa_feature_to_kept_msa(self):
+        """"""
+
+        # Compute Contribution Of Extra Sequences To MSA Sequence (for deletion counts)
+        cluster_deletion_contributions = self.cluster_average(
+            feature=self.input_msa_deletion_count_tensor,
+            extra_feature=self.extra_msa_deletion_count_tensor)
+
+        cluster_deletion_contributions = 2 / torch.pi * torch.arctan(cluster_deletion_contributions / 3)
+
+        # Compute Contribution Of Extra Sequences To MSA Sequence
+        cluster_profile = self.cluster_average(
+            feature=self.input_msa_sequence_tensor,
+            extra_feature=nn.functional.pad(self.extra_msa_sequence_tensor, (0, 1), value=0))
+
+        return cluster_deletion_contributions, cluster_profile
 
     # TODO Crop extra msa count
+    def crop_extra_msa_features(self, seed=None):
+        """"""
+        gen = None
+        if seed is not None:
+            gen = torch.Generator(self.extra_msa_sequence_tensor.device)
+            gen.manual_seed(seed)
+
+        max_extra_msa_count = min(self.maximum_extra_msa_sequences, self.number_extra_sequences)
+
+        shuffled_indices = torch.randperm(n=self.number_extra_sequences, generator=gen)
+        sliced_shuffled_indices = shuffled_indices[:max_extra_msa_count]
+
+        self.extra_msa_sequence_tensor = self.extra_msa_sequence_tensor[sliced_shuffled_indices]
+        self.extra_msa_deletion_count_tensor = self.extra_msa_deletion_count_tensor[sliced_shuffled_indices]
 
     # TODO Create Full MSA Feature
+    def get_deletion_input_features(self):
+        """"""
 
-    # TODO Create Extra MSA Feature
+        # Transformed Range For Deletion Counts
+        input_cluster_deletion_value = 2 / torch.pi * torch.arctan(self.input_msa_deletion_count_tensor / 3)
+        input_cluster_deletion_value = input_cluster_deletion_value.unsqueeze(dim=-1)
 
-    # TODO Get First Sequence
-    # TODO Get One Hot Encoding
-    # TODO Get Residue indexes
+        # Get Deletion Presence To The Left Of The Residues
+        input_cluster_has_deletion = (input_cluster_deletion_value > 0)
 
-    # first_sequence = sequences[0]
-    # target_feat = onehot_encode_aa_type(seq=first_sequence, include_gap_token=False)
-    # residue_index = torch.arange(len(first_sequence))
+        extra_msa_deletion_value = 2 / torch.pi * torch.arctan(self.extra_msa_deletion_count_tensor / 3)
+        extra_msa_deletion_value = extra_msa_deletion_value.unsqueeze(dim=-1)
 
-    # variables of your object at the end.
-    # return {
-    #     'msa_feat': msa_feat,
-    #     'extra_msa_feat': extra_msa_feat,
-    #     'target_feat': target_feat,
-    #     'residue_index': residue_index
-    # }
+        extra_msa_has_deletion = (extra_msa_deletion_value > 0)
 
-    # Try to add a simple test with an input file.
-    # Test without seed so random permutations are just not considered
+        return input_cluster_deletion_value, input_cluster_has_deletion, extra_msa_deletion_value, extra_msa_has_deletion
 
 
 features = FeatureExtractor(
     file_path="multiple_sequence_alignement.a3m",
-    number_cluster_sequences=512,
+    maximum_cluster_sequences=512,
+    maximum_extra_msa_sequences=5120,
     mask_probability=0.15,
     device=torch.device("cpu"),
     dtype=torch.float64,
