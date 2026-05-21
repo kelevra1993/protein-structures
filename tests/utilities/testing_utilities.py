@@ -7,6 +7,26 @@ from typing import List, Dict
 def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
                           output_tensor_names: List[str],
                           reference_folder: str | Path, batch_size: tuple[int]):
+    """
+    Performs a deterministic regression test on a PyTorch module's forward pass.
+
+    This utility ensures architectural consistency by comparing a module's output 
+    against saved reference tensors. It eliminates non-determinism by:
+    1. Setting the module to evaluation mode (disabling Dropout, BatchNorm, etc.).
+    2. Converting the module and inputs to double precision (float64) to minimize numerical drift.
+    3. Overwriting all module parameters with a fixed, deterministic sequence (torch.linspace).
+
+    The function validates both a single-instance "simple" pass and a "batched" pass 
+    using broadcasting to ensure the module correctly handles batch dimensions.
+
+    :param module: The nn.Module to be tested.
+    :param input_tensor_dictionary: A dictionary mapping input argument names to their 
+                                    respective input tensors.
+    :param output_tensor_names: A list of names for the expected output tensors, 
+                                matching the filenames in the reference_folder.
+    :param reference_folder: Path to the directory containing the '.pt' reference files.
+    :param batch_size: The size of the batch to simulate for the batched consistency check.
+    """
     # First We Just Modify The Parameters Of The Module To Be Fixed
     # Set To eval() To Disable Dropout Or Any Batch Normalisation (anything non deterministic)
     module.eval()

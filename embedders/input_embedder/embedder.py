@@ -21,7 +21,7 @@ class InputEmbedder(nn.Module):
 
     def __init__(self, input_sequence_feature_dimension: int,
                  input_msa_feature_dimension: int, input_extra_msa_feature_dimension: int,
-                 msa_embedding: int, extra_msa_embeddding: int, pair_representation_embedding: int,
+                 msa_embedding: int, extra_msa_embedding: int, pair_representation_embedding: int,
                  number_neighbouring_amino_acids: int, device: torch.device, dtype: torch.dtype):
         """
         Initializes the InputEmbedder with specified dimensions and settings.
@@ -30,7 +30,7 @@ class InputEmbedder(nn.Module):
         :param input_msa_feature_dimension: Dimension of input MSA features (usually 49).
         :param input_extra_msa_feature_dimension: Dimension of extra MSA features (usually 25).
         :param msa_embedding: Hidden dimension for the MSA representation (msa_embedding_dimension).
-        :param extra_msa_embeddding: Hidden dimension for the extra MSA stack (extra_msa_embedding_dimension).
+        :param extra_msa_embedding: Hidden dimension for the extra MSA stack (extra_msa_embedding_dimension).
         :param pair_representation_embedding: Hidden dimension for the pair representation (pair_representation_dimension).
         :param number_neighbouring_amino_acids: Window size for relative position encoding.
         :param device: Hardware device for tensor operations.
@@ -42,7 +42,7 @@ class InputEmbedder(nn.Module):
         self.input_msa_feature_dimension = input_msa_feature_dimension
         self.input_extra_msa_feature_dimension = input_extra_msa_feature_dimension
         self.msa_embedding = msa_embedding
-        self.extra_msa_embedding = extra_msa_embeddding
+        self.extra_msa_embedding = extra_msa_embedding
         self.pair_representation_embedding = pair_representation_embedding
         self.number_neighbouring_amino_acids = number_neighbouring_amino_acids
         self.device = device
@@ -103,7 +103,7 @@ class InputEmbedder(nn.Module):
 
         return relative_positions
 
-    def forward(self, input_sequence_feature, input_msa_feature, residue_index_feature, extra_msa_feature):
+    def forward(self, input_sequence_feature, input_msa_feature, input_residue_index_feature, input_extra_msa_feature):
         """
         Executes the InputEmbedder forward pass to generate initial representations.
 
@@ -113,8 +113,8 @@ class InputEmbedder(nn.Module):
 
         :param input_sequence_feature: Tensor of shape (number_residues, input_sequence_feature_dimension).
         :param input_msa_feature: Tensor of shape (number_clusters, number_residues, msa_feature_dimension).
-        :param residue_index_feature: Tensor of shape (number_residues,).
-        :param extra_msa_feature: Tensor of shape (number_extra_sequences, number_residues, input_extra_msa_feature_dimension).
+        :param input_residue_index_feature: Tensor of shape (number_residues,).
+        :param input_extra_msa_feature: Tensor of shape (number_extra_sequences, number_residues, input_extra_msa_feature_dimension).
         
         :return: A tuple containing:
             - msa_representation: (number_clusters, number_residues, msa_embedding_dimension).
@@ -127,14 +127,14 @@ class InputEmbedder(nn.Module):
 
         input_outer_sum_embedding = input_embedded_i.unsqueeze(-2) + input_embedded_j.unsqueeze(-3)
 
-        relative_position_embedding = self.compute_relative_positions(residue_index=residue_index_feature)
+        relative_position_embedding = self.compute_relative_positions(residue_index=input_residue_index_feature)
         pair_representation = input_outer_sum_embedding + relative_position_embedding
 
         input_feature_msa_embedded = self.input_sequence_msa_rep_embedder(input_sequence_feature).unsqueeze(-3)
         msa_feature_msa_embedded = self.input_msa_msa_rep_embedder(input_msa_feature)
         msa_representation = input_feature_msa_embedded + msa_feature_msa_embedded
 
-        extra_msa_representation = self.input_extra_msa_embedder(extra_msa_feature)
+        extra_msa_representation = self.input_extra_msa_embedder(input_extra_msa_feature)
 
         return msa_representation, pair_representation, extra_msa_representation
 
@@ -169,7 +169,7 @@ input_embedder = InputEmbedder(
     input_msa_feature_dimension=extractor.input_msa_feature.shape[-1],
     input_extra_msa_feature_dimension=extractor.input_extra_msa_feature.shape[-1],
     msa_embedding=256,
-    extra_msa_embeddding=64,
+    extra_msa_embedding=64,
     pair_representation_embedding=128,
     number_neighbouring_amino_acids=32,
     device=computer_device,
@@ -179,10 +179,6 @@ input_embedder = InputEmbedder(
 msa_rep, pair_rep, extra_msa_rep = input_embedder(
     input_sequence_feature=extractor.input_sequence_feature.to(computer_device),
     input_msa_feature=extractor.input_msa_feature.to(computer_device),
-    residue_index_feature=extractor.residue_index_feature.to(computer_device),
-    extra_msa_feature=extractor.input_extra_msa_feature.to(computer_device)
+    input_residue_index_feature=extractor.input_residue_index_feature.to(computer_device),
+    input_extra_msa_feature=extractor.input_extra_msa_feature.to(computer_device)
 )
-
-print(f"MSA representation shape: {msa_rep.shape}")
-print(f"Pair representation shape: {pair_rep.shape}")
-print(f"Extra MSA representation shape: {extra_msa_rep.shape}")

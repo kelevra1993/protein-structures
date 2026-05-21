@@ -71,7 +71,7 @@ class FeatureExtractor:
             include_gap_token=False)
 
         # shape: (number_residues,)
-        self.residue_index_feature = torch.arange(len(self.input_sequence), device=self.device)
+        self.input_residue_index_feature = torch.arange(len(self.input_sequence), device=self.device)
 
         self.number_residues = len(self.input_sequence)
         self.total_sequences = self.global_msa_sequence_tensor.shape[0]
@@ -128,11 +128,6 @@ class FeatureExtractor:
             torch.nn.functional.pad(self.input_extra_msa_sequence_tensor, (0, 1), value=0),
             self.input_extra_msa_has_deletion,
             self.input_extra_msa_deletion_value], dim=-1)
-
-        print_tensor_shape(self.input_msa_feature)
-        print_tensor_type(self.input_msa_feature)
-        print_tensor_shape(self.input_extra_msa_feature)
-        print_tensor_type(self.input_extra_msa_feature)
 
     def load_a3m_file(self) -> List[str]:
         """

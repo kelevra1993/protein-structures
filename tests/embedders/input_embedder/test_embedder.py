@@ -1,6 +1,9 @@
 import math
 import torch
-from typing import List
+from pathlib import Path
+
+from embedders.input_embedder.embedder import InputEmbedder
+from tests.utilities.testing_utilities import test_nn_module_method
 
 batch_size = 3
 msa_embedding_dimension = 4
@@ -16,27 +19,45 @@ input_extra_msa_feature_dimension = 12
 extra_msa_embedding_dimension = 13
 
 feature_shapes = {
-    'msa_feature': (number_clusters, number_residues, msa_feature_dimension),
+    'input_msa_feature': (number_clusters, number_residues, msa_feature_dimension),
     'input_sequence_feature': (number_residues, input_sequence_feature_dimension),
-    'residue_index': (number_residues,),
+    'input_residue_index_feature': (number_residues,),
     'input_extra_msa_feature': (number_extra_sequences, number_residues, input_extra_msa_feature_dimension),
 }
 
-output_shapes = {
-    'msa_representation': (number_clusters, number_residues, msa_embedding_dimension),  # Outputs not needed
-    'pair_representation': (number_residues, number_residues, pair_representation_dimension),  # Outputs not needed
-    'extra_msa_representation': (number_extra_sequences, number_residues, extra_msa_embedding_dimension),
-    # Outputs not needed
-}
+output_tensor_names = [
+    'msa_representation',
+    'pair_representation',
+    'extra_msa_representation',
+]
 
-batched_feature_shapes = {
-    key: (batch_size,) + value
-    for key, value in feature_shapes.items()
-}
-
-test_inputs = {
+test_input_tensors = {
     key: torch.linspace(-2, 2, math.prod(shape)).reshape(shape).double()
     for key, shape in feature_shapes.items()
 }
 
-test_inputs['residue_index'] = torch.arange(number_residues)
+test_input_tensors['input_residue_index_feature'] = torch.arange(number_residues)
+
+# Initialize the module with dummy dimensions
+input_embedder = InputEmbedder(
+    input_sequence_feature_dimension=input_sequence_feature_dimension,
+    input_msa_feature_dimension=msa_feature_dimension,
+    input_extra_msa_feature_dimension=input_extra_msa_feature_dimension,
+    msa_embedding=msa_embedding_dimension,
+    extra_msa_embedding=extra_msa_embedding_dimension,
+    pair_representation_embedding=pair_representation_dimension,
+    number_neighbouring_amino_acids=32,
+    device=torch.device("cpu"),
+    dtype=torch.float64
+)
+
+# Run the test check
+test_nn_module_method(
+    module=input_embedder,
+    input_tensor_dictionary=test_input_tensors,
+    output_tensor_names=output_tensor_names,
+    reference_folder=Path(__file__).parent / "reference_values",
+    batch_size=batch_size
+)
+
+print("InputEmbedder test passed!")
