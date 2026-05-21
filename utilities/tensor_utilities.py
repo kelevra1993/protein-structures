@@ -17,12 +17,15 @@ def get_device() -> torch.device:
     return torch.device("cpu")
 
 
-def print_shape(tensor: torch.Tensor, name: Optional[str] = ""):
+def print_tensor_shape(tensor: torch.Tensor, name: Optional[str] = ""):
     print(f"Tensor {name} Is Of Shape : {list(tensor.shape)}")
 
 
 def print_tensor_list(tensor, round=4):
     print(np.round(tensor.tolist(), round))
+
+def print_tensor_type(tensor: torch.Tensor, name: Optional[str] = ""):
+    print(f"Tensor {name} Is Of Type : {tensor.dtype}")
 
 def unsqueeze_tensor(input: torch.Tensor, direction: str, number: int=1) -> torch.Tensor:
     """

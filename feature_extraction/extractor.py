@@ -21,7 +21,7 @@ from torch import nn
 from typing import Optional, List, Tuple
 
 from utilities.constants import all_amino_acid_dictionary, gapped_amino_acid_dictionary
-from utilities.tensor_utilities import print_shape, unsqueeze_tensor
+from utilities.tensor_utilities import print_tensor_shape,print_tensor_type,  unsqueeze_tensor
 
 
 class FeatureExtractor:
@@ -127,8 +127,10 @@ class FeatureExtractor:
             self.input_extra_msa_has_deletion,
             self.input_extra_msa_deletion_value], dim=-1)
 
-        print_shape(self.input_msa_feature)
-        print_shape(self.input_extra_msa_feature)
+        print_tensor_shape(self.input_msa_feature)
+        print_tensor_type(self.input_msa_feature)
+        print_tensor_shape(self.input_extra_msa_feature)
+        print_tensor_type(self.input_extra_msa_feature)
 
     def load_a3m_file(self) -> List[str]:
         """
@@ -460,12 +462,3 @@ class FeatureExtractor:
 
         return input_cluster_deletion_value, input_cluster_has_deletion, extra_msa_deletion_value, extra_msa_has_deletion
 
-
-features = FeatureExtractor(
-    file_path="multiple_sequence_alignement.a3m",
-    maximum_cluster_sequences=512,
-    maximum_extra_msa_sequences=5120,
-    mask_probability=0.15,
-    device=torch.device("cpu"),
-    dtype=torch.float64,
-    seed=0)
