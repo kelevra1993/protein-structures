@@ -1,45 +1,36 @@
 import math
 import torch
+from typing import List
 
-"""
-c_m -> msa_embedding
-c_z -> pair_representation_embedding
-tf_dim -> input feature embedding or input_sequence_feature_dimension
-(basically normally just the number of canonical amino acids ? Just to be restated)
-msa_feat_dim -> input_msa_feature_dimension
-vbins -> Number of relative amino acids to consider on the left and on the right of our amino acid :
- number_neighbooring_amino_acids
-f_e -> input_extra_msa_feature_dimension (normally 25)
-c_e -> extra_msa_embeddding
-"""
-
-N = 3
-c_m = 4
-c_z = 5
-c = 6
-N_head = 7
-N_seq = 8
-N_extra = 9
-N_res = 35
-msa_feat_dim = 10
-tf_dim = 11
-f_e = 12
-c_e = 13
+batch_size = 3
+msa_embedding_dimension = 4
+pair_representation_dimension = 5
+general_embedding_dimension = 6
+number_heads = 7
+number_clusters = 8
+number_extra_sequences = 9
+number_residues = 35
+msa_feature_dimension = 10
+input_sequence_feature_dimension = 11
+input_extra_msa_feature_dimension = 12
+extra_msa_embedding_dimension = 13
 
 feature_shapes = {
-    'm': (N_seq, N_res, c_m),
-    'z': (N_res, N_res, c_z),
-    'msa_feat': (N_seq, N_res, msa_feat_dim),
-    'target_feat': (N_res, tf_dim),
-    'residue_index': (N_res,),
-    'extra_msa_feat': (N_extra, N_res, f_e),
-    'e': (N_extra, N_res, c_e),
-    'x': (N_res, 3),
+    'msa_feature': (number_clusters, number_residues, msa_feature_dimension),
+    'input_sequence_feature': (number_residues, input_sequence_feature_dimension),
+    'residue_index': (number_residues,),
+    'input_extra_msa_feature': (number_extra_sequences, number_residues, input_extra_msa_feature_dimension),
 }
 
-"""
+output_shapes = {
+    'msa_representation': (number_clusters, number_residues, msa_embedding_dimension),  # Outputs not needed
+    'pair_representation': (number_residues, number_residues, pair_representation_dimension),  # Outputs not needed
+    'extra_msa_representation': (number_extra_sequences, number_residues, extra_msa_embedding_dimension),
+    # Outputs not needed
+}
+
 batched_feature_shapes = {
-    key: (N,) + value
+    key: (batch_size,) + value
     for key, value in feature_shapes.items()
 }
 
@@ -48,96 +39,4 @@ test_inputs = {
     for key, shape in feature_shapes.items()
 }
 
-test_inputs['residue_index'] = torch.arange(N_res)
-
-test_inputs['batch'] = {
-    'msa_feat': test_inputs['msa_feat'],
-    'target_feat': test_inputs['target_feat'],
-    'residue_index': test_inputs['residue_index'],
-    'extra_msa_feat': test_inputs['extra_msa_feat'],
-}
-
-
-def controlled_execution(module, inp, method):
-    was_training = module.training
-    module.eval()
-    module.double()
-    with torch.no_grad():
-        original_params = [param.clone() for param in module.parameters()]
-        for param in module.parameters():
-            param.copy_(torch.linspace(-1, 1, param.numel()).reshape(param.shape))
-
-        out = method(*inp)
-
-        for orig_param, param in zip(original_params, module.parameters()):
-            param.copy_(orig_param)
-
-    if was_training:
-        module.train()
-
-    return out
-
-
-def controlled_forward(module, inp):
-    return controlled_execution(module, inp, lambda *x: module(*x))
-
-
-def test_module_method(module, test_name, input_names, output_names, control_folder, method):
-    if not isinstance(input_names, (tuple, list)):
-        input_names = (input_names,)
-
-    if not isinstance(output_names, (tuple, list)):
-        output_names = (output_names,)
-
-    non_batched_inps = tuple(test_inputs[name] for name in input_names)
-    batched_inps = []
-    for name in input_names:
-        inp = test_inputs[name]
-        if isinstance(inp, dict):
-            batched_inp = {
-                key: value.broadcast_to(batched_feature_shapes[key])
-                for key, value in inp.items()
-            }
-        else:
-            batched_inp = inp.broadcast_to(batched_feature_shapes[name])
-        batched_inps.append(batched_inp)
-
-    batched_inp = tuple(batched_inp)
-
-    with torch.no_grad():
-        non_batched_out = controlled_execution(module, non_batched_inps, method)
-        batched_out = controlled_execution(module, batched_inps, method)
-
-    if not isinstance(non_batched_out, (tuple, list)):
-        non_batched_out = (non_batched_out,)
-        batched_out = (batched_out,)
-
-    out_file_names = [f'{control_folder}/{test_name}_{out_name}.pt' for out_name in output_names]
-    for out, out_file_name, out_name in zip(non_batched_out, out_file_names, output_names):
-        expected_out = torch.load(out_file_name, weights_only=True)
-        abs_err = (out - expected_out).abs()
-        rel_err = abs_err / (torch.maximum(out.abs(), expected_out.abs()) + 1e-8)
-        # print(f"Expected {out_name} Shape Is : {list(expected_out.shape)} And We Got The Shape {list(out.shape)}")
-        # print(f"Computed Output : ")
-        # print_tensor_list(out[0,:5,:])
-        # print(f"Expected Output : ")
-        # print_tensor_list(expected_out[0,:5,:])
-        assert torch.allclose(out, expected_out,
-                              atol=1e-5), f'Problem with output {out_name} in test {test_name} in non-batched check. Relative Error: {rel_err.mean()}'
-
-    for out, out_file_name, out_name in zip(batched_out, out_file_names, output_names):
-        expected_out = torch.load(out_file_name, weights_only=True)
-        expected_out_batch_shape = (N,) + expected_out.shape
-        expected_out = expected_out.unsqueeze(0).broadcast_to(expected_out_batch_shape)
-
-        abs_err = (out - expected_out).abs()
-        rel_err = abs_err / (torch.maximum(out.abs(), expected_out.abs()) + 1e-8)
-        # print(f"Expected {out_name} Shape Is : {list(expected_out.shape)} And We Got The Shape {list(out.shape)}")
-        assert torch.allclose(out, expected_out,
-                              atol=1e-5), f'Problem with output {out_name} in test {test_name} in batched check. Relative Error: {rel_err}'
-    print("Passed method module check")
-
-
-def test_module_forward(module, test_name, input_names, output_names, control_folder):
-    test_module_method(module, test_name, input_names, output_names, control_folder, lambda *x: module(*x))
-"""
+test_inputs['residue_index'] = torch.arange(number_residues)
