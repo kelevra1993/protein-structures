@@ -129,11 +129,14 @@ class FeatureExtractor:
         print_shape(self.input_msa_feature)
         print_shape(self.input_extra_msa_feature)
 
-    # Todo Implement loading of a3m file.
-    def load_a3m_file(self):
+    def load_a3m_file(self) -> List[str]:
         """
-        Todo to be documented
-        :return:
+        Parses the .a3m file and extracts protein sequences.
+
+        Lines starting with '>' are treated as headers and ignored. The following line
+        is extracted as a sequence.
+
+        :return: A list of sequence strings extracted from the file.
         """
 
         with open(self.file_path, "r") as msa_data:
@@ -142,15 +145,22 @@ class FeatureExtractor:
 
         return sequences
 
-    # Todo Implement Onehot encoder with gap option.
-    # Add information about the fact that we have the include_gap_token boolean because of input_sequence_feature does not include this gap
-    def one_hot_encode_amino_acid_types(self, sequence, include_gap_token=False):
+    def one_hot_encode_amino_acid_types(self, sequence: str, include_gap_token: bool = False) -> torch.Tensor:
         """
-        todo add documentation
-        Add shapes in documentation whenever possible
-        :param sequence:
-        :param include_gap_token:
-        :return:
+        Converts a sequence string into a one-hot encoded tensor.
+
+        The dictionary used depends on whether gap tokens are included. This distinction
+        is necessary because the target input sequence feature typically excludes gaps,
+        while MSA sequences include them.
+
+        - If include_gap_token is False:
+          Shape: (number_residues, number_canonical_amino_acids)
+        - If include_gap_token is True:
+          Shape: (number_residues, number_gapped_amino_acids)
+
+        :param sequence: The amino acid sequence string to encode.
+        :param include_gap_token: Whether to include the gap token '-' in the encoding categories.
+        :return: A one-hot encoded tensor of the sequence.
         """
 
         amino_acid_dictionary = all_amino_acid_dictionary if not include_gap_token else gapped_amino_acid_dictionary
@@ -162,17 +172,19 @@ class FeatureExtractor:
 
         return encoding.to(self.dtype)
 
-    # Todo Compute Unique Sequences (outputs unique sequences + deletion matrix )
-    # - properly document deletion count
-    def compute_unique_sequences(self):
+    def compute_unique_sequences(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Todo to be documented
-        Add shapes in documentation
-        // removes insertions in homolog sequences (considered as deletions) and keeps a track of them
-        // counting number of consecutive deletions on the left of the residue
-        :return:
+        Processes unprocessed sequences to remove duplicates and track insertions.
+
+        Insertions (represented by lowercase letters in .a3m) are removed to maintain
+        a consistent protein length across the MSA. The number of consecutive insertions
+        to the left of each residue is tracked in a deletion count matrix.
+
+        - unique_sequences_tensor shape: (total_sequences, number_residues, number_gapped_amino_acids)
+        - deletion_count_matrix shape: (total_sequences, number_residues)
+
+        :return: A tuple containing the unique gapped sequence tensor and the deletion count tensor.
         """
-        # todo rename temporary count to temporary deletion counter
         deletion_count_matrix = []
         unique_sequences = []
 
@@ -204,15 +216,26 @@ class FeatureExtractor:
 
         return unique_sequences_tensor, deletion_count_matrix
 
-    # Todo Select Cluster Sequences
-    # Todo Review Seed, Only used for testing
-    # - Yields four outputs msa_cluster, msa_deletion_count and their 'extra_' counterparts
-    def select_cluster_centers(self, seed: int | None = None):
-        """"""
+    def select_cluster_centers(self, seed: Optional[int] = None) -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Shuffles unique sequences and partitions them into MSA clusters and extra sequences.
+
+        The first sequence (the target) is always preserved at the first position.
+        The remaining sequences are shuffled and split based on the maximum cluster
+        and extra sequence limits.
+
+        - input_msa_sequence_tensor shape: (number_clusters, number_residues, number_gapped_amino_acids)
+        - extra_msa_sequence_tensor shape: (number_extra_sequences, number_residues, number_gapped_amino_acids)
+        - input_msa_deletion_count_tensor shape: (number_clusters, number_residues)
+        - extra_msa_deletion_count_tensor shape: (number_extra_sequences, number_residues)
+
+        :param seed: Optional seed for the random permutation to ensure reproducibility.
+        :return: A tuple containing the partitioned sequence and deletion count tensors.
+        """
 
         max_msa_clusters = min(self.maximum_cluster_sequences, self.total_sequences)
 
-        # TODO Try to understand this seed
         gen = None
         if seed is not None:
             gen = torch.Generator(self.global_msa_sequence_tensor.device)
@@ -232,12 +255,20 @@ class FeatureExtractor:
         return (input_msa_sequence_tensor, extra_msa_sequence_tensor,
                 input_msa_deletion_count_tensor, extra_msa_deletion_count_tensor)
 
-    # Todo Apply Masking
-    def mask_cluster_centers(self, seed: Optional[int] = None):
+    def mask_cluster_centers(self, seed: Optional[int] = None) -> None:
         """
-        todo add documentation
-        :param seed:
-        :return:
+        Applies a masking strategy to the MSA cluster centers.
+
+        A fraction of residues (defined by mask_probability) are selected for modification.
+        Selected residues are either replaced with a special mask token, a random amino acid,
+        the actual amino acid from the distribution, or left unchanged. This process
+        increases the dimensionality of the sequence tensor to include the mask token.
+
+        Modifies self.input_msa_sequence_tensor in-place.
+        Resulting shape: (number_clusters, number_residues, number_masked_amino_acids)
+
+        :param seed: Optional seed for the masking process to ensure reproducibility.
+        :return: None
         """
         number_amino_acid_categories = 23  # 20 Amino Acids, Unknown AA, Gap, masked_msa_token
 
@@ -277,7 +308,6 @@ class FeatureExtractor:
         categories_with_mask_token = torch.cat(tensors=(categories_with_mask_token, masked_out), dim=-1).to(
             device=self.device, dtype=self.dtype)
 
-        # todo reconsider this flatten to the proposed reshaped that is actually more readible
         # Reshaped To (number_cluster * number_residues, 23)
         categories_with_mask_token = categories_with_mask_token.reshape(-1, number_amino_acid_categories)
 
@@ -296,7 +326,6 @@ class FeatureExtractor:
         """
         """
 
-        # TODO Rename this to sliced : Better for understanding
         # Removing Masked Tokens And Gaps
         sliced_input_msa_sequence = self.input_msa_sequence_tensor[..., :21]
         sliced_extra_msa_sequence = self.input_extra_msa_sequence_tensor[..., : 21]
