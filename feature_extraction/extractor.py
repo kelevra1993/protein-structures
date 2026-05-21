@@ -55,15 +55,16 @@ class FeatureExtractor:
         self.maximum_cluster_sequences = maximum_cluster_sequences
         self.maximum_extra_msa_sequences = maximum_extra_msa_sequences
 
-        # Fetch all sequences in the msa file
-        self.unprocessed_sequences: List[str] = self.load_a3m_file()
+        # Fetch all sequences in the msa file List[str]
+        self.unprocessed_sequences = self.load_a3m_file()
 
         # self.global_msa_sequence_tensor shape: (total_sequences, number_residues, number_gapped_amino_acids)
         # self.global_msa_deletion_count_tensor shape: (total_sequences, number_residues)
         self.global_msa_sequence_tensor, self.global_msa_deletion_count_tensor = self.compute_unique_sequences()
 
-        # The target sequence.
-        self.input_sequence: str = self.unprocessed_sequences[0]
+        # The target sequence (str).
+        self.input_sequence = self.unprocessed_sequences[0]
+
         # shape: (number_residues, number_canonical_amino_acids)
         self.input_sequence_feature = self.one_hot_encode_amino_acid_types(
             sequence=self.input_sequence,
@@ -322,8 +323,17 @@ class FeatureExtractor:
         self.input_msa_sequence_tensor = nn.functional.pad(self.input_msa_sequence_tensor, (0, 1), value=0)
         self.input_msa_sequence_tensor[indices_to_change] = replacement_tensor[indices_to_change].to(dtype=self.dtype)
 
-    def assign_cluster(self):
+    def assign_cluster(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        Assigns each extra MSA sequence to its nearest cluster center.
+
+        The assignment is based on the agreement score (dot product) between the extra
+        sequence and the cluster center sequences, excluding gaps and masked tokens.
+
+        - assignments_tensor shape: (number_extra_sequences,)
+        - assignments_count_tensor shape: (number_clusters,)
+
+        :return: A tuple containing the assignment indices and the count of sequences per cluster.
         """
 
         # Removing Masked Tokens And Gaps
@@ -337,13 +347,23 @@ class FeatureExtractor:
         return assignments_tensor.to(device=self.device), assignments_count_tensor.to(device=self.device,
                                                                                       dtype=self.dtype)
 
-    # TODO Function For Cluster Averaging using extra msa to assigned cluster centers
-    # - Must be properly explained
-    # todo : Note only applied for deletion and profile ????
-    def cluster_average(self, feature: torch.Tensor, extra_feature: torch.Tensor):
-        """"""
+    def cluster_average(self, feature: torch.Tensor, extra_feature: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the average feature value for each cluster using assigned extra MSA data.
 
-        # todo Add the shapes of the input tensors in the docstring
+        This method aggregates features from extra MSA sequences into their assigned
+        cluster centers and calculates the mean, accounting for the original cluster
+        center sequence itself.
+
+        - feature shape: (number_clusters, number_residues, ...)
+        - extra_feature shape: (number_extra_sequences, number_residues, ...)
+        - Resulting shape: (number_clusters, number_residues, ...)
+
+        :param feature: The initial feature tensor for the cluster centers.
+        :param extra_feature: The feature tensor for the extra MSA sequences.
+        :return: The averaged feature tensor for the clusters.
+        """
+
         missing_dimensions = feature.ndim - 1
         assignments_tensor = unsqueeze_tensor(self.assignments_tensor, direction="right", number=missing_dimensions)
         assignments_counts = unsqueeze_tensor(self.assignments_count_tensor, direction="right",
@@ -353,7 +373,6 @@ class FeatureExtractor:
         assignments_tensor = torch.broadcast_to(assignments_tensor, size=extra_feature.shape)
 
         # Broadcast To Match MSA Feature Tensors (but inherently not necessary)
-        # print_shape(assignments_counts)
         cluster_assignment_count = torch.broadcast_to(assignments_counts, size=feature.shape)
 
         accumulated_features = torch.scatter_add(input=feature, src=extra_feature, dim=0, index=assignments_tensor)
@@ -361,10 +380,18 @@ class FeatureExtractor:
 
         return cluster_average
 
-    # TODO Apply Cluster Averaging for deletion and profiling
-    # - Must be properly explained
-    def summarize_extra_msa_feature_to_kept_msa(self):
-        """"""
+    def summarize_extra_msa_feature_to_kept_msa(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Aggregates extra MSA information into profiles and deletion contributions for clusters.
+
+        This method uses cluster averaging to summarize the information from the
+        extra MSA stack into the main MSA clusters.
+
+        - cluster_deletion_contributions shape: (number_clusters, number_residues)
+        - cluster_profile shape: (number_clusters, number_residues, number_masked_amino_acids)
+
+        :return: A tuple of (cluster deletion contributions, cluster profile).
+        """
 
         # Compute Contribution Of Extra Sequences To MSA Sequence (for deletion counts)
         cluster_deletion_contributions = self.cluster_average(
@@ -380,9 +407,17 @@ class FeatureExtractor:
 
         return cluster_deletion_contributions, cluster_profile
 
-    # TODO Crop extra msa count
-    def crop_extra_msa_features(self, seed=None):
-        """"""
+    def crop_extra_msa_features(self, seed: Optional[int] = None) -> None:
+        """
+        Limits the number of extra MSA features to the specified maximum.
+
+        This reduction is performed by randomly sampling from the available extra
+        sequences.
+
+        Modifies self.input_extra_msa_sequence_tensor and self.input_extra_msa_deletion_count_tensor.
+
+        :param seed: Optional seed for the random permutation to ensure reproducibility.
+        """
         gen = None
         if seed is not None:
             gen = torch.Generator(self.input_extra_msa_sequence_tensor.device)
@@ -396,9 +431,20 @@ class FeatureExtractor:
         self.input_extra_msa_sequence_tensor = self.input_extra_msa_sequence_tensor[sliced_shuffled_indices]
         self.input_extra_msa_deletion_count_tensor = self.input_extra_msa_deletion_count_tensor[sliced_shuffled_indices]
 
-    # TODO Create Full MSA Feature
-    def get_deletion_input_features(self):
-        """"""
+    def get_deletion_input_features(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Transforms raw deletion counts into final model input features.
+
+        Raw deletion counts are transformed using an arctan function to a [0, 1] range.
+        Additionally, a binary feature is created to indicate the presence of a deletion.
+
+        - input_cluster_deletion_value shape: (number_clusters, number_residues, 1)
+        - input_cluster_has_deletion shape: (number_clusters, number_residues, 1)
+        - extra_msa_deletion_value shape: (number_extra_sequences, number_residues, 1)
+        - extra_msa_has_deletion shape: (number_extra_sequences, number_residues, 1)
+
+        :return: A tuple containing deletion values and indicators for clusters and extra sequences.
+        """
 
         # Transformed Range For Deletion Counts
         input_cluster_deletion_value = 2 / torch.pi * torch.arctan(self.input_msa_deletion_count_tensor / 3)
