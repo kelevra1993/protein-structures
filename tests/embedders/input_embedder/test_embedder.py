@@ -9,7 +9,6 @@ batch_size = 3
 msa_embedding_dimension = 4
 pair_representation_dimension = 5
 general_embedding_dimension = 6
-number_heads = 7
 number_clusters = 8
 number_extra_sequences = 9
 number_residues = 35
