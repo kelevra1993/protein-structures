@@ -139,46 +139,53 @@ class InputEmbedder(nn.Module):
         return msa_representation, pair_representation, extra_msa_representation
 
 
-from pathlib import Path
-from feature_extraction.extractor import FeatureExtractor
+if __name__ == "__main__":
+    from pathlib import Path
+    from utilities.tensor_utilities import print_tensor_shape
+    from feature_extraction.extractor import FeatureExtractor
 
-# Robust path to the test file
-current_file_path = Path(__file__).resolve()
-project_root = current_file_path.parents[2]
-msa_file_path = project_root / "tests" / "feature_extraction" / "multiple_sequence_alignement.a3m"
+    # Robust path to the test file
+    current_file_path = Path(__file__).resolve()
+    project_root = current_file_path.parents[2]
+    msa_file_path = project_root / "tests" / "feature_extraction" / "multiple_sequence_alignement.a3m"
 
-if not msa_file_path.exists():
-    # Fallback for different execution contexts
-    msa_file_path = project_root / "test" / "multiple_sequence_alignement.a3m"
+    if not msa_file_path.exists():
+        # Fallback for different execution contexts
+        msa_file_path = project_root / "test" / "multiple_sequence_alignement.a3m"
 
-# Initialize the extractor with fixed parameters and seed for determinism
-extractor = FeatureExtractor(
-    file_path=str(msa_file_path),
-    maximum_cluster_sequences=512,
-    maximum_extra_msa_sequences=5120,
-    mask_probability=0.15,
-    device=torch.device("cpu"),
-    dtype=torch.float32,
-    seed=0
-)
+    # Initialize the extractor with fixed parameters and seed for determinism
+    extractor = FeatureExtractor(
+        file_path=str(msa_file_path),
+        maximum_cluster_sequences=512,
+        maximum_extra_msa_sequences=5120,
+        mask_probability=0.15,
+        device=torch.device("cpu"),
+        dtype=torch.float32,
+        seed=0
+    )
 
-computer_device = get_device()
+    computer_device = get_device()
+    tensor_dtype = torch.float64
 
-input_embedder = InputEmbedder(
-    input_sequence_feature_dimension=extractor.input_sequence_feature.shape[-1],
-    input_msa_feature_dimension=extractor.input_msa_feature.shape[-1],
-    input_extra_msa_feature_dimension=extractor.input_extra_msa_feature.shape[-1],
-    msa_embedding=256,
-    extra_msa_embedding=64,
-    pair_representation_embedding=128,
-    number_neighbouring_amino_acids=32,
-    device=computer_device,
-    dtype=extractor.dtype
-)
+    input_embedder = InputEmbedder(
+        input_sequence_feature_dimension=extractor.input_sequence_feature.shape[-1],
+        input_msa_feature_dimension=extractor.input_msa_feature.shape[-1],
+        input_extra_msa_feature_dimension=extractor.input_extra_msa_feature.shape[-1],
+        msa_embedding=256,
+        extra_msa_embedding=64,
+        pair_representation_embedding=128,
+        number_neighbouring_amino_acids=32,
+        device=computer_device,
+        dtype=tensor_dtype
+    )
 
-msa_rep, pair_rep, extra_msa_rep = input_embedder(
-    input_sequence_feature=extractor.input_sequence_feature.to(computer_device),
-    input_msa_feature=extractor.input_msa_feature.to(computer_device),
-    input_residue_index_feature=extractor.input_residue_index_feature.to(computer_device),
-    input_extra_msa_feature=extractor.input_extra_msa_feature.to(computer_device)
-)
+    msa_rep, pair_rep, extra_msa_rep = input_embedder(
+        input_sequence_feature=extractor.input_sequence_feature.to(device=computer_device, dtype=tensor_dtype),
+        input_msa_feature=extractor.input_msa_feature.to(device=computer_device, dtype=tensor_dtype),
+        input_residue_index_feature=extractor.input_residue_index_feature.to(device=computer_device, dtype=tensor_dtype),
+        input_extra_msa_feature=extractor.input_extra_msa_feature.to(device=computer_device, dtype=tensor_dtype),
+    )
+
+    print_tensor_shape(name="MSA Representation",tensor=msa_rep)
+    print_tensor_shape(name="Pair Representation",tensor=pair_rep)
+    print_tensor_shape(name="Extra MSA Representation",tensor=extra_msa_rep)

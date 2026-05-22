@@ -458,3 +458,33 @@ class FeatureExtractor:
         extra_msa_has_deletion = (extra_msa_deletion_value > 0)
 
         return input_cluster_deletion_value, input_cluster_has_deletion, extra_msa_deletion_value, extra_msa_has_deletion
+
+
+if __name__ == "__main__":
+    from pathlib import Path
+    from utilities.tensor_utilities import get_device, print_tensor_shape
+
+    # Robust path to the test file
+    current_file_path = Path(__file__).resolve()
+    project_root = current_file_path.parents[1]
+    msa_file_path = project_root / "tests" / "feature_extraction" / "multiple_sequence_alignement.a3m"
+
+    if not msa_file_path.exists():
+        # Fallback for different execution contexts
+        msa_file_path = project_root / "test" / "multiple_sequence_alignement.a3m"
+
+    # Initialize the extractor with fixed parameters and seed for determinism
+    extractor = FeatureExtractor(
+        file_path=str(msa_file_path),
+        maximum_cluster_sequences=512,
+        maximum_extra_msa_sequences=5120,
+        mask_probability=0.15,
+        device=torch.device("cpu"),
+        dtype=torch.float32,
+        seed=0
+    )
+
+    print_tensor_shape(name="Input Sequence Feature",tensor=extractor.input_sequence_feature)
+    print_tensor_shape(name="Input Residue Index Feature",tensor=extractor.input_residue_index_feature)
+    print_tensor_shape(name="Input MSA Feature",tensor=extractor.input_msa_feature)
+    print_tensor_shape(name="Input Extra MSA Feature",tensor=extractor.input_extra_msa_feature)
