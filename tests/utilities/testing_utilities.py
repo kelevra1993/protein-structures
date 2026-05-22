@@ -3,6 +3,8 @@ from torch import nn
 from pathlib import Path
 from typing import List, Dict
 
+from utilities.tensor_utilities import print_tensor_shape
+
 
 def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
                           output_tensor_names: List[str],
@@ -48,13 +50,20 @@ def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, 
     simple_output = module(**simple_input_dictionary)
     batched_output = module(**batched_input_dictionary)
 
+    if isinstance(simple_output, torch.Tensor):
+        simple_output = [simple_output]
+
+    if isinstance(batched_output, torch.Tensor):
+        batched_output = [batched_output]
+
     out_file_names = [f'{reference_folder}/{out_name}.pt' for out_name in output_tensor_names]
 
     for output_tensor, batched_output_tensor, output_filename, output_tensor_name in zip(simple_output, batched_output,
                                                                                          out_file_names,
                                                                                          output_tensor_names):
         expected_output_tensor = torch.load(output_filename, weights_only=True)
-
+        print_tensor_shape(name="Output",tensor=output_tensor)
+        print_tensor_shape(name="Expected Output",tensor=expected_output_tensor)
         assert torch.allclose(output_tensor, expected_output_tensor, atol=1e-5), \
             f'Problem With output {output_tensor_name} For Simple Check.'
 
