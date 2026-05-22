@@ -62,8 +62,6 @@ def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, 
                                                                                          out_file_names,
                                                                                          output_tensor_names):
         expected_output_tensor = torch.load(output_filename, weights_only=True)
-        print_tensor_shape(name="Output",tensor=output_tensor)
-        print_tensor_shape(name="Expected Output",tensor=expected_output_tensor)
         assert torch.allclose(output_tensor, expected_output_tensor, atol=1e-5), \
             f'Problem With output {output_tensor_name} For Simple Check.'
 

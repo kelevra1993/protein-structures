@@ -19,16 +19,24 @@ dimension_4 = 7
 
 feature_shapes = {
     'input_tensor': (dimension_1, dimension_2, dimension_3, dimension_4, input_dimension),
-    'bias_tensor': (number_heads, dimension_3, dimension_3)
+    'bias_tensor': (number_heads, dimension_3, dimension_3),
 }
 
 test_inputs = {
-    key: torch.linspace(-2 - (i+6) / 5, 2 + (i+6) / 5, math.prod(shape)).reshape(shape).double()
+    key: torch.linspace(-2 - (i + 6) / 5, 2 + (i + 6) / 5, math.prod(shape)).reshape(shape).double()
     for i, (key, shape) in enumerate(feature_shapes.items())
 }
 
 # Test Configuration
 test_configurations = {
+    "gated": {
+        "inputs": ["input_tensor"],
+        "flags": {"use_gating": True, "use_global_attention": False, "use_embedding_bias": False}
+    },
+    "gated_bias": {
+        "inputs": ["input_tensor", "bias_tensor"],
+        "flags": {"use_gating": True, "use_global_attention": False, "use_embedding_bias": False}
+    },
     "ungated": {
         "inputs": ["input_tensor"],
         "flags": {"use_gating": False, "use_global_attention": False, "use_embedding_bias": False}
