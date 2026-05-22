@@ -11,7 +11,27 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, input_dimension: int, head_embedding_dimension: int, number_heads: int, attention_dimension: int,
                  use_gating: bool,
                  use_global_attention: bool, use_embedding_bias: bool, device: torch.device, dtype: torch.dtype):
-        """"""
+        """
+        Initializes the MultiHeadAttention module, a core component of the AlphaFold II architecture.
+
+        This module is used for various attention mechanisms within the model, such as Row-wise or Column-wise
+        Gated Self-Attention in the Evoformer blocks, and for processing information in the Structure Module.
+        It computes the interactions between residues by projecting inputs into Query, Key, and Value spaces,
+        optionally applying gating and global attention mechanisms.
+
+        Args:
+            input_dimension: The size of the last dimension of the input tensor (e.g., msa_embedding_dimension
+                or pair_representation_dimension).
+            head_embedding_dimension: The dimension of each individual attention head.
+            number_heads: The total number of attention heads to use.
+            attention_dimension: The index of the dimension along which attention is computed (the residue axis).
+            use_gating: If True, applies a sigmoid gating mechanism to the attention output to control information flow.
+            use_global_attention: If True, computes a global representation by averaging queries, effectively
+                reducing the complexity for certain architectural components.
+            use_embedding_bias: If True, enables bias in the linear projections for Query, Key, and Value.
+            device: The torch device on which the module's parameters will be allocated.
+            dtype: The torch data type for the module's parameters.
+        """
 
         super().__init__()
 
@@ -51,7 +71,32 @@ class MultiHeadAttention(nn.Module):
 
     def separate_key_query_value_heads(self, query_embedding: torch.Tensor, key_embedding: torch.Tensor,
                                        value_embedding: torch.Tensor):
-        """"""
+        """
+        Splits the projected Query, Key, and Value embeddings into multiple attention heads and
+        reshapes them for the attention computation.
+
+        This method moves the residue dimension to a standard position and splits the embedding
+        dimension into the specified number of heads. It also handles the 'global attention'
+        case where queries are averaged across the residue dimension.
+
+        Args:
+            query_embedding: Projected query tensor of shape
+                (..., number_residues, number_heads * head_embedding_dimension).
+            key_embedding: Projected key tensor of shape
+                (..., number_residues, number_key_value_heads * head_embedding_dimension).
+            value_embedding: Projected value tensor of shape
+                (..., number_residues, number_key_value_heads * head_embedding_dimension).
+
+        Returns:
+            A tuple of (query_embedding, key_embedding, value_embedding) where:
+                - query_embedding: Reshaped query tensor of shape
+                  (..., number_heads, number_residues, head_embedding_dimension)
+                  (or (..., number_heads, 1, head_embedding_dimension) if use_global_attention is True).
+                - key_embedding: Reshaped key tensor of shape
+                  (..., number_key_value_heads, number_residues, head_embedding_dimension).
+                - value_embedding: Reshaped value tensor of shape
+                  (..., number_key_value_heads, number_residues, head_embedding_dimension).
+        """
 
         # Move Dimensions To Accomodate For Attention Dimension
         query_embedding = query_embedding.movedim(source=self.attention_dimension, destination=-2)
@@ -74,7 +119,28 @@ class MultiHeadAttention(nn.Module):
         return query_embedding, key_embedding, value_embedding
 
     def forward(self, input_tensor: torch.Tensor, bias_tensor=None, attention_mask_tensor=None):
-        """"""
+        """
+        Performs the forward pass of the MultiHeadAttention module.
+
+        The process involves:
+        1. Projecting the input into Query, Key, and Value spaces.
+        2. Splitting the projections into multiple heads.
+        3. Computing scaled dot-product attention weights.
+        4. Applying optional architectural biases (e.g., from the pair representation).
+        5. Applying an optional attention mask (e.g., for padding or causal masking).
+        6. Aggregating the values and projecting back to the original input dimension.
+        7. Optionally applying a sigmoid gate.
+
+        Args:
+            input_tensor: Input tensor of shape (..., number_residues, input_dimension).
+            bias_tensor: Optional bias tensor of shape (..., number_heads, number_residues, number_residues)
+                or broadcastable to this shape. Often derived from the pair representation.
+            attention_mask_tensor: Optional binary mask tensor of shape (..., number_residues)
+                where 1 indicates an active residue and 0 indicates a masked one.
+
+        Returns:
+            Output tensor of shape (..., number_residues, input_dimension).
+        """
         query_embedding = self.query_embedder(input_tensor)
         key_embedding = self.key_embedder(input_tensor)
         value_embedding = self.value_embedder(input_tensor)
@@ -103,7 +169,7 @@ class MultiHeadAttention(nn.Module):
             for squeeze_dimension in [-2, -3]:
                 attention_mask_tensor = torch.unsqueeze(attention_mask_tensor, dim=squeeze_dimension)
 
-            # Hard offset equivalent to minus infinity turning softmax to effectivly 0 for these values.
+            # Hard offset equivalent to minus infinity turning softmax to effectively 0 for these values.
             offset = -1e8 * (attention_mask_tensor == 0).to(torch.float)
             attention_tensor += offset
 
