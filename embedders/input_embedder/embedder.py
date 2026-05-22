@@ -167,6 +167,7 @@ if __name__ == "__main__":
     computer_device = get_device()
     tensor_dtype = torch.float64
 
+    # Initialize Input Embedder
     input_embedder = InputEmbedder(
         input_sequence_feature_dimension=extractor.input_sequence_feature.shape[-1],
         input_msa_feature_dimension=extractor.input_msa_feature.shape[-1],
