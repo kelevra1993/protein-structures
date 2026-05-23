@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-from typing import Optional
+from typing import Optional, Tuple
 from torch import nn
 
 
@@ -70,7 +70,8 @@ class MultiHeadAttention(nn.Module):
                                              dtype=self.dtype, device=self.device)
 
     def separate_key_query_value_heads(self, query_embedding: torch.Tensor, key_embedding: torch.Tensor,
-                                       value_embedding: torch.Tensor):
+                                       value_embedding: torch.Tensor) -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Splits the projected Query, Key, and Value embeddings into multiple attention heads and
         reshapes them for the attention computation.
@@ -118,7 +119,8 @@ class MultiHeadAttention(nn.Module):
 
         return query_embedding, key_embedding, value_embedding
 
-    def forward(self, input_tensor: torch.Tensor, bias_tensor=None, attention_mask_tensor=None):
+    def forward(self, input_tensor: torch.Tensor, bias_tensor: Optional[torch.Tensor] = None,
+                attention_mask_tensor: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Performs the forward pass of the MultiHeadAttention module.
 
