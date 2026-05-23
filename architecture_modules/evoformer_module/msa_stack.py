@@ -6,17 +6,6 @@ from torch import nn
 
 from architecture_modules.attention_module.multi_head_attention import MultiHeadAttention
 
-"""
-Todo Note to self :
-  Rename c_m -> msa_embedding
-  Rename c_z -> pair_representation_embedding
-  Rename c -> head_embedding_dimension
-  Rename N_head -> number_heads
-  Rename m -> msa_representation
-  Rename z -> pair_representation
-  Rename N_seq -> number_sequences
-"""
-
 
 class MSARowAttentionWithPairBias(nn.Module):
     """
@@ -110,24 +99,66 @@ class MSARowAttentionWithPairBias(nn.Module):
 
 
 class MSAColumnAttention(nn.Module):
+    """
+    Implements the MSA Column-wise Gated Self-Attention for the AlphaFold II Evoformer block.
+    This module performs self-attention over the sequence axis of the MSA representation, 
+    allowing residues of the same sequence to communicate across the different sequences in the MSA.
+    """
 
     def __init__(self, msa_embedding: int, head_embedding_dimension: int,
                  number_heads: int, device: torch.device, dtype: torch.dtype):
-        """"""
+        """
+        Initializes the MSAColumnAttention module.
+
+        Configures layer normalization for the MSA representation and the underlying MultiHeadAttention 
+        component scoped to the cluster/sequence dimension (attention_dimension=-3).
+
+        Args:
+            msa_embedding (int): The feature dimension of the MSA representation tensor.
+            head_embedding_dimension (int): The dimensionality of each individual attention head.
+            number_heads (int): The total number of attention heads to employ.
+            device (torch.device): The computational device (e.g., CPU, CUDA) for parameter allocation.
+            dtype (torch.dtype): The numerical precision data type for the parameters.
+        """
         super().__init__()
 
-        self.msa_representation_layer_normalizer = nn.LayerNorm(normalized_shape=msa_embedding)
-        self.multi_head_attention = MultiHeadAttention(input_dimension=msa_embedding,
-                                                       head_embedding_dimension=head_embedding_dimension,
-                                                       number_heads=number_heads,
+        self.msa_embedding = msa_embedding
+        self.head_embedding_dimension = head_embedding_dimension
+        self.number_heads = number_heads
+        self.device = device
+        self.dtype = dtype
+
+        self.msa_representation_layer_normalizer = nn.LayerNorm(normalized_shape=self.msa_embedding,
+                                                                device=self.device, dtype=self.dtype)
+
+        # Since this is column wise attention, the attention dimension is -3,
+        # in our *, number_sequences, number_residues, number_residues, msa_embedding
+        # (see full explaination on the MSARowAttentionWithPairBias class.)
+        self.multi_head_attention = MultiHeadAttention(input_dimension=self.msa_embedding,
+                                                       head_embedding_dimension=self.head_embedding_dimension,
+                                                       number_heads=self.number_heads,
                                                        attention_dimension=-3,
                                                        use_gating=True,
                                                        use_global_attention=False,
                                                        use_embedding_bias=False,
-                                                       device=device,
-                                                       dtype=dtype)
+                                                       device=self.device,
+                                                       dtype=self.dtype)
 
     def forward(self, msa_representation: torch.Tensor) -> torch.Tensor:
+        """
+        Executes the forward pass of the MSA Column-wise Attention.
+
+        This method applies column-wise self-attention across the MSA sequences, allowing information 
+        to flow between different sequences for the same residue position.
+
+        Args:
+            msa_representation (torch.Tensor): The input MSA features.
+                Shape: (..., number_clusters, number_residues, msa_embedding_dimension)
+
+        Returns:
+            torch.Tensor: The updated MSA representation after applying column-wise attention and gating.
+                Shape: (..., number_clusters, number_residues, msa_embedding_dimension)
+        """
         normalized_msa_representation = self.msa_representation_layer_normalizer(msa_representation)
         output_tensor = self.multi_head_attention.forward(input_tensor=normalized_msa_representation)
 
@@ -136,7 +167,7 @@ class MSAColumnAttention(nn.Module):
 
 class MSATransition(nn.Module):
 
-    def __init__(self, msa_embedding, channel_scaler=4):
+    def __init__(self, msa_embedding, channel_scaler):
         super().__init__()
 
         self.msa_representation_layer_normalizer = nn.LayerNorm(normalized_shape=msa_embedding)
