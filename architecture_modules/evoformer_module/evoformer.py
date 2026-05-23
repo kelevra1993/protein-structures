@@ -31,8 +31,12 @@ class EvoformerBlock(nn.Module):
         Args:
             msa_embedding (int): The feature dimension of the input MSA representation.
             pair_representation_embedding (int): The feature dimension of the input pair representation.
-            number_heads (int): The total number of attention heads.
-            head_embedding_dimension (int): The dimensionality of each individual attention head.
+            msa_number_heads (int): The total number of attention heads in the MSA attention modules.
+            msa_head_embedding_dimension (int): The dimensionality of each individual attention head in
+             the MSA attention modules.
+            pair_number_heads (int): The total number of attention heads in the Pair Stack attention modules.
+            pair_head_embedding_dimension (int): The dimensionality of each individual attention head in
+             the Pair Stack attention modules.
             channel_scaler (int): The scaling factor for the hidden layer dimensions.
             intermediate_embedding (int): The intermediate dimension for outer product mean.
             triangle_multiplication_embedding (int): The reduced hidden dimension for triangle updates.
@@ -114,7 +118,9 @@ class EvoformerStack(nn.Module):
     """
 
     def __init__(self, msa_embedding: int, pair_representation_embedding: int,
-                 number_heads: int, head_embedding_dimension: int, channel_scaler: int,
+                 msa_number_heads: int, msa_head_embedding_dimension: int,
+                 pair_number_heads: int, pair_head_embedding_dimension: int,
+                 channel_scaler: int,
                  intermediate_embedding: int, triangle_multiplication_embedding: int,
                  number_blocks: int, single_representation_embedding: int,
                  device: torch.device, dtype: torch.dtype):
@@ -124,8 +130,10 @@ class EvoformerStack(nn.Module):
         Args:
             msa_embedding (int): The feature dimension of the input MSA representation.
             pair_representation_embedding (int): The feature dimension of the input pair representation.
-            number_heads (int): The total number of attention heads in each block.
-            head_embedding_dimension (int): The dimensionality of each attention head in each block.
+            msa_number_heads (int): The total number of attention heads for the MSA stack in each block.
+            msa_head_embedding_dimension (int): The dimensionality of each MSA attention head in each block.
+            pair_number_heads (int): The total number of attention heads for the Pair stack in each block.
+            pair_head_embedding_dimension (int): The dimensionality of each Pair attention head in each block.
             channel_scaler (int): The scaling factor for hidden layers in each block.
             intermediate_embedding (int): The intermediate dimension for outer product mean.
             triangle_multiplication_embedding (int): The reduced hidden dimension for triangle updates.
@@ -140,8 +148,10 @@ class EvoformerStack(nn.Module):
             EvoformerBlock(
                 msa_embedding=msa_embedding,
                 pair_representation_embedding=pair_representation_embedding,
-                number_heads=number_heads,
-                head_embedding_dimension=head_embedding_dimension,
+                msa_number_heads=msa_number_heads,
+                msa_head_embedding_dimension=msa_head_embedding_dimension,
+                pair_number_heads=pair_number_heads,
+                pair_head_embedding_dimension=pair_head_embedding_dimension,
                 channel_scaler=channel_scaler,
                 intermediate_embedding=intermediate_embedding,
                 triangle_multiplication_embedding=triangle_multiplication_embedding,
