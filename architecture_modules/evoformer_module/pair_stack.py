@@ -242,7 +242,8 @@ class PairStack(nn.Module):
     and a final transition layer. Each sub-module includes a residual connection.
     """
 
-    def __init__(self, pair_representation_dimension: int, head_embedding_dimension: int,
+    def __init__(self, pair_representation_dimension: int,
+                 head_embedding_dimension: int,triangle_multiplication_embedding: int,
                  number_heads: int, channel_scaler: int, device: torch.device, dtype: torch.dtype):
         """
         Initializes the PairStack module.
@@ -250,6 +251,7 @@ class PairStack(nn.Module):
         Args:
             pair_representation_dimension (int): The feature dimension of the input pair representation.
             head_embedding_dimension (int): The dimensionality of each individual attention head.
+            triangle_multiplication_embedding (int): The reduced hidden dimension used during the triangle updates.
             number_heads (int): The total number of attention heads.
             channel_scaler (int): The scaling factor for the PairTransition hidden layer.
             device (torch.device): The computational device.
@@ -259,6 +261,7 @@ class PairStack(nn.Module):
 
         self.pair_representation_dimension = pair_representation_dimension
         self.head_embedding_dimension = head_embedding_dimension
+        self.triangle_multiplication_embedding = triangle_multiplication_embedding
         self.number_heads = number_heads
         self.channel_scaler = channel_scaler
         self.device = device
@@ -268,14 +271,14 @@ class PairStack(nn.Module):
         self.triangle_update_outgoing_edges = TriangleMultiplication(
             pair_representation_embedding=self.pair_representation_dimension,
             multiplication_type="outgoing",
-            embedding_dimension=self.pair_representation_dimension,
+            embedding_dimension=self.triangle_multiplication_embedding,
             device=self.device, dtype=self.dtype)
 
         # Second step after outer product mean
         self.triangle_update_incoming_edges = TriangleMultiplication(
             pair_representation_embedding=self.pair_representation_dimension,
             multiplication_type="incoming",
-            embedding_dimension=self.pair_representation_dimension,
+            embedding_dimension=self.triangle_multiplication_embedding,
             device=self.device, dtype=self.dtype)
 
         # Third step after outer product mean
@@ -312,6 +315,7 @@ class PairStack(nn.Module):
             torch.Tensor: The updated pair representation after processing all sub-modules.
                 Shape: (..., number_residues, number_residues, pair_representation_dimension)
         """
+
         pair_representation = pair_representation + self.triangle_update_outgoing_edges(pair_representation)
         pair_representation = pair_representation + self.triangle_update_incoming_edges(pair_representation)
 
