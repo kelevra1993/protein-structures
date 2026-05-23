@@ -227,9 +227,9 @@ class MSATransition(nn.Module):
                 Shape: (..., number_clusters, number_residues, msa_embedding_dimension)
         """
 
-        output = self.sequential(msa_representation)
+        output_tensor = self.sequential(msa_representation)
 
-        return output
+        return output_tensor
 
 
 class OuterProductMean(nn.Module):
