@@ -1,7 +1,7 @@
 import torch
 from pathlib import Path
 from tests.utilities.testing_utilities import get_evoformer_test_inputs, test_nn_module_method
-from architecture_modules.evoformer_module.msa_stack import MSARowAttentionWithPairBias, MSAColumnAttention, MSATransition
+from architecture_modules.evoformer_module.msa_stack import MSARowAttentionWithPairBias, MSAColumnAttention, MSATransition, OuterProductMean
 
 config, test_inputs = get_evoformer_test_inputs()
 
@@ -12,6 +12,7 @@ pair_representation_embedding = config['pair_representation_embedding']
 number_heads = config['number_heads']
 head_embedding_dimension = config['head_embedding_dimension']
 channel_scaler = config['channel_scaler']
+intermediate_embedding = config['intermediate_embedding']
 
 # Split simple and batched inputs
 simple_inputs = {k: v[0] for k, v in test_inputs.items()}
@@ -75,3 +76,22 @@ test_nn_module_method(
     batched_input_tensor_dictionary={'msa_representation': batched_inputs['msa_representation']}
 )
 print(" - MSATransition Test Completed Successfuly.")
+
+# 4. OuterProductMean
+outer_product_mean = OuterProductMean(
+    msa_embedding=msa_embedding,
+    pair_representation_embedding=pair_representation_embedding,
+    intermediate_embedding=intermediate_embedding,
+    device=torch.device("cpu"),
+    dtype=torch.float64
+)
+
+test_nn_module_method(
+    module=outer_product_mean,
+    input_tensor_dictionary={"msa_representation": simple_inputs["msa_representation"]},
+    output_tensor_names=["outer_product_mean_z_out"],
+    reference_folder=Path(__file__).parent / "reference_values",
+    batch_size=batch_size,
+    batched_input_tensor_dictionary={"msa_representation": batched_inputs["msa_representation"]}
+)
+print(" - OuterProductMean Test Completed Successfuly.")
