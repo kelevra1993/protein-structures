@@ -1,19 +1,6 @@
 import torch
 from torch import nn
-
 from architecture_modules.attention_module.multi_head_attention import MultiHeadAttention
-
-"""
-Todo Note to self :
-  Rename c_m -> msa_embedding
-  Rename c_z -> pair_representation_embedding
-  Rename c -> embedding_dimension
-  Rename N_head -> number_heads
-  Rename m -> msa_representation
-  Rename z -> pair_representation
-  Rename N_seq -> number_sequences
-  Rename mult_type -> multiplication_type
-"""
 
 
 class TriangleMultiplication(nn.Module):
@@ -30,8 +17,8 @@ class TriangleMultiplication(nn.Module):
             pair_representation_embedding (int): The feature dimension of the input pair representation.
             multiplication_type (str): The type of multiplication to perform ('outgoing' or 'incoming').
             embedding_dimension (int): The reduced hidden dimension used during the triangle update computation.
-            device (torch.device, optional): The computational device.
-            dtype (torch.dtype, optional): The numerical precision data type.
+            device (torch.device): The computational device.
+            dtype (torch.dtype): The numerical precision data type.
         """
         super().__init__()
 
@@ -70,17 +57,7 @@ class TriangleMultiplication(nn.Module):
             device=self.device, dtype=self.dtype)
 
     def forward(self, pair_representation: torch.Tensor) -> torch.Tensor:
-        """
-        Executes the forward pass of the Triangle Multiplication module.
 
-        Args:
-            pair_representation (torch.Tensor): The input pair features.
-                Shape: (..., number_residues, number_residues, pair_representation_dimension)
-
-        Returns:
-            torch.Tensor: The updated pair representation after the triangle multiplication operation.
-                Shape: (..., number_residues, number_residues, pair_representation_dimension)
-        """
         normalized_pair_representation = self.pair_representation_layer_normalizer(pair_representation)
 
         left_representation = (torch.sigmoid(self.first_gating_embedder(normalized_pair_representation)) *
@@ -100,5 +77,49 @@ class TriangleMultiplication(nn.Module):
 
         output_tensor = gate_tensor * self.output_embedder(
             self.output_layer_normalizer(applied_triangle_multiplication_tensor))
+
+        return output_tensor
+
+
+class TriangleAttention(nn.Module):
+
+    def __init__(self, pair_representation_embedding: int, node_type: str, head_embedding_dimension: int,
+                 number_heads: int, device: torch.device, dtype: torch.dtype):
+
+        super().__init__()
+        if node_type not in {'starting_node', 'ending_node'}:
+            raise ValueError(f'node_type must be either "starting_node" or "ending_node" but is {node_type}')
+
+        self.pair_representation_embedding = pair_representation_embedding
+        self.node_type = node_type
+        self.head_embedding_dimension = head_embedding_dimension
+        self.number_heads = number_heads
+        self.device = device
+        self.dtype = dtype
+
+        self.pair_representation_layer_normalizer = nn.LayerNorm(normalized_shape=pair_representation_embedding)
+
+        self.multi_head_attention = MultiHeadAttention(input_dimension=self.pair_representation_embedding,
+                                                       head_embedding_dimension=self.head_embedding_dimension,
+                                                       number_heads=self.number_heads,
+                                                       attention_dimension=-2 if self.node_type == "starting_node" else -3,
+                                                       use_gating=True,
+                                                       use_global_attention=False,
+                                                       use_embedding_bias=False,
+                                                       device=self.device,
+                                                       dtype=self.dtype)
+
+        self.linear = nn.Linear(in_features=pair_representation_embedding, out_features=number_heads, bias=False)
+
+    def forward(self, pair_representation: torch.Tensor):
+
+        normalized_pair_representation = self.layer_norm(pair_representation)
+        bias_tensor = self.linear(normalized_pair_representation).movedim(-1, -3)
+
+        if self.node_type == "starting_node":
+            output_tensor = self.mha(inut_tensor=normalized_pair_representation, bias_tensor=bias_tensor)
+        else:
+            output_tensor = self.mha(inut_tensor=normalized_pair_representation,
+                                     bias_tensor=torch.transpose(input=bias_tensor, dim0=-2, dim1=-1))
 
         return output_tensor
