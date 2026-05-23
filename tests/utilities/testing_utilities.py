@@ -9,7 +9,8 @@ from utilities.tensor_utilities import print_tensor_shape
 
 def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
                           output_tensor_names: List[str],
-                          reference_folder: str | Path, batch_size: int):
+                          reference_folder: str | Path, batch_size: int,
+                          batched_input_tensor_dictionary: Dict[str, torch.Tensor] = None):
     """
     Performs a deterministic regression test on a PyTorch module's forward pass.
 
@@ -29,6 +30,7 @@ def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, 
                                 matching the filenames in the reference_folder.
     :param reference_folder: Path to the directory containing the '.pt' reference files.
     :param batch_size: The size of the batch to simulate for the batched consistency check.
+    :param batched_input_tensor_dictionary: Optional dictionary of pre-batched inputs. If None, it broadcasts the simple inputs.
     """
     # First We Just Modify The Parameters Of The Module To Be Fixed
     # Set To eval() To Disable Dropout Or Any Batch Normalisation (anything non deterministic)
@@ -44,8 +46,11 @@ def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, 
 
     # Simple Input And Batched Input
     simple_input_dictionary = {input_name: input_tensor for input_name, input_tensor in input_tensor_dictionary.items()}
-    batched_input_dictionary = {input_name: input_tensor.broadcast_to((batch_size,) + input_tensor.shape)
-                                for input_name, input_tensor in input_tensor_dictionary.items()}
+    if batched_input_tensor_dictionary is not None:
+        batched_input_dictionary = batched_input_tensor_dictionary
+    else:
+        batched_input_dictionary = {input_name: input_tensor.broadcast_to((batch_size,) + input_tensor.shape)
+                                    for input_name, input_tensor in input_tensor_dictionary.items()}
 
     # Simple Output And Batched Output
     simple_output = module(**simple_input_dictionary)
@@ -91,7 +96,7 @@ def get_evoformer_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.T
     batch_size = 3
     msa_embedding = 4
     pair_representation_embedding = 5
-    embedding_dimension = 6
+    head_embedding_dimension = 6
     number_heads = 7
     number_sequences = 8
     number_residues = 9
@@ -114,7 +119,7 @@ def get_evoformer_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.T
         "batch_size": batch_size,
         "msa_embedding": msa_embedding,
         "pair_representation_embedding": pair_representation_embedding,
-        "embedding_dimension": embedding_dimension,
+        "head_embedding_dimension": head_embedding_dimension,
         "number_heads": number_heads,
         "number_sequences": number_sequences,
         "number_residues": number_residues
