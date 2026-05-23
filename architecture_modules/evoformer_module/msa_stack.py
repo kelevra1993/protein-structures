@@ -243,8 +243,8 @@ class OuterProductMean(nn.Module):
     """
 
     def __init__(self, msa_embedding: int, pair_representation_embedding: int,
-                 intermediate_embedding: int, device: Optional[torch.device] = None,
-                 dtype: Optional[torch.dtype] = None):
+                 intermediate_embedding: int, device: torch.device,
+                 dtype: torch.dtype):
         """
         Initializes the OuterProductMean module.
 
@@ -252,8 +252,8 @@ class OuterProductMean(nn.Module):
             msa_embedding (int): The feature dimension of the input MSA representation.
             pair_representation_embedding (int): The feature dimension of the pair representation to output.
             intermediate_embedding (int): The reduced feature dimension used before computing the outer product.
-            device (torch.device, optional): The computational device.
-            dtype (torch.dtype, optional): The numerical precision data type.
+            device (torch.device): The computational device.
+            dtype (torch.dtype): The numerical precision data type.
         """
         super().__init__()
 

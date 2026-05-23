@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+
 from architecture_modules.attention_module.multi_head_attention import MultiHeadAttention
 
 
@@ -57,7 +58,17 @@ class TriangleMultiplication(nn.Module):
             device=self.device, dtype=self.dtype)
 
     def forward(self, pair_representation: torch.Tensor) -> torch.Tensor:
+        """
+        Executes the forward pass of the Triangle Multiplication module.
 
+        Args:
+            pair_representation (torch.Tensor): The input pair features.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+
+        Returns:
+            torch.Tensor: The updated pair representation after the triangle multiplication operation.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+        """
         normalized_pair_representation = self.pair_representation_layer_normalizer(pair_representation)
 
         left_representation = (torch.sigmoid(self.first_gating_embedder(normalized_pair_representation)) *
@@ -82,10 +93,23 @@ class TriangleMultiplication(nn.Module):
 
 
 class TriangleAttention(nn.Module):
+    """
+    Implements the Triangle Attention module for the AlphaFold II Evoformer block.
+    """
 
     def __init__(self, pair_representation_embedding: int, node_type: str, head_embedding_dimension: int,
                  number_heads: int, device: torch.device, dtype: torch.dtype):
+        """
+        Initializes the TriangleAttention module.
 
+        Args:
+            pair_representation_embedding (int): The feature dimension of the input pair representation.
+            node_type (str): Specifies the attention graph structure ("starting_node" or "ending_node").
+            head_embedding_dimension (int): The dimensionality of each individual attention head.
+            number_heads (int): The total number of attention heads to employ.
+            device (torch.device): The computational device.
+            dtype (torch.dtype): The numerical precision data type.
+        """
         super().__init__()
         if node_type not in {'starting_node', 'ending_node'}:
             raise ValueError(f'node_type must be either "starting_node" or "ending_node" but is {node_type}')
@@ -97,7 +121,8 @@ class TriangleAttention(nn.Module):
         self.device = device
         self.dtype = dtype
 
-        self.pair_representation_layer_normalizer = nn.LayerNorm(normalized_shape=pair_representation_embedding)
+        self.pair_representation_layer_normalizer = nn.LayerNorm(normalized_shape=self.pair_representation_embedding,
+                                                                 device=self.device, dtype=self.dtype)
 
         self.multi_head_attention = MultiHeadAttention(input_dimension=self.pair_representation_embedding,
                                                        head_embedding_dimension=self.head_embedding_dimension,
@@ -109,17 +134,30 @@ class TriangleAttention(nn.Module):
                                                        device=self.device,
                                                        dtype=self.dtype)
 
-        self.linear = nn.Linear(in_features=pair_representation_embedding, out_features=number_heads, bias=False)
+        self.pair_representation_embedder = nn.Linear(in_features=self.pair_representation_embedding,
+                                                      out_features=self.number_heads, bias=False,
+                                                      device=self.device, dtype=self.dtype)
 
-    def forward(self, pair_representation: torch.Tensor):
+    def forward(self, pair_representation: torch.Tensor) -> torch.Tensor:
+        """
+        Executes the forward pass of the Triangle Attention module.
 
-        normalized_pair_representation = self.layer_norm(pair_representation)
-        bias_tensor = self.linear(normalized_pair_representation).movedim(-1, -3)
+        Args:
+            pair_representation (torch.Tensor): The input pair features.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+
+        Returns:
+            torch.Tensor: The updated pair representation after triangle attention.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+        """
+        normalized_pair_representation = self.pair_representation_layer_normalizer(pair_representation)
+        bias_tensor = self.pair_representation_embedder(normalized_pair_representation).movedim(-1, -3)
 
         if self.node_type == "starting_node":
-            output_tensor = self.mha(inut_tensor=normalized_pair_representation, bias_tensor=bias_tensor)
+            output_tensor = self.multi_head_attention(input_tensor=normalized_pair_representation,
+                                                      bias_tensor=bias_tensor)
         else:
-            output_tensor = self.mha(inut_tensor=normalized_pair_representation,
-                                     bias_tensor=torch.transpose(input=bias_tensor, dim0=-2, dim1=-1))
+            output_tensor = self.multi_head_attention(input_tensor=normalized_pair_representation,
+                                                      bias_tensor=torch.transpose(input=bias_tensor, dim0=-2, dim1=-1))
 
         return output_tensor
