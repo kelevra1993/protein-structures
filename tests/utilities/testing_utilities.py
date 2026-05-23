@@ -104,6 +104,7 @@ def get_evoformer_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.T
     msa_embedding = 4
     pair_representation_embedding = 5
     head_embedding_dimension = 6
+    channel_scaler = 3
     number_heads = 7
     number_sequences = 8
     number_residues = 9
@@ -127,6 +128,7 @@ def get_evoformer_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.T
         "msa_embedding": msa_embedding,
         "pair_representation_embedding": pair_representation_embedding,
         "head_embedding_dimension": head_embedding_dimension,
+        "channel_scaler": channel_scaler,
         "number_heads": number_heads,
         "number_sequences": number_sequences,
         "number_residues": number_residues
