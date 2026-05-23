@@ -109,6 +109,7 @@ def get_evoformer_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.T
     number_sequences = 8
     number_residues = 9
     intermediate_embedding = 6
+    triangle_multiplication_embedding = 128
 
     test_msa_representation_shape = (number_sequences, number_residues, msa_embedding)
     test_pair_representation_shape = (number_residues, number_residues, pair_representation_embedding)
@@ -133,7 +134,8 @@ def get_evoformer_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.T
         "intermediate_embedding": intermediate_embedding,
         "number_heads": number_heads,
         "number_sequences": number_sequences,
-        "number_residues": number_residues
+        "number_residues": number_residues,
+        "triangle_multiplication_embedding": triangle_multiplication_embedding,
     }
 
     test_inputs = {

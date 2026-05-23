@@ -13,6 +13,7 @@ pair_representation_embedding = config['pair_representation_embedding']
 head_embedding_dimension = config['head_embedding_dimension']
 number_heads = config['number_heads']
 channel_scaler = config['channel_scaler']
+triangle_multiplication_embedding = config['triangle_multiplication_embedding']
 embedding_dimension = head_embedding_dimension
 
 # Split simple and batched inputs
@@ -127,7 +128,7 @@ print(" - PairTransition Test Completed Successfuly.")
 pair_stack = PairStack(
     pair_representation_dimension=pair_representation_embedding,
     head_embedding_dimension=32,
-    triangle_multiplication_embedding=128,
+    triangle_multiplication_embedding=triangle_multiplication_embedding,
     number_heads=4,
     channel_scaler=4,
     device=torch.device('cpu'),

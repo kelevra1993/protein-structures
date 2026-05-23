@@ -20,7 +20,9 @@ class EvoformerBlock(nn.Module):
     """
 
     def __init__(self, msa_embedding: int, pair_representation_embedding: int,
-                 number_heads: int, head_embedding_dimension: int, channel_scaler: int,
+                 msa_number_heads: int, msa_head_embedding_dimension: int,
+                 pair_number_heads: int, pair_head_embedding_dimension: int,
+                 channel_scaler: int,
                  intermediate_embedding: int, triangle_multiplication_embedding: int,
                  device: torch.device, dtype: torch.dtype):
         """
@@ -37,18 +39,19 @@ class EvoformerBlock(nn.Module):
             device (torch.device): The computational device.
             dtype (torch.dtype): The numerical precision data type.
         """
+
         super().__init__()
         self.msa_row_wise_attention = MSARowAttentionWithPairBias(
             msa_embedding=msa_embedding,
             pair_representation_embedding=pair_representation_embedding,
-            head_embedding_dimension=head_embedding_dimension,
-            number_heads=number_heads,
+            head_embedding_dimension=msa_head_embedding_dimension,
+            number_heads=msa_number_heads,
             device=device, dtype=dtype
         )
         self.msa_column_wise_attention = MSAColumnAttention(
             msa_embedding=msa_embedding,
-            head_embedding_dimension=head_embedding_dimension,
-            number_heads=number_heads,
+            head_embedding_dimension=msa_head_embedding_dimension,
+            number_heads=msa_number_heads,
             device=device, dtype=dtype
         )
         self.msa_transition_embedder = MSATransition(
@@ -64,9 +67,9 @@ class EvoformerBlock(nn.Module):
         )
         self.pair_stack_embedder = PairStack(
             pair_representation_dimension=pair_representation_embedding,
-            head_embedding_dimension=head_embedding_dimension,
+            head_embedding_dimension=pair_head_embedding_dimension,
             triangle_multiplication_embedding=triangle_multiplication_embedding,
-            number_heads=number_heads,
+            number_heads=pair_number_heads,
             channel_scaler=channel_scaler,
             device=device, dtype=dtype
         )
