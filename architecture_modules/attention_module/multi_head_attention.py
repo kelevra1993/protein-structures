@@ -206,10 +206,6 @@ if __name__ == "__main__":
     project_root = current_file_path.parents[2]
     msa_file_path = project_root / "tests" / "feature_extraction" / "multiple_sequence_alignement.a3m"
 
-    if not msa_file_path.exists():
-        # Fallback for different execution contexts
-        msa_file_path = project_root / "test" / "multiple_sequence_alignement.a3m"
-
     # Initialize the extractor with fixed parameters and seed for determinism
     extractor = FeatureExtractor(
         file_path=str(msa_file_path),
