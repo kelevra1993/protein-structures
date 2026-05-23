@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 
 from typing import Optional, Tuple
 from torch import nn
@@ -166,16 +165,48 @@ class MSAColumnAttention(nn.Module):
 
 
 class MSATransition(nn.Module):
+    """
+    Implements the MSA Transition layer for the AlphaFold II Evoformer block.
 
-    def __init__(self, msa_embedding, channel_scaler):
+    This is a 2-layer feed-forward network applied independently to each token 
+    (residue in each sequence) in the MSA representation. It increases the channel 
+    dimension by a scaling factor and then projects it back to the original dimension.
+    """
+
+    def __init__(self, msa_embedding: int, channel_scaler: int, device: torch.device, dtype: torch.dtype):
+        """
+        Initializes the MSATransition module.
+
+        Args:
+            msa_embedding (int): The feature dimension of the MSA representation tensor.
+            channel_scaler (int): The scaling factor for the hidden layer dimension.
+            device (torch.device): The computational device.
+            dtype (torch.dtype): The numerical precision data type.
+        """
         super().__init__()
 
-        self.msa_representation_layer_normalizer = nn.LayerNorm(normalized_shape=msa_embedding)
-        self.first_msa_representation_embedder = nn.Linear(in_features=msa_embedding,
-                                                           out_features=channel_scaler * msa_embedding)
+        self.msa_embedding = msa_embedding
+        self.channel_scaler = channel_scaler
+        self.device = device
+        self.dtype = dtype
+
+        self.msa_representation_layer_normalizer = nn.LayerNorm(
+            normalized_shape=self.msa_embedding, device=self.device, dtype=self.dtype
+        )
+
+        self.first_msa_representation_embedder = nn.Linear(
+            in_features=self.msa_embedding, out_features=self.channel_scaler * self.msa_embedding,
+            device=self.device, dtype=self.dtype
+        )
+
         self.relu = nn.ReLU()
-        self.second_msa_representation_embedder = nn.Linear(in_features=channel_scaler * msa_embedding,
-                                                            out_features=msa_embedding)
+
+        self.second_msa_representation_embedder = nn.Linear(
+            in_features=self.channel_scaler * self.msa_embedding, out_features=self.msa_embedding,
+            device=self.device, dtype=self.dtype
+        )
+
+        # Use sequential here because it is more straight forward and easier to use
         self.sequential = nn.Sequential(
             self.msa_representation_layer_normalizer,
             self.first_msa_representation_embedder,
@@ -183,32 +214,91 @@ class MSATransition(nn.Module):
             self.second_msa_representation_embedder,
         )
 
-    def forward(self, msa_representation):
+    def forward(self, msa_representation: torch.Tensor) -> torch.Tensor:
+        """
+        Executes the forward pass of the MSA Transition layer.
+
+        Args:
+            msa_representation (torch.Tensor): The input MSA features.
+                Shape: (..., number_clusters, number_residues, msa_embedding_dimension)
+
+        Returns:
+            torch.Tensor: The updated MSA representation after the transition.
+                Shape: (..., number_clusters, number_residues, msa_embedding_dimension)
+        """
+
         output = self.sequential(msa_representation)
 
         return output
 
 
 class OuterProductMean(nn.Module):
+    """
+    Implements the Outer Product Mean module for the AlphaFold II Evoformer block.
 
-    def __init__(self, msa_embedding, pair_representation_embedding, intermediate_embedding):
+    This module provides a critical communication path from the MSA representation 
+    to the pair representation. It computes an outer product of linearly projected 
+    MSA features and averages them over the MSA sequence dimension to update the 
+    2D structural hypotheses.
+    """
+
+    def __init__(self, msa_embedding: int, pair_representation_embedding: int,
+                 intermediate_embedding: int, device: Optional[torch.device] = None,
+                 dtype: Optional[torch.dtype] = None):
+        """
+        Initializes the OuterProductMean module.
+
+        Args:
+            msa_embedding (int): The feature dimension of the input MSA representation.
+            pair_representation_embedding (int): The feature dimension of the pair representation to output.
+            intermediate_embedding (int): The reduced feature dimension used before computing the outer product.
+            device (torch.device, optional): The computational device.
+            dtype (torch.dtype, optional): The numerical precision data type.
+        """
         super().__init__()
-        self.intermediate_embedding = intermediate_embedding
-        self.msa_representation_layer_normalizer = nn.LayerNorm(normalized_shape=msa_embedding)
-        self.first_msa_representation_embedder = nn.Linear(in_features=msa_embedding,
-                                                           out_features=intermediate_embedding)
-        self.second_msa_representation_embedder = nn.Linear(in_features=msa_embedding,
-                                                            out_features=intermediate_embedding)
-        self.linear_pair_represenation_embedder = nn.Linear(in_features=intermediate_embedding * intermediate_embedding,
-                                                            out_features=pair_representation_embedding)
 
-    def forward(self, msa_representation):
+        self.msa_embedding = msa_embedding
+        self.pair_representation_embedding = pair_representation_embedding
+        self.intermediate_embedding = intermediate_embedding
+        self.device = device
+        self.dtype = dtype
+
+        self.msa_representation_layer_normalizer = nn.LayerNorm(
+            normalized_shape=self.msa_embedding, device=self.device, dtype=self.dtype
+        )
+        self.first_msa_representation_embedder = nn.Linear(
+            in_features=self.msa_embedding, out_features=self.intermediate_embedding,
+            device=self.device, dtype=self.dtype
+        )
+        self.second_msa_representation_embedder = nn.Linear(
+            in_features=self.msa_embedding, out_features=self.intermediate_embedding,
+            device=self.device, dtype=self.dtype
+        )
+        self.linear_pair_represenation_embedder = nn.Linear(
+            in_features=self.intermediate_embedding * self.intermediate_embedding,
+            out_features=self.pair_representation_embedding,
+            device=self.device, dtype=self.dtype
+        )
+
+    def forward(self, msa_representation: torch.Tensor) -> torch.Tensor:
+        """
+        Executes the forward pass of the Outer Product Mean module.
+
+        Args:
+            msa_representation (torch.Tensor): The input MSA features.
+                Shape: (..., number_clusters, number_residues, msa_embedding_dimension)
+
+        Returns:
+            torch.Tensor: The computed pair representation updates.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+        """
         number_sequences = msa_representation.shape[-3]
 
         normalized_msa_representation = self.msa_representation_layer_normalizer(msa_representation)
         left_matrix = self.first_msa_representation_embedder(normalized_msa_representation)
         right_matrix = self.second_msa_representation_embedder(normalized_msa_representation)
 
+        # Note that here we are actually expanding along the residue and channel dimension with two outer products.
         output_matrix = torch.einsum('...sic,...sjd->...ijcd', left_matrix, right_matrix)
         flattened_output_matrix = torch.flatten(input=output_matrix, start_dim=-2, end_dim=-1)
 
