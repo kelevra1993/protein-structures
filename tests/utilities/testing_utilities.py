@@ -1,5 +1,6 @@
 import torch
 import math
+import os
 from torch import nn
 from pathlib import Path
 from typing import List, Dict, Tuple
@@ -63,16 +64,22 @@ def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, 
         batched_output = [batched_output]
 
     out_file_names = [f'{reference_folder}/{out_name}.pt' for out_name in output_tensor_names]
+    batched_out_file_names = [f'{reference_folder}/{out_name}_batched.pt' for out_name in output_tensor_names]
 
-    for output_tensor, batched_output_tensor, output_filename, output_tensor_name in zip(simple_output, batched_output,
-                                                                                         out_file_names,
-                                                                                         output_tensor_names):
+    for output_tensor, batched_output_tensor, output_filename, batched_output_filename, output_tensor_name in zip(
+            simple_output, batched_output,
+            out_file_names, batched_out_file_names,
+            output_tensor_names):
+
         expected_output_tensor = torch.load(output_filename, weights_only=True)
         assert torch.allclose(output_tensor, expected_output_tensor, atol=1e-5), \
             f'Problem With output {output_tensor_name} For Simple Check.'
 
-        expected_out_batch_shape = (batch_size,) + expected_output_tensor.shape
-        expected_batched_output_tensor = expected_output_tensor.unsqueeze(0).broadcast_to(expected_out_batch_shape)
+        if os.path.exists(batched_output_filename):
+            expected_batched_output_tensor = torch.load(batched_output_filename, weights_only=True)
+        else:
+            expected_out_batch_shape = (batch_size,) + expected_output_tensor.shape
+            expected_batched_output_tensor = expected_output_tensor.unsqueeze(0).broadcast_to(expected_out_batch_shape)
 
         assert torch.allclose(batched_output_tensor, expected_batched_output_tensor, atol=1e-5), \
             f'Problem With output {output_tensor_name} For Batched Check.'
