@@ -3,6 +3,18 @@ from torch import nn
 
 from architecture_modules.attention_module.multi_head_attention import MultiHeadAttention
 
+"""
+Todo Note to self :
+  Rename c_m -> msa_embedding
+  Rename c_z -> pair_representation_embedding
+  Rename c -> embedding_dimension
+  Rename N_head -> number_heads
+  Rename m -> msa_representation
+  Rename z -> pair_representation
+  Rename N_seq -> number_sequences
+  Rename mult_type -> multiplication_type
+"""
+
 
 class TriangleMultiplication(nn.Module):
     """
@@ -159,5 +171,79 @@ class TriangleAttention(nn.Module):
         else:
             output_tensor = self.multi_head_attention(input_tensor=normalized_pair_representation,
                                                       bias_tensor=torch.transpose(input=bias_tensor, dim0=-2, dim1=-1))
+
+        return output_tensor
+
+
+class PairTransition(nn.Module):
+
+    def __init__(self, pair_representation_embedding: int, channel_scaler: int):
+        self.pair_representation_embedding = pair_representation_embedding
+        self.channel_scaler = channel_scaler
+
+        super().__init__()
+
+        self.pair_representation_layer_normalizer = nn.LayerNorm(normalized_shape=self.pair_representation_embedding)
+
+        self.first_pair_representation_embedder = nn.Linear(
+            in_features=self.pair_representation_embedding,
+            out_features=self.channel_scaler * self.pair_representation_embedding)
+
+        self.relu = nn.ReLU()
+
+        self.second_pair_representation_embedder = nn.Linear(
+            in_features=self.channel_scaler * self.pair_representation_embedding,
+            out_features=self.pair_representation_embedding)
+
+        self.sequential = nn.Sequential(
+            self.pair_representation_layer_normalizer,
+            self.first_pair_representation_embedder,
+            self.relu,
+            self.second_pair_representation_embedder,
+        )
+
+    def forward(self, pair_representation):
+        output_tensor = self.sequential(pair_representation)
+        return output_tensor
+
+
+class PairStack(nn.Module):
+
+    def __init__(self, pair_representation_dimension, device, dtype):
+        super().__init__()
+
+        self.triangle_update_outgoing_edges = TriangleMultiplication(
+            pair_representation_embedding=pair_representation_dimension,
+            multiplication_type="outgoing", device=device, dtype=dtype)
+
+        self.triangle_update_incoming_edges = TriangleMultiplication(
+            pair_representation_embedding=pair_representation_dimension,
+            multiplication_type="incoming", device=device, dtype=dtype)
+
+        self.triangle_attention_starting_nodes = TriangleAttention(
+            pair_representation_embedding=pair_representation_dimension,
+            node_type="starting_node", device=device, dtype=dtype)
+
+        self.triangle_attention_ending_nodes = TriangleAttention(
+            pair_representation_embedding=pair_representation_dimension,
+            node_type="ending_node", device=device, dtype=dtype)
+
+        self.pair_transition = PairTransition(
+            pair_representation_embedding=pair_representation_dimension,
+            device=device, dtype=dtype)
+
+        ##########################################################################
+        #               END OF YOUR CODE                                         #
+        ##########################################################################
+
+    def forward(self, pair_representation):
+        """"""
+        pair_representation = pair_representation + self.triangle_update_outgoing_edges(pair_representation)
+        pair_representation = pair_representation + self.triangle_update_incoming_edges(pair_representation)
+
+        pair_representation = pair_representation + self.triangle_attention_starting_nodes(pair_representation)
+        pair_representation = pair_representation + self.triangle_attention_ending_nodes(pair_representation)
+
+        output_tensor = pair_representation + self.pair_transition(pair_representation)
 
         return output_tensor
