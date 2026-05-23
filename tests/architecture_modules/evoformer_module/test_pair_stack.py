@@ -126,8 +126,8 @@ print(" - PairTransition Test Completed Successfuly.")
 # 6. PairStack
 pair_stack = PairStack(
     pair_representation_dimension=pair_representation_embedding,
-    head_embedding_dimension=head_embedding_dimension,
-    triangle_multiplication_embedding=triangle_multiplication_embedding,
+    head_embedding_dimension=32,
+    triangle_multiplication_embedding=128,
     number_heads=4,
     channel_scaler=4,
     device=torch.device('cpu'),
@@ -142,4 +142,4 @@ test_nn_module_method(
     batch_size=batch_size,
     batched_input_tensor_dictionary=batched_pair_input
 )
-print(" - PairStack Test completed.")
+print(" - PairStack Test Completed Successfuly.")
