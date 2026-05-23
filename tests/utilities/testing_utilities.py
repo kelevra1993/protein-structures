@@ -1,7 +1,8 @@
 import torch
+import math
 from torch import nn
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from utilities.tensor_utilities import print_tensor_shape
 
@@ -70,3 +71,58 @@ def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, 
 
         assert torch.allclose(batched_output_tensor, expected_batched_output_tensor, atol=1e-5), \
             f'Problem With output {output_tensor_name} For Batched Check.'
+
+
+def get_evoformer_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.Tensor, torch.Tensor]]]:
+    """
+    Generates deterministic test inputs and configurations for the Evoformer stack modules.
+
+    This utility creates standardized, reproducible tensors (`msa_representation` and 
+    `pair_representation`) initialized via `torch.linspace`. It returns both the simple 
+    tensors and their broadcasted batched equivalents, alongside the structural dimension 
+    configurations required to instantiate the modules (e.g., embedding dimensions, heads).
+
+    Returns:
+        Tuple containing:
+            - A configuration dictionary mapping dimension names (str) to their integer sizes.
+            - A test inputs dictionary mapping tensor names (str) to a tuple containing 
+              (simple_tensor, batched_tensor). Both tensors are cast to float64.
+    """
+    batch_size = 3
+    msa_embedding = 4
+    pair_representation_embedding = 5
+    embedding_dimension = 6
+    number_heads = 7
+    number_sequences = 8
+    number_residues = 9
+
+    test_msa_representation_shape = (number_sequences, number_residues, msa_embedding)
+    test_pair_representation_shape = (number_residues, number_residues, pair_representation_embedding)
+    test_msa_representation_shape_batched = (batch_size,) + test_msa_representation_shape
+    test_pair_representation_shape_batched = (batch_size,) + test_pair_representation_shape
+
+    test_msa_representation = torch.linspace(-2, 2, math.prod(test_msa_representation_shape)).reshape(
+        test_msa_representation_shape)
+    test_pair_representation = torch.linspace(-2, 2, math.prod(test_pair_representation_shape)).reshape(
+        test_pair_representation_shape)
+    test_msa_representation_batch = torch.linspace(-2, 2, math.prod(test_msa_representation_shape_batched)).reshape(
+        test_msa_representation_shape_batched)
+    test_pair_representation_batch = torch.linspace(-2, 2, math.prod(test_pair_representation_shape_batched)).reshape(
+        test_pair_representation_shape_batched)
+
+    config = {
+        "batch_size": batch_size,
+        "msa_embedding": msa_embedding,
+        "pair_representation_embedding": pair_representation_embedding,
+        "embedding_dimension": embedding_dimension,
+        "number_heads": number_heads,
+        "number_sequences": number_sequences,
+        "number_residues": number_residues
+    }
+
+    test_inputs = {
+        "msa_representation": (test_msa_representation.double(), test_msa_representation_batch.double()),
+        "pair_representation": (test_pair_representation.double(), test_pair_representation_batch.double()),
+    }
+
+    return config, test_inputs
