@@ -59,4 +59,4 @@ test_nn_module_method(
     batch_size=batch_size
 )
 
-print("InputEmbedder test passed!")
+print("InputEmbedder Test Completed Successfuly.")

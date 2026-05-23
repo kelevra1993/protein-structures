@@ -69,4 +69,4 @@ for test_name, config in test_configurations.items():
         reference_folder=Path(__file__).parent / "reference_values",
         batch_size=batch_size
     )
-    print(f"MultiHeadAttention Test For '{test_name}' passed!")
+    print(f"MultiHeadAttention Test For '{test_name}' Completed Successfuly!")
