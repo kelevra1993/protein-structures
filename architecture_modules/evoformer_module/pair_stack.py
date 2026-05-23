@@ -3,18 +3,6 @@ from torch import nn
 
 from architecture_modules.attention_module.multi_head_attention import MultiHeadAttention
 
-"""
-Todo Note to self :
-  Rename c_m -> msa_embedding
-  Rename c_z -> pair_representation_embedding
-  Rename c -> embedding_dimension
-  Rename N_head -> number_heads
-  Rename m -> msa_representation
-  Rename z -> pair_representation
-  Rename N_seq -> number_sequences
-  Rename mult_type -> multiplication_type
-"""
-
 
 class TriangleMultiplication(nn.Module):
     """
@@ -176,25 +164,52 @@ class TriangleAttention(nn.Module):
 
 
 class PairTransition(nn.Module):
+    """
+    Implements the Pair Transition layer for the AlphaFold II Evoformer block.
 
-    def __init__(self, pair_representation_embedding: int, channel_scaler: int):
-        self.pair_representation_embedding = pair_representation_embedding
-        self.channel_scaler = channel_scaler
+    This is a 2-layer feed-forward network applied independently to each position 
+    (i, j) in the pair representation. It increases the channel dimension by a 
+    scaling factor and then projects it back to the original dimension.
+    """
 
+    def __init__(self, pair_representation_embedding: int, channel_scaler: int,
+                 device: torch.device, dtype: torch.dtype):
+        """
+        Initializes the PairTransition module.
+
+        Args:
+            pair_representation_embedding (int): The feature dimension of the input pair representation.
+            channel_scaler (int): The scaling factor for the hidden layer dimension.
+            device (torch.device): The computational device.
+            dtype (torch.dtype): The numerical precision data type.
+        """
         super().__init__()
 
-        self.pair_representation_layer_normalizer = nn.LayerNorm(normalized_shape=self.pair_representation_embedding)
+        self.pair_representation_embedding = pair_representation_embedding
+        self.channel_scaler = channel_scaler
+        self.device = device
+        self.dtype = dtype
+
+        self.pair_representation_layer_normalizer = nn.LayerNorm(
+            normalized_shape=self.pair_representation_embedding,
+            device=self.device, dtype=self.dtype
+        )
 
         self.first_pair_representation_embedder = nn.Linear(
             in_features=self.pair_representation_embedding,
-            out_features=self.channel_scaler * self.pair_representation_embedding)
+            out_features=self.channel_scaler * self.pair_representation_embedding,
+            device=self.device, dtype=self.dtype
+        )
 
         self.relu = nn.ReLU()
 
         self.second_pair_representation_embedder = nn.Linear(
             in_features=self.channel_scaler * self.pair_representation_embedding,
-            out_features=self.pair_representation_embedding)
+            out_features=self.pair_representation_embedding,
+            device=self.device, dtype=self.dtype
+        )
 
+        # Use sequential here because it is more straight forward and easier to use
         self.sequential = nn.Sequential(
             self.pair_representation_layer_normalizer,
             self.first_pair_representation_embedder,
@@ -202,42 +217,101 @@ class PairTransition(nn.Module):
             self.second_pair_representation_embedder,
         )
 
-    def forward(self, pair_representation):
+    def forward(self, pair_representation: torch.Tensor) -> torch.Tensor:
+        """
+        Executes the forward pass of the Pair Transition layer.
+
+        Args:
+            pair_representation (torch.Tensor): The input pair features.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+
+        Returns:
+            torch.Tensor: The updated pair representation after the transition.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+        """
         output_tensor = self.sequential(pair_representation)
         return output_tensor
 
 
 class PairStack(nn.Module):
+    """
+    Implements a single block of the Pair Stack for the AlphaFold II Evoformer.
 
-    def __init__(self, pair_representation_dimension, device, dtype):
+    This module orchestrates the sequential application of triangle updates 
+    (outgoing and incoming), triangle attention (starting and ending nodes), 
+    and a final transition layer. Each sub-module includes a residual connection.
+    """
+
+    def __init__(self, pair_representation_dimension: int, head_embedding_dimension: int,
+                 number_heads: int, channel_scaler: int, device: torch.device, dtype: torch.dtype):
+        """
+        Initializes the PairStack module.
+
+        Args:
+            pair_representation_dimension (int): The feature dimension of the input pair representation.
+            head_embedding_dimension (int): The dimensionality of each individual attention head.
+            number_heads (int): The total number of attention heads.
+            channel_scaler (int): The scaling factor for the PairTransition hidden layer.
+            device (torch.device): The computational device.
+            dtype (torch.dtype): The numerical precision data type.
+        """
         super().__init__()
 
+        self.pair_representation_dimension = pair_representation_dimension
+        self.head_embedding_dimension = head_embedding_dimension
+        self.number_heads = number_heads
+        self.channel_scaler = channel_scaler
+        self.device = device
+        self.dtype = dtype
+
+        # First step after outer product mean
         self.triangle_update_outgoing_edges = TriangleMultiplication(
-            pair_representation_embedding=pair_representation_dimension,
-            multiplication_type="outgoing", device=device, dtype=dtype)
+            pair_representation_embedding=self.pair_representation_dimension,
+            multiplication_type="outgoing",
+            embedding_dimension=self.pair_representation_dimension,
+            device=self.device, dtype=self.dtype)
 
+        # Second step after outer product mean
         self.triangle_update_incoming_edges = TriangleMultiplication(
-            pair_representation_embedding=pair_representation_dimension,
-            multiplication_type="incoming", device=device, dtype=dtype)
+            pair_representation_embedding=self.pair_representation_dimension,
+            multiplication_type="incoming",
+            embedding_dimension=self.pair_representation_dimension,
+            device=self.device, dtype=self.dtype)
 
+        # Third step after outer product mean
         self.triangle_attention_starting_nodes = TriangleAttention(
-            pair_representation_embedding=pair_representation_dimension,
-            node_type="starting_node", device=device, dtype=dtype)
+            pair_representation_embedding=self.pair_representation_dimension,
+            node_type="starting_node",
+            head_embedding_dimension=self.head_embedding_dimension,
+            number_heads=self.number_heads,
+            device=self.device, dtype=self.dtype)
 
+        # Fourth step after outer product mean
         self.triangle_attention_ending_nodes = TriangleAttention(
-            pair_representation_embedding=pair_representation_dimension,
-            node_type="ending_node", device=device, dtype=dtype)
+            pair_representation_embedding=self.pair_representation_dimension,
+            node_type="ending_node",
+            head_embedding_dimension=self.head_embedding_dimension,
+            number_heads=self.number_heads,
+            device=self.device, dtype=self.dtype)
 
+        # Last step after outer product mean
         self.pair_transition = PairTransition(
-            pair_representation_embedding=pair_representation_dimension,
-            device=device, dtype=dtype)
+            pair_representation_embedding=self.pair_representation_dimension,
+            channel_scaler=self.channel_scaler,
+            device=self.device, dtype=self.dtype)
 
-        ##########################################################################
-        #               END OF YOUR CODE                                         #
-        ##########################################################################
+    def forward(self, pair_representation: torch.Tensor) -> torch.Tensor:
+        """
+        Executes the forward pass of the Pair Stack block.
 
-    def forward(self, pair_representation):
-        """"""
+        Args:
+            pair_representation (torch.Tensor): The input pair features.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+
+        Returns:
+            torch.Tensor: The updated pair representation after processing all sub-modules.
+                Shape: (..., number_residues, number_residues, pair_representation_dimension)
+        """
         pair_representation = pair_representation + self.triangle_update_outgoing_edges(pair_representation)
         pair_representation = pair_representation + self.triangle_update_incoming_edges(pair_representation)
 
