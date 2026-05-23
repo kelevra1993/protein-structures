@@ -1,6 +1,6 @@
 import torch
 
-from typing import Optional, Tuple
+from typing import Optional
 from torch import nn
 
 from architecture_modules.attention_module.multi_head_attention import MultiHeadAttention
