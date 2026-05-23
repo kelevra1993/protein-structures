@@ -8,7 +8,7 @@ from typing import List, Dict, Tuple
 from utilities.tensor_utilities import print_tensor_shape
 
 
-def test_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
+def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
                           output_tensor_names: List[str],
                           reference_folder: str | Path, batch_size: int,
                           batched_input_tensor_dictionary: Dict[str, torch.Tensor] = None):
