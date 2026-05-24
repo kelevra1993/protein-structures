@@ -9,9 +9,9 @@ from utilities.tensor_utilities import print_tensor_shape
 
 
 def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
-                          output_tensor_names: List[str],
-                          reference_folder: str | Path, batch_size: int,
-                          batched_input_tensor_dictionary: Dict[str, torch.Tensor] = None):
+                           output_tensor_names: List[str],
+                           reference_folder: str | Path, batch_size: int,
+                           batched_input_tensor_dictionary: Dict[str, torch.Tensor] = None):
     """
     Performs a deterministic regression test on a PyTorch module's forward pass.
 

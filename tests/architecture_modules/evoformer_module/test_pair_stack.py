@@ -5,6 +5,7 @@ from architecture_modules.evoformer_module.pair_stack import (
     TriangleMultiplication, TriangleAttention, PairTransition, PairStack
 )
 
+
 def test_pair_stack():
     config, test_inputs = get_evoformer_test_inputs()
 
@@ -24,7 +25,6 @@ def test_pair_stack():
     # We only need the pair_representation for the Pair Stack modules
     simple_pair_input = {'pair_representation': simple_inputs['pair_representation']}
     batched_pair_input = {'pair_representation': batched_inputs['pair_representation']}
-
 
     # 1. TriangleMultiplication (Outgoing)
     triangle_multiplication_outgoing = TriangleMultiplication(
@@ -63,7 +63,6 @@ def test_pair_stack():
         batched_input_tensor_dictionary=batched_pair_input
     )
     print(" - TriangleMultiplication (Incoming) Test Completed Successfuly.")
-
 
     # 3. TriangleAttention (Starting Node)
     triangle_attention_starting = TriangleAttention(
@@ -105,7 +104,6 @@ def test_pair_stack():
     )
     print(" - TriangleAttention (Ending Node) Test Completed Successfuly.")
 
-
     # 5. PairTransition
     pair_transition = PairTransition(
         pair_representation_embedding=pair_representation_embedding,
@@ -123,7 +121,6 @@ def test_pair_stack():
         batched_input_tensor_dictionary=batched_pair_input
     )
     print(" - PairTransition Test Completed Successfuly.")
-
 
     # 6. PairStack
     pair_stack = PairStack(

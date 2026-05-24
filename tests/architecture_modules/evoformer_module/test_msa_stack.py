@@ -1,7 +1,9 @@
 import torch
 from pathlib import Path
 from tests.utilities.testing_utilities import get_evoformer_test_inputs, check_nn_module_method
-from architecture_modules.evoformer_module.msa_stack import MSARowAttentionWithPairBias, MSAColumnAttention, MSATransition, OuterProductMean
+from architecture_modules.evoformer_module.msa_stack import MSARowAttentionWithPairBias, MSAColumnAttention, \
+    MSATransition, OuterProductMean
+
 
 def test_msa_stack():
     config, test_inputs = get_evoformer_test_inputs()

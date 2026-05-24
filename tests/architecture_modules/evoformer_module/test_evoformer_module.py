@@ -3,6 +3,7 @@ from pathlib import Path
 from tests.utilities.testing_utilities import get_evoformer_test_inputs, check_nn_module_method
 from architecture_modules.evoformer_module.evoformer import EvoformerBlock, EvoformerStack
 
+
 def test_evoformer_module():
     config, test_inputs = get_evoformer_test_inputs()
 

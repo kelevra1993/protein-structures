@@ -5,6 +5,7 @@ from pathlib import Path
 from embedders.input_embedder.embedder import InputEmbedder
 from tests.utilities.testing_utilities import check_nn_module_method
 
+
 def test_embedder():
     batch_size = 3
     msa_embedding_dimension = 4

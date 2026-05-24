@@ -7,6 +7,7 @@ from architecture_modules.attention_module.multi_head_attention import MultiHead
 from tests.utilities.testing_utilities import check_nn_module_method
 from utilities.tensor_utilities import print_tensor_shape
 
+
 def test_multi_head_attention():
     batch_size = 2
     input_dimension = 8
