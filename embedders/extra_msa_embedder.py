@@ -51,7 +51,6 @@ class ExtraMsaEmbedder(nn.Module):
 
 class MSAColumnGlobalAttention(nn.Module):
     """
-    Implements the MSA Column Global Attention mechanism (Algorithm 19).
     This module performs global attention over the columns (sequences) of the Extra MSA representation.
     """
 
@@ -110,15 +109,17 @@ class MSAColumnGlobalAttention(nn.Module):
 
 class ExtraMsaBlock(nn.Module):
     """
-    Implements one block for the Extra MSA Stack (Algorithm 18).
     Updates the Extra MSA representation and the Pair representation.
     """
 
-    def __init__(self, extra_msa_embedding: int, pair_representation_embedding: int, msa_global_attention_heads: int,
-                 msa_global_attention_head_embeddings: int, number_heads: int, head_embedding_dimension: int,
+    def __init__(self, extra_msa_embedding: int, pair_representation_embedding: int,
+                 msa_number_heads: int, msa_head_embedding_dimension: int,
+                 msa_global_number_heads: int, msa_global_head_embedding_dimension: int,
+                 pair_number_heads: int, pair_head_embedding_dimension: int,
                  intermediate_embedding: int, channel_scaler: int, triangle_multiplication_embedding: int,
                  device: torch.device, dtype: torch.dtype) -> None:
         """
+        # todo minor changes or arguments to take into account
         Initializes the ExtraMsaBlock module.
 
         Args:
@@ -126,10 +127,6 @@ class ExtraMsaBlock(nn.Module):
             pair_representation_embedding (int): Hidden dimension size for the pair representation.
             device (torch.device): The device on which to initialize the tensors.
             dtype (torch.dtype): The data type for the tensors.
-            msa_global_attention_heads (int): Number of attention heads for global attention.
-            msa_global_attention_head_embeddings (int): Embedding dimension per attention head for global attention.
-            number_heads (int): Number of attention heads.
-            head_embedding_dimension (int): Embedding dimension per attention head.
             intermediate_embedding (int): Intermediate dimension for OuterProductMean.
             channel_scaler (int): Channel scaler for transition layers.
             triangle_multiplication_embedding (int): Dimension for triangle multiplication.
@@ -143,16 +140,16 @@ class ExtraMsaBlock(nn.Module):
         self.extra_msa_row_wise_attention = MSARowAttentionWithPairBias(
             msa_embedding=self.extra_msa_embedding,
             pair_representation_embedding=self.pair_representation_embedding,
-            head_embedding_dimension=head_embedding_dimension,
-            number_heads=number_heads,
+            head_embedding_dimension=msa_head_embedding_dimension,
+            number_heads=msa_number_heads,
             device=self.device,
             dtype=self.dtype)
 
         # Here we want the control of the MSAColumnGlobalAttention that is why we have it in our arguments.
         self.extra_msa_global_column_wise_attention = MSAColumnGlobalAttention(
             msa_embedding=self.extra_msa_embedding,
-            head_embedding_dimension=msa_global_attention_head_embeddings,
-            number_heads=msa_global_attention_heads,
+            head_embedding_dimension=msa_global_head_embedding_dimension,
+            number_heads=msa_global_number_heads,
             device=self.device,
             dtype=self.dtype)
 
@@ -171,9 +168,9 @@ class ExtraMsaBlock(nn.Module):
 
         self.pair_stack_embedder = PairStack(
             pair_representation_dimension=self.pair_representation_embedding,
-            head_embedding_dimension=head_embedding_dimension,
+            head_embedding_dimension=pair_head_embedding_dimension,
             triangle_multiplication_embedding=triangle_multiplication_embedding,
-            number_heads=number_heads,
+            number_heads=pair_number_heads,
             channel_scaler=channel_scaler,
             device=self.device,
             dtype=self.dtype)
@@ -213,14 +210,15 @@ class ExtraMsaBlock(nn.Module):
 
 class ExtraMsaStack(nn.Module):
     """
-    Implements the Extra MSA Stack (Algorithm 18).
     Applies a series of ExtraMsaBlocks to iteratively update the extra MSA representation
     and the pair representation.
     """
 
     def __init__(self, extra_msa_embedding: int, pair_representation_embedding: int, number_blocks: int,
-                 msa_global_attention_heads: int, msa_global_attention_head_embeddings: int, number_heads: int,
-                 head_embedding_dimension: int, intermediate_embedding: int, channel_scaler: int,
+                 msa_number_heads: int, msa_head_embedding_dimension: int,
+                 msa_global_number_heads: int, msa_global_head_embedding_dimension: int,
+                 pair_number_heads: int, pair_head_embedding_dimension: int,
+                 intermediate_embedding: int, channel_scaler: int,
                  triangle_multiplication_embedding: int, device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the ExtraMsaStack module.
@@ -231,10 +229,6 @@ class ExtraMsaStack(nn.Module):
             number_blocks (int): Number of Extra MSA blocks to instantiate.
             device (torch.device): The device on which to initialize the tensors.
             dtype (torch.dtype): The data type for the tensors.
-            msa_global_attention_heads (int): Number of attention heads for global attention.
-            msa_global_attention_head_embeddings (int): Embedding dimension per attention head for global attention.
-            number_heads (int): Number of attention heads.
-            head_embedding_dimension (int): Embedding dimension per attention head.
             intermediate_embedding (int): Intermediate dimension for OuterProductMean.
             channel_scaler (int): Channel scaler for transition layers.
             triangle_multiplication_embedding (int): Dimension for triangle multiplication.
@@ -243,6 +237,12 @@ class ExtraMsaStack(nn.Module):
         self.extra_msa_embedding = extra_msa_embedding
         self.pair_representation_embedding = pair_representation_embedding
         self.number_blocks = number_blocks
+        self.msa_number_heads = msa_number_heads
+        self.msa_head_embedding_dimension = msa_head_embedding_dimension
+        self.msa_global_number_heads = msa_global_number_heads
+        self.msa_global_head_embedding_dimension = msa_global_head_embedding_dimension
+        self.pair_number_heads = pair_number_heads
+        self.pair_head_embedding_dimension = pair_head_embedding_dimension
         self.device = device
         self.dtype = dtype
 
@@ -252,10 +252,12 @@ class ExtraMsaStack(nn.Module):
                 pair_representation_embedding=self.pair_representation_embedding,
                 device=self.device,
                 dtype=self.dtype,
-                msa_global_attention_heads=msa_global_attention_heads,
-                msa_global_attention_head_embeddings=msa_global_attention_head_embeddings,
-                number_heads=number_heads,
-                head_embedding_dimension=head_embedding_dimension,
+                msa_number_heads=self.msa_number_heads,
+                msa_head_embedding_dimension=self.msa_head_embedding_dimension,
+                msa_global_number_heads=self.msa_global_number_heads,
+                msa_global_head_embedding_dimension=self.msa_global_head_embedding_dimension,
+                pair_number_heads=self.pair_number_heads,
+                pair_head_embedding_dimension=self.pair_head_embedding_dimension,
                 intermediate_embedding=intermediate_embedding,
                 channel_scaler=channel_scaler,
                 triangle_multiplication_embedding=triangle_multiplication_embedding
