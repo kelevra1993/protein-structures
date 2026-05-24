@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
     # Robust path to the test file
     current_file_path = Path(__file__).resolve()
-    project_root = current_file_path.parents[2]
+    project_root = current_file_path.parents[1]
     msa_file_path = project_root / "tests" / "feature_extraction" / "multiple_sequence_alignement.a3m"
 
     # Initialize the extractor with fixed parameters and seed for determinism
@@ -179,10 +179,11 @@ if __name__ == "__main__":
     msa_rep, pair_rep, extra_msa_rep = input_embedder(
         input_sequence_feature=extractor.input_sequence_feature.to(device=computer_device, dtype=tensor_dtype),
         input_msa_feature=extractor.input_msa_feature.to(device=computer_device, dtype=tensor_dtype),
-        input_residue_index_feature=extractor.input_residue_index_feature.to(device=computer_device, dtype=tensor_dtype),
+        input_residue_index_feature=extractor.input_residue_index_feature.to(device=computer_device,
+                                                                             dtype=tensor_dtype),
         input_extra_msa_feature=extractor.input_extra_msa_feature.to(device=computer_device, dtype=tensor_dtype),
     )
 
-    print_tensor_shape(name="MSA Representation",tensor=msa_rep)
-    print_tensor_shape(name="Pair Representation",tensor=pair_rep)
-    print_tensor_shape(name="Extra MSA Representation",tensor=extra_msa_rep)
+    print_tensor_shape(name="MSA Representation", tensor=msa_rep)
+    print_tensor_shape(name="Pair Representation", tensor=pair_rep)
+    print_tensor_shape(name="Extra MSA Representation", tensor=extra_msa_rep)

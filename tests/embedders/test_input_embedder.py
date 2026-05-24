@@ -2,7 +2,7 @@ import math
 import torch
 from pathlib import Path
 
-from embedders.input_embedder.embedder import InputEmbedder
+from embedders.input_embedder import InputEmbedder
 from tests.utilities.testing_utilities import check_nn_module_method
 
 
