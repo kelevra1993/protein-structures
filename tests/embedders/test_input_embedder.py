@@ -56,7 +56,7 @@ def test_embedder():
         module=input_embedder,
         input_tensor_dictionary=test_input_tensors,
         output_tensor_names=output_tensor_names,
-        reference_folder=Path(__file__).parent / "reference_values",
+        reference_folder=Path(__file__).parent / "input_embedder" / "reference_values",
         batch_size=batch_size
     )
 
