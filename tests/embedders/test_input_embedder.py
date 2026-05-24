@@ -16,7 +16,7 @@ def test_embedder():
     msa_feature_dimension = 10
     input_sequence_feature_dimension = 11
     input_extra_msa_feature_dimension = 12
-    extra_msa_embedding_dimension = 13
+    extra_msa_embedding = 13
 
     feature_shapes = {
         'input_msa_feature': (number_clusters, number_residues, msa_feature_dimension),
@@ -44,7 +44,7 @@ def test_embedder():
         input_msa_feature_dimension=msa_feature_dimension,
         input_extra_msa_feature_dimension=input_extra_msa_feature_dimension,
         msa_embedding=msa_embedding_dimension,
-        extra_msa_embedding=extra_msa_embedding_dimension,
+        extra_msa_embedding=extra_msa_embedding,
         pair_representation_embedding=pair_representation_dimension,
         number_neighbouring_amino_acids=32,
         device=torch.device("cpu"),
