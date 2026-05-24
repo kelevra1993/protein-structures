@@ -35,19 +35,20 @@ class RecyclingEmbedder(nn.Module):
         self.bin_end = 20.75
         self.bin_count = 15
 
-        self.linear = nn.Linear(in_features=self.bin_count, out_features=pair_representation_embedding,
-                                device=device, dtype=dtype)
-        self.layer_norm_m = nn.LayerNorm(normalized_shape=msa_embedding,
-                                         device=device, dtype=dtype)
-        self.layer_norm_z = nn.LayerNorm(normalized_shape=pair_representation_embedding,
-                                         device=device, dtype=dtype)
+        self.pair_distance_embedder = nn.Linear(in_features=self.bin_count,
+                                                out_features=self.pair_representation_embedding,
+                                                device=self.device, dtype=self.dtype)
+        self.msa_representation_layer_normalizer = nn.LayerNorm(normalized_shape=self.msa_embedding,
+                                                                device=self.device, dtype=self.dtype)
+        self.pair_representation_layer_normalizer = nn.LayerNorm(normalized_shape=self.pair_representation_embedding,
+                                                                 device=self.device, dtype=self.dtype)
 
         # Note : Openfolds implementation.
         # Alphafolds implementation uses closes't distance to determine bin position
         self.bins = torch.linspace(start=self.bin_start, end=self.bin_end, steps=self.bin_count,
-                                   device=device, dtype=dtype)
+                                   device=self.device, dtype=self.dtype)
         self.displaced_bins = torch.cat(tensors=(self.bins[1:],
-                                                 torch.tensor([1e8], device=device, dtype=dtype)), dim=-1)
+                                                 torch.tensor([1e8], device=self.device, dtype=self.dtype)), dim=-1)
 
     def forward(self, previous_msa_representation: torch.Tensor,
                 previous_pair_representation: torch.Tensor,
@@ -94,7 +95,11 @@ class RecyclingEmbedder(nn.Module):
             distance_matrix = ((distance_matrix > self.bins) * (distance_matrix < self.displaced_bins)).type(
                 previous_pseudo_carbon_beta_positions.dtype)
 
-        pair_representation_output = self.linear(distance_matrix) + self.layer_norm_z(previous_pair_representation)
-        msa_representation_output = self.layer_norm_m(previous_msa_representation[..., 0, :, :])
+        # Pair Represenation Input for the evoformer and extra msa stack
+        pair_representation_output = (self.pair_distance_embedder(distance_matrix) +
+                                      self.pair_representation_layer_normalizer(previous_pair_representation))
+
+        # MSA Represenation Input for the evoformer and extra msa stack
+        msa_representation_output = self.msa_representation_layer_normalizer(previous_msa_representation[..., 0, :, :])
 
         return msa_representation_output, pair_representation_output

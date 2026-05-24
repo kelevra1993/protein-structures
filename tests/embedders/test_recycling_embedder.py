@@ -20,7 +20,7 @@ def test_embedder():
     }
 
     output_tensor_names = [
-        'msa_representation',
+        'msa_representation_output',
         'pair_representation_output',
     ]
 
