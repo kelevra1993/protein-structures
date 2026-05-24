@@ -79,7 +79,7 @@ class RecyclingEmbedder(nn.Module):
                 - msa_representation (torch.Tensor):
                 The recycled update for the MSA representation (query sequence only).
                     Shape: (*, number_residues, msa_embedding_dimension)
-                - pair_representation_output (torch.Tensor): The recycled update for the pair representation.
+                - pair_representation (torch.Tensor): The recycled update for the pair representation.
                     Shape: (*, number_residues, number_residues, pair_representation_dimension)
         """
         difference_matrix = previous_pseudo_carbon_beta_positions.unsqueeze(
@@ -96,10 +96,10 @@ class RecyclingEmbedder(nn.Module):
                 previous_pseudo_carbon_beta_positions.dtype)
 
         # Pair Represenation Input for the evoformer and extra msa stack
-        pair_representation_output = (self.pair_distance_embedder(distance_matrix) +
-                                      self.pair_representation_layer_normalizer(previous_pair_representation))
+        pair_representation = (self.pair_distance_embedder(distance_matrix) +
+                               self.pair_representation_layer_normalizer(previous_pair_representation))
 
         # MSA Represenation Input for the evoformer and extra msa stack
-        msa_representation_output = self.msa_representation_layer_normalizer(previous_msa_representation[..., 0, :, :])
+        msa_representation = self.msa_representation_layer_normalizer(previous_msa_representation[..., 0, :, :])
 
-        return msa_representation_output, pair_representation_output
+        return msa_representation, pair_representation

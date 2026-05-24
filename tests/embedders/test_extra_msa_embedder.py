@@ -6,7 +6,7 @@ from embedders.extra_msa_embedder import ExtraMsaEmbedder, MSAColumnGlobalAttent
 from tests.utilities.testing_utilities import check_nn_module_method
 
 
-def run_test_extra_msa_embedder_modules():
+def test_extra_msa_embedder_modules():
     # Known Reference Values
     batch_size = 3
     number_extra_sequences = 9

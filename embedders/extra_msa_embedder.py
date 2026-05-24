@@ -61,10 +61,10 @@ class MSAColumnGlobalAttention(nn.Module):
 
         Args:
             msa_embedding (int): Hidden dimension size for the MSA representation.
+            head_embedding_dimension (int): Embedding dimension per attention head.
+            number_heads (int): Number of attention heads.
             device (torch.device): The device on which to initialize the tensors.
             dtype (torch.dtype): The data type for the tensors.
-            head_embedding_dimension (int): Embedding dimension per attention head.
-            number_heads (int, optional): Number of attention heads.
         """
         super().__init__()
         self.msa_embedding = msa_embedding
@@ -119,17 +119,22 @@ class ExtraMsaBlock(nn.Module):
                  intermediate_embedding: int, channel_scaler: int, triangle_multiplication_embedding: int,
                  device: torch.device, dtype: torch.dtype) -> None:
         """
-        # todo minor changes or arguments to take into account
         Initializes the ExtraMsaBlock module.
 
         Args:
             extra_msa_embedding (int): Hidden dimension size for the Extra MSA representation.
             pair_representation_embedding (int): Hidden dimension size for the pair representation.
-            device (torch.device): The device on which to initialize the tensors.
-            dtype (torch.dtype): The data type for the tensors.
+            msa_number_heads (int): Number of attention heads for the MSA row-wise attention.
+            msa_head_embedding_dimension (int): Embedding dimension per attention head for the MSA row-wise attention.
+            msa_global_number_heads (int): Number of attention heads for the MSA global column-wise attention.
+            msa_global_head_embedding_dimension (int): Embedding dimension per attention head for the MSA global column-wise attention.
+            pair_number_heads (int): Number of attention heads for the pair stack embedder.
+            pair_head_embedding_dimension (int): Embedding dimension per attention head for the pair stack embedder.
             intermediate_embedding (int): Intermediate dimension for OuterProductMean.
             channel_scaler (int): Channel scaler for transition layers.
             triangle_multiplication_embedding (int): Dimension for triangle multiplication.
+            device (torch.device): The device on which to initialize the tensors.
+            dtype (torch.dtype): The data type for the tensors.
         """
         super().__init__()
         self.extra_msa_embedding = extra_msa_embedding
@@ -212,6 +217,11 @@ class ExtraMsaStack(nn.Module):
     """
     Applies a series of ExtraMsaBlocks to iteratively update the extra MSA representation
     and the pair representation.
+
+    This stack processes the large set of 'extra' sequences that were not selected for the
+    main MSA representation. Its primary role is to extract evolutionary information from
+    these auxiliary sequences and use it to refine the pair representation before it
+    enters the main Evoformer stack.
     """
 
     def __init__(self, extra_msa_embedding: int, pair_representation_embedding: int, number_blocks: int,
@@ -227,11 +237,17 @@ class ExtraMsaStack(nn.Module):
             extra_msa_embedding (int): Hidden dimension size for the Extra MSA representation.
             pair_representation_embedding (int): Hidden dimension size for the pair representation.
             number_blocks (int): Number of Extra MSA blocks to instantiate.
-            device (torch.device): The device on which to initialize the tensors.
-            dtype (torch.dtype): The data type for the tensors.
+            msa_number_heads (int): Number of attention heads for the MSA row-wise attention.
+            msa_head_embedding_dimension (int): Embedding dimension per attention head for the MSA row-wise attention.
+            msa_global_number_heads (int): Number of attention heads for the MSA global column-wise attention.
+            msa_global_head_embedding_dimension (int): Embedding dimension per attention head for the MSA global column-wise attention.
+            pair_number_heads (int): Number of attention heads for the pair stack embedder.
+            pair_head_embedding_dimension (int): Embedding dimension per attention head for the pair stack embedder.
             intermediate_embedding (int): Intermediate dimension for OuterProductMean.
             channel_scaler (int): Channel scaler for transition layers.
             triangle_multiplication_embedding (int): Dimension for triangle multiplication.
+            device (torch.device): The device on which to initialize the tensors.
+            dtype (torch.dtype): The data type for the tensors.
         """
         super().__init__()
         self.extra_msa_embedding = extra_msa_embedding
@@ -277,6 +293,10 @@ class ExtraMsaStack(nn.Module):
         Returns:
             torch.Tensor: The updated pair representation.
                 Shape: (*, number_residues, number_residues, pair_representation_dimension)
+
+                Note: The updated Extra MSA representation is discarded after the final
+                block, as only the pair representation is required for the subsequent
+                stages of the network.
         """
         for block in self.extra_msa_evoformer_blocks:
             extra_msa_representation, pair_representation = block(
