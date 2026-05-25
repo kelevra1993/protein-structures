@@ -29,6 +29,8 @@ class RecyclingEmbedder(nn.Module):
         self.device = device
         self.dtype = dtype
 
+        # TODO Note of importance for stop grad in the recycling embedder that will have to be implemented later.
+
         # TODO Note : This bin implementation might not be
         #  the one that we ultimately use so we have to be careful.
         self.bin_start = 3.25
