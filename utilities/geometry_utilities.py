@@ -207,14 +207,49 @@ def assemble_4x4_transform_matrix(rotation_matrix: torch.Tensor, translation_vec
     return transformation_matrix
 
 
-def apply_transformation_on_vector(transformation_matrix, vector):
+def apply_transformation_on_vector(transformation_matrix: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
+    """
+    Applies a 4x4 affine transformation matrix to a 3D vector.
+
+    Converts the 3D vector into homogeneous coordinates (by appending a 1),
+    applies the transformation, and then drops the homogeneous coordinate. This is 
+    commonly used to transform local atom coordinates to the global frame.
+
+    Args:
+        transformation_matrix (torch.Tensor): The 4x4 affine transformation matrix.
+            Expected shape: `(..., 4, 4)`.
+        vector (torch.Tensor): The 3D vector to transform.
+            Expected shape: `(..., 3)`.
+
+    Returns:
+        torch.Tensor: The transformed 3D vector.
+            Shape: `(..., 3)`.
+    """
     padded_vector = torch.nn.functional.pad(vector, (0, 1), value=1).unsqueeze(dim=-1)
     transformed_vector = torch.matmul(transformation_matrix, padded_vector).squeeze(dim=-1)[..., :-1]
 
     return transformed_vector
 
 
-def create_4x4_transform_matrix(ex, ey, translation_vector):
+def create_4x4_transform_matrix(ex: torch.Tensor, ey: torch.Tensor, translation_vector: torch.Tensor) -> torch.Tensor:
+    """
+    Creates a 4x4 transformation matrix from two basis vectors and a translation vector.
+
+    Used to define rigid body transformations from atomic coordinate references 
+    (e.g., placing local side-chain frames onto the backbone).
+
+    Args:
+        ex (torch.Tensor): The first basis vector (x-axis).
+            Expected shape: `(..., 3)`.
+        ey (torch.Tensor): The second basis vector (y-axis).
+            Expected shape: `(..., 3)`.
+        translation_vector (torch.Tensor): The translation vector.
+            Expected shape: `(..., 3)`.
+
+    Returns:
+        torch.Tensor: The 4x4 transformation matrix.
+            Shape: `(..., 4, 4)`.
+    """
     rotation_matrix = create_3x3_rotation_matrix(ex=ex, ey=ey)
     transformation_matrix = assemble_4x4_transform_matrix(rotation_matrix=rotation_matrix,
                                                           translation_vector=translation_vector)
@@ -222,7 +257,22 @@ def create_4x4_transform_matrix(ex, ey, translation_vector):
     return transformation_matrix
 
 
-def invert_4x4_transform_matrix(transformation_matrix):
+def invert_4x4_transform_matrix(transformation_matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Inverts a 4x4 affine transformation matrix.
+
+    This takes advantage of the fact that the rotation part is orthogonal 
+    (inverse is the transpose), making the inversion computationally efficient 
+    compared to a general matrix inversion.
+
+    Args:
+        transformation_matrix (torch.Tensor): The 4x4 affine transformation matrix.
+            Expected shape: `(..., 4, 4)`.
+
+    Returns:
+        torch.Tensor: The inverted 4x4 transformation matrix.
+            Shape: `(..., 4, 4)`.
+    """
     rotation_matrix = transformation_matrix[..., :3, :3]
     translation_matrix = transformation_matrix[..., :3, -1]
 
@@ -236,7 +286,22 @@ def invert_4x4_transform_matrix(transformation_matrix):
     return inverted_transformation_matrix
 
 
-def make_transformation_matrix_around_ex(phi):
+def make_transformation_matrix_around_ex(phi: torch.Tensor) -> torch.Tensor:
+    """
+    Creates a 4x4 rotation matrix representing a rotation around the x-axis.
+
+    In the AlphaFold II context, this is utilized to rotate around torsion angles 
+    (which are parameterized by their cosine and sine) to construct the relative 
+    transformations between adjacent rigid groups along the backbone and side-chains.
+
+    Args:
+        phi (torch.Tensor): The rotation angle provided in (cos_phi, sin_phi) format.
+            Expected shape: `(..., 2)`.
+
+    Returns:
+        torch.Tensor: The 4x4 rotation matrix around the x-axis.
+            Shape: `(..., 4, 4)`.
+    """
     batch_shape = phi.shape[:-1]
     device = phi.device
     dtype = phi.dtype
@@ -256,9 +321,14 @@ def make_transformation_matrix_around_ex(phi):
     return rotation_around_ex_transformation_matrix
 
 
-def compute_non_chi_transform_matrices():
+def compute_non_chi_transform_matrices() -> torch.Tensor:
     """
-    Todo make it a little bit better documented
+    Calculates the non-chi local frame transformations for all 20 canonical amino acids.
+
+    Constructs the transformations for the backbone, pre-omega, phi, and psi rigid groups. 
+    These represent the base frames in the local coordinate systems before any torsion 
+    angles are applied. 
+
     backbone_group: Identity
     pre_omega_group: Identity
     phi_group:
@@ -269,6 +339,11 @@ def compute_non_chi_transform_matrices():
         ex: CA -> C
         ey: N  -> CA
         t:  C
+
+    Returns:
+        torch.Tensor: The stacked transformation matrices for the non-chi rigid groups.
+            Shape: `(20, 4, 4, 4)`, where the second dimension represents the 4 frames 
+            (backbone, pre-omega, phi, psi).
     """
 
     non_chi_transforms = []
@@ -309,10 +384,15 @@ def compute_non_chi_transform_matrices():
     return non_chi_transforms
 
 
-def compute_chi_transform_matrices():
+def compute_chi_transform_matrices() -> torch.Tensor:
     """
-    Todo make it a little bit better documented
-    Calculates transforms for the following local side-chain frames:
+    Calculates transforms for the local side-chain frames (chi1 to chi4) for 
+    all 20 canonical amino acids.
+
+    These frames track the side-chain atom positions. If the chi angles are not present 
+    for the given amino acid (according to `chi_angles_mask`), they are substituted by 
+    the Identity transform.
+
     chi1:
         ex: CA -> #SC0
         ey: CA -> N
@@ -329,15 +409,11 @@ def compute_chi_transform_matrices():
         ex: #SC2 -> #SC3
         ey: #SC2 -> #SC1
         t: #SC3
-
-    #SC0 - #SC3 denote the names of the side-chain atoms.
-    If the chi angles are not present for the amino acid according to
-    chi_angles_mask, they are substituted by the Identity transform.
+    (#SC0 - #SC3 denote the names of the side-chain atoms).
 
     Returns:
-        torch.tensor: Stacked transforms of shape (20, 4, 4, 4).
-            The second dim corresponds to the different frames.
-            The last two dims are the shape of the individual transforms.
+        torch.Tensor: Stacked transforms for the chi frames.
+            Shape: `(20, 4, 4, 4)`. The second dim corresponds to the 4 chi frames.
     """
 
     # Note: For chi2, chi3 and chi4, ey is the inverse of the previous ex.
@@ -375,14 +451,16 @@ def compute_chi_transform_matrices():
     return chi_transforms
 
 
-def compute_initial_rigid_transform_matrices():
+def compute_initial_rigid_transform_matrices() -> torch.Tensor:
     """
-    todo improve documentation
-    Calculates the non-chi transforms backbone_group, pre_omega_group, phi_group and psi_group,
-    together with the chi transforms chi1, chi2, chi3, and chi4.
+    Combines the non-chi and chi local frame transformations into a single tensor.
+
+    This provides all 8 initial rigid group transformation frames (backbone, pre-omega, 
+    phi, psi, chi1, chi2, chi3, chi4) for the 20 amino acids.
 
     Returns:
-        torch.tensor: Transforms of shape (20, 8, 4, 4).
+        torch.Tensor: The stacked initial rigid transformations.
+            Shape: `(20, 8, 4, 4)`.
     """
 
     rigid_transforms = torch.cat(tensors=[compute_non_chi_transform_matrices(),
@@ -391,9 +469,27 @@ def compute_initial_rigid_transform_matrices():
     return rigid_transforms
 
 
-def compute_global_transform_matrices(transformation_matrix, residue_angles, sequence_amino_acid_labels):
+def compute_global_transform_matrices(transformation_matrix: torch.Tensor, residue_angles: torch.Tensor,
+                                      sequence_amino_acid_labels: torch.Tensor) -> torch.Tensor:
     """
-    # todo very important to add shape of the output
+    Computes the global transformation matrices for all 8 rigid groups per residue.
+
+    Applies the predicted backbone transformation and consecutive torsion rotations 
+    to the initialized local frames, producing the final global transformation for 
+    every rigid group in each residue of the sequence.
+
+    Args:
+        transformation_matrix (torch.Tensor): The global backbone transformations.
+            Expected shape: `(..., number_residues, 4, 4)`.
+        residue_angles (torch.Tensor): Torsion angles (omega, phi, psi, chi1, chi2, chi3, chi4) 
+            provided as (cos, sin) pairs. Note: `omega` is not actively used in AF2.
+            Expected shape: `(..., number_residues, 7, 2)`.
+        sequence_amino_acid_labels (torch.Tensor): The amino acid types encoded as indices (0-19).
+            Expected shape: `(..., number_residues)`.
+
+    Returns:
+        torch.Tensor: The global transform matrices for all rigid groups.
+            Shape: `(..., number_residues, 8, 4, 4)`.
     """
 
     device = transformation_matrix.device
@@ -438,23 +534,31 @@ def compute_global_transform_matrices(transformation_matrix, residue_angles, seq
     return global_transform_matrices
 
 
-def compute_all_atom_coordinates(transformation_matrix, residue_angles, sequence_amino_acid_labels):
+def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_angles: torch.Tensor,
+                                 sequence_amino_acid_labels: torch.Tensor) -> tuple:
     """
-    todo to be better documented
+    Calculates the 3D coordinates for all 37 possible atoms in each residue.
+
+    By mapping local atom positions through the corresponding computed global 
+    rigid group transformations, this outputs the final Cartesian coordinates 
+    for every atom. It also returns a mask indicating which of the 37 atoms 
+    are actually present for the given amino acid type.
+
     Args:
-        T (torch.tensor): Global backbone transform for each amino acid. Shape (N_res, 4, 4).
-        alpha (torch.tensor): Torsion angles for each amino acid. Shape (N_res, 7, 2).
-            The angles are in the order (omega, phi, psi, chi1, chi2, chi3, chi4).
-            Angles are given as (cos(a), sin(a)).
-        F (torch.tensor): Label for each amino acid of shape (N_res,).
-            Labels are encoded as 0: Ala, 1: Arg, ..., 19: Val.
+        transformation_matrix (torch.Tensor): The global backbone transformations.
+            Expected shape: `(..., number_residues, 4, 4)`.
+        residue_angles (torch.Tensor): Torsion angles (omega, phi, psi, chi1, chi2, chi3, chi4)
+            provided as (cos, sin) pairs.
+            Expected shape: `(..., number_residues, 7, 2)`.
+        sequence_amino_acid_labels (torch.Tensor): The amino acid types encoded as indices (0-19).
+            Expected shape: `(..., number_residues)`.
 
     Returns:
-        tuple: A tuple consisting of the following values:
-            global_positions: Tensor of shape (N_res, 37, 3), containing the global positions
-                for each atom for each amino acid.
-            all_atom_mask: Boolean tensor of shape (N_res, 37), containing whether or not the atoms
-                are present in the amino acids.
+        tuple: A tuple containing two torch.Tensor objects:
+            - global_positions: The global Cartesian coordinates for all 37 atoms.
+                Shape: `(..., number_residues, 37, 3)`.
+            - all_atom_mask: A boolean mask indicating the presence of each atom.
+                Shape: `(..., number_residues, 37)`.
     """
 
     device = transformation_matrix.device
