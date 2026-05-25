@@ -97,7 +97,7 @@ def multiply_quaternions(first_quaternion: torch.Tensor, second_quaternion: torc
 
     scalar_part = a1 * a2 - torch.sum(v1 * v2, dim=-1, keepdim=True)
 
-    vector_part = a1 * v2 + a2 * v1 + torch.linalg.cross(v1, v2)
+    vector_part = a1 * v2 + a2 * v1 + torch.linalg.cross(v1, v2, dim=-1)
 
     quaternion_output = torch.cat(tensors=[scalar_part, vector_part], dim=-1)
 
