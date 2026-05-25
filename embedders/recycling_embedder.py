@@ -45,8 +45,8 @@ class RecyclingEmbedder(nn.Module):
         self.pair_representation_layer_normalizer = nn.LayerNorm(normalized_shape=self.pair_representation_embedding,
                                                                  device=self.device, dtype=self.dtype)
 
-        # Note : Openfolds implementation.
-        # Alphafolds implementation uses closes't distance to determine bin position
+        # Note : Openfold's implementation.
+        # Alphafold's implementation uses closest distance to determine bin position
         self.bins = torch.linspace(start=self.bin_start, end=self.bin_end, steps=self.bin_count,
                                    device=self.device, dtype=self.dtype)
         self.displaced_bins = torch.cat(tensors=(self.bins[1:],
@@ -97,11 +97,11 @@ class RecyclingEmbedder(nn.Module):
             distance_matrix = ((distance_matrix > self.bins) * (distance_matrix < self.displaced_bins)).type(
                 previous_pseudo_carbon_beta_positions.dtype)
 
-        # Pair Represenation Input for the evoformer and extra msa stack
+        # Pair Representation Input for the evoformer and extra msa stack
         pair_representation = (self.pair_distance_embedder(distance_matrix) +
                                self.pair_representation_layer_normalizer(previous_pair_representation))
 
-        # MSA Represenation Input for the evoformer and extra msa stack
+        # MSA Representation Input for the evoformer and extra msa stack
         msa_representation = self.msa_representation_layer_normalizer(previous_msa_representation[..., 0, :, :])
 
         return msa_representation, pair_representation
