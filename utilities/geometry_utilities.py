@@ -586,11 +586,16 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
     frame_indices = unsqueeze_tensor(frame_indices, number=dim_diff, direction="right")
 
     # (number_residues, 37, 4, 4)
-    global_frame_indices = frame_indices.broadcast_to(
+    frame_indices = frame_indices.broadcast_to(
         frame_indices.shape[:-dim_diff] + global_transforms.shape[-dim_diff:])
 
+    # (number_residues, 37, 4, 4)
+    global_frames = torch.gather(global_transforms, dim=-3, index=frame_indices)
+
     # (number_residues, 37, 3)
-    global_positions = apply_transformation_on_vector(transformation_matrix=global_frame_indices,
+    global_positions = apply_transformation_on_vector(transformation_matrix=global_frames,
                                                       vector=local_positions)
+    print(global_positions.shape)
+    print(all_atom_mask.shape)
 
     return global_positions, all_atom_mask
