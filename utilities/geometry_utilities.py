@@ -7,6 +7,9 @@ File containing geometry utilities
 
 import torch
 from torch import nn
+from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame_centers, chi_angles_mask,
+                                 atom_local_positions, atom_frame_indices, atom_mask)
+from utilities.tensor_utilities import unsqueeze_tensor
 
 
 def create_3x3_rotation_matrix(ex, ey):
@@ -139,3 +142,178 @@ def make_transformation_matrix_around_ex(phi):
                                                                              translation_vector=translation_vector)
 
     return rotation_around_ex_transformation_matrix
+
+
+def compute_non_chi_transform_matrices():
+
+
+    non_chi_transforms = []
+
+    for amino_acid, amino_acid_information in rigid_group_atom_position_map.items():
+        backbone_transformation = torch.eye(4)
+
+        # Todo Not really used, we could just consider removing it later
+        pre_omega_transformation = torch.eye(4)
+
+        phi_group_ex = amino_acid_information["N"] - amino_acid_information["CA"]
+        # or even phi_group_ey = torch.tensor([1, 0, 0])
+        phi_group_ey = amino_acid_information["C"] - amino_acid_information["CA"]
+
+        phi_group_translation = amino_acid_information["N"]
+        phi_group_transformation = create_4x4_transform_matrix(
+            ex=phi_group_ex,
+            ey=phi_group_ey,
+            translation_vector=phi_group_translation)
+
+        psi_group_ex = amino_acid_information["C"] - amino_acid_information["CA"]
+        psi_group_ey = amino_acid_information["CA"] - amino_acid_information["N"]
+        psi_group_translation = amino_acid_information["C"]
+        psi_group_transformation = create_4x4_transform_matrix(
+            ex=psi_group_ex,
+            ey=psi_group_ey,
+            translation_vector=psi_group_translation)
+
+        amino_acid_non_chi_frames = torch.stack(tensors=[backbone_transformation,
+                                                         pre_omega_transformation,
+                                                         phi_group_transformation,
+                                                         psi_group_transformation], dim=0)
+
+        non_chi_transforms.append(amino_acid_non_chi_frames)
+
+    non_chi_transforms = torch.stack(tensors=non_chi_transforms, dim=0)
+
+    return non_chi_transforms
+
+
+def compute_chi_transform_matrices():
+
+
+    chi_transforms = torch.zeros((20, 4, 4, 4))
+    for amino_acid_index, (amino_acid, amino_acid_information) in enumerate(rigid_group_atom_position_map.items()):
+
+        side_chain_centers = chi_angles_frame_centers[amino_acid]
+
+        for i in range(4):
+
+            # No chi angle for this given amino acid residue so just use identity matrix
+            if chi_angles_mask[amino_acid_index][i] == 0:
+                chi_transforms[amino_acid_index, i] = torch.eye(4)
+                continue
+
+            center_atom = side_chain_centers[i]
+            # Side chain matrix to be constructed
+            ex = amino_acid_information[center_atom]
+
+            if i == 0:
+                ey = amino_acid_information["N"] - amino_acid_information["CA"]
+            else:
+                # we are actually always pointing backwards along ex axis from chi2 to chi4 for ey
+                ey = torch.tensor([-1, 0, 0])
+
+            transformation = create_4x4_transform_matrix(ex=ex,
+                                                         ey=ey,
+                                                         translation_vector=ex)
+            chi_transforms[amino_acid_index, i] = transformation
+
+    return chi_transforms
+
+
+def compute_initial_rigid_transform_matrices():
+    """
+    todo improve documentation
+    Calculates the non-chi transforms backbone_group, pre_omega_group, phi_group and psi_group,
+    together with the chi transforms chi1, chi2, chi3, and chi4.
+
+    Returns:
+        torch.tensor: Transforms of shape (20, 8, 4, 4).
+    """
+
+    rigid_transforms = torch.cat(tensors=[compute_non_chi_transform_matrices(),
+                                          compute_chi_transform_matrices()], dim=1)
+
+    return rigid_transforms
+
+
+def compute_global_transform_matrices(transformation_matrix, residue_angles, sequence_amino_acid_labels):
+    """
+    # todo very important to add shape of the output
+    """
+
+    device = transformation_matrix.device
+    dtype = transformation_matrix.dtype
+
+    normalized_alpha = nn.functional.normalize(residue_angles, dim=-1)
+    omega, phi, psi, chi1, chi2, chi3, chi4 = torch.unbind(normalized_alpha, dim=-2)
+
+    # Get global initialised frames (20,8,4,4)
+    initial_rigid_transformations = compute_initial_rigid_transform_matrices().to(dtype=dtype, device=device)
+
+    # Select the ones that are important for our sequence (number_residues,8,4,4)
+    global_transform_matrices = initial_rigid_transformations[sequence_amino_acid_labels]
+
+    # This is just equivalent to multiplying by the identity matrix
+    # Here we just the predicted backbone transformation matrix
+    global_transform_matrices[..., 0, :, :] = transformation_matrix
+
+    for transformation_index, angle in enumerate([omega, phi, psi, chi1], start=1):
+        # Note we already normalised the angles therefore they are in (cos(phi), sin(phi)) format
+        rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
+
+        # Just backbone * rotational matrix.
+        # Note : We actually don't even need it for omega since omega is just junk for the model.
+        global_transform_matrices[..., transformation_index, :, :] = torch.matmul(
+            input=global_transform_matrices[..., 0, :, :],
+            other=torch.matmul(
+                input=global_transform_matrices[..., transformation_index, :, :],
+                other=rotation_matrix
+            ))
+
+    # Here we have to keep track of the previous transformation
+    for transformation_index, angle in enumerate([chi2, chi3, chi4], start=5):
+        rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
+        global_transform_matrices[..., transformation_index, :, :] = torch.matmul(
+            input=global_transform_matrices[..., transformation_index - 1, :, :],
+            other=torch.matmul(
+                input=global_transform_matrices[..., transformation_index, :, :],
+                other=rotation_matrix
+            ))
+
+    return global_transform_matrices
+
+
+def compute_all_atom_coordinates(transformation_matrix, residue_angles, sequence_amino_acid_labels):
+
+
+    device = transformation_matrix.device
+    dtype = transformation_matrix.dtype
+
+    # (number_residues, 8, 4, 4)
+    global_transforms = compute_global_transform_matrices(transformation_matrix=transformation_matrix,
+                                                          residue_angles=residue_angles,
+                                                          sequence_amino_acid_labels=sequence_amino_acid_labels)
+
+    # (number_residues, 37, 3)
+    local_positions = atom_local_positions[sequence_amino_acid_labels].to(device=device, dtype=dtype)
+
+    # (number_residues, 37)
+    frame_indices = atom_frame_indices[sequence_amino_acid_labels]
+
+    # (number_residues, 37)
+    all_atom_mask = atom_mask[sequence_amino_acid_labels]
+
+    # First get the number of missing dimensions in order to properly gather indices
+    dim_diff = global_transforms.ndim - frame_indices.ndim
+
+    # We need to get frame_indices from (number_residues, 37) to (number_residues, 37, 4, 4)
+    # Here we know it is 4x4, but we will use the dimension difference and then broadcast it.
+    frame_indices = unsqueeze_tensor(frame_indices, number=dim_diff, direction="right")
+
+    # (number_residues, 37, 4, 4)
+    global_frame_indices = frame_indices.broadcast_to(
+        frame_indices.shape[:-dim_diff] + global_transforms.shape[-dim_diff:])
+
+    # (number_residues, 37, 3)
+    global_positions = apply_transformation_on_vector(transformation_matrix=global_frame_indices,
+                                                      vector=local_positions)
+
+    return global_positions, all_atom_mask
