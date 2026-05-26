@@ -33,21 +33,20 @@ class InvariantPointAttention(nn.Module):
     """
 
     def __init__(self, single_representation_embedding: int, pair_representation_embedding: int,
-                 device: torch.device, dtype: torch.dtype,
-                 number_query_points: int = 4, number_value_points: int = 8, number_heads: int = 12,
-                 head_embedding_dimension: int = 16):
+                 number_query_points: int, number_value_points: int, number_heads: int,
+                 head_embedding_dimension: int, device: torch.device, dtype: torch.dtype):
         """
         Initializes the InvariantPointAttention module with the specified architectural dimensions.
 
         Args:
             single_representation_embedding (int): Feature dimension of the single representation.
             pair_representation_embedding (int): Feature dimension of the pair representation.
-            device (torch.device): Device for tensor allocation. REQUIRED.
-            dtype (torch.dtype): Data type for tensors. REQUIRED.
-            number_query_points (int): Number of geometric query points per head. Defaults to 4.
-            number_value_points (int): Number of geometric value points per head. Defaults to 8.
-            number_heads (int): Number of attention heads. Defaults to 12.
-            head_embedding_dimension (int): Hidden dimension per head. Defaults to 16.
+            number_query_points (int): Number of geometric query points per head.
+            number_value_points (int): Number of geometric value points per head.
+            number_heads (int): Number of attention heads.
+            head_embedding_dimension (int): Hidden dimension per head.
+            device (torch.device): Device for tensor allocation.
+            dtype (torch.dtype): Data type for tensors.
         """
         super().__init__()
         self.single_representation_embedding = single_representation_embedding
