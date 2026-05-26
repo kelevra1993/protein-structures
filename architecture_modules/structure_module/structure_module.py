@@ -60,7 +60,7 @@ class StructureModuleTransition(nn.Module):
                                         self.third_embedder(self.ReLu(
                                             self.second_embedder(self.ReLu(
                                                 self.first_embedder(single_representation))))))
-        single_representation_output = self.layer_norm(single_representation_output)
+        single_representation_output = self.single_representation_layer_normalizer(single_representation_output)
 
         return single_representation_output
 
@@ -101,7 +101,7 @@ class BackboneUpdate(nn.Module):
         output = self.backbone_embedder(single_representation)
         un_normalised_quaternion, translation_vector = output[..., :3], output[..., 3:]
 
-        # Quaterion looks like this (1, x, y, z) and then normalised to represent a rotation
+        # Quaternion looks like this (1, x, y, z) and then normalised to represent a rotation
         quaternion = torch.nn.functional.pad(un_normalised_quaternion, (1, 0), value=1.0)
         quaternion = torch.nn.functional.normalize(quaternion, dim=-1)
 
@@ -234,7 +234,9 @@ class StructureModule(nn.Module):
 
     def __init__(self, single_representation_embedding: int, pair_representation_embedding: int,
                  device: torch.device, dtype: torch.dtype,
-                 number_layers: int = 8, angle_representation_embedding: int = 128):
+                 number_layers: int = 8, angle_representation_embedding: int = 128,
+                 number_query_points: int = 4, number_value_points: int = 8,
+                 number_heads: int = 12, head_embedding_dimension: int = 16):
         """
         Initializes the StructureModule.
 
@@ -245,6 +247,10 @@ class StructureModule(nn.Module):
             dtype (torch.dtype): Data type for tensors.
             number_layers (int): Number of iterative updates. Defaults to 8.
             angle_representation_embedding (int): Dimension for angle ResNet. Defaults to 128.
+            number_query_points (int): Number of geometric query points for IPA. Defaults to 4.
+            number_value_points (int): Number of geometric value points for IPA. Defaults to 8.
+            number_heads (int): Number of attention heads for IPA. Defaults to 12.
+            head_embedding_dimension (int): Hidden dimension per head for IPA. Defaults to 16.
         """
         super().__init__()
 
@@ -254,6 +260,10 @@ class StructureModule(nn.Module):
         self.number_layers = number_layers
         self.device = device
         self.dtype = dtype
+        self.number_query_points = number_query_points
+        self.number_value_points = number_value_points
+        self.number_heads = number_heads
+        self.head_embedding_dimension = head_embedding_dimension
 
         self.single_representation_layer_normalizer = nn.LayerNorm(
             normalized_shape=self.single_representation_embedding,
@@ -268,14 +278,13 @@ class StructureModule(nn.Module):
             normalized_shape=self.single_representation_embedding, device=self.device, dtype=self.dtype)
 
         # Initializing IPA
-        # todo add missing arguments to the function
         self.invariant_point_attention = InvariantPointAttention(
             single_representation_embedding=self.single_representation_embedding,
             pair_representation_embedding=self.pair_representation_embedding,
             number_query_points=self.number_query_points,
             number_value_points=self.number_value_points,
-            number_heads=self.number_ipa_heads,
-            head_embedding_dimension=self.ipa_head_embedding_dimension,
+            number_heads=self.number_heads,
+            head_embedding_dimension=self.head_embedding_dimension,
             device=self.device,
             dtype=self.dtype)
 
@@ -362,11 +371,11 @@ class StructureModule(nn.Module):
 
         # These pair_representation and single_representations are modified in the for loop
         pair_representation = self.pair_representation_layer_normalizer(pair_representation)
-        single_representation = self.single_representation_layer_normalizer(single_representation)
+        single_representation = self.initial_single_representation_embedder(single_representation)
 
         # Initial transformation matrix as an identity matrix.
-        transformation_matrix = torch.eye(4).broadcast_to(batch_dimension + (number_residues, 4, 4))
-        transformation_matrix = transformation_matrix.to(device=device, dtype=dtype)
+        transformation_matrix = (torch.eye(4, device=device, dtype=dtype).
+                                 broadcast_to(batch_dimension + (number_residues, 4, 4)))
 
         # TODO NOTE : IT IS IN THIS BLOCK WHERE WE WILL BE INSERTING LOSSES FOR BACKPROPAGATION
         for iteration in range(self.number_layers):
