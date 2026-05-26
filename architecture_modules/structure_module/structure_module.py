@@ -367,7 +367,7 @@ class StructureModule(nn.Module):
         dtype = single_representation.dtype
 
         # initial single representation never changed after this, just passed around
-        initial_single_representation = self.layer_norm_single_representation(single_representation)
+        initial_single_representation = self.single_representation_layer_normalizer(single_representation)
 
         # These pair_representation and single_representations are modified in the for loop
         pair_representation = self.pair_representation_layer_normalizer(pair_representation)
