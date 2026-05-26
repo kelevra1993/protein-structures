@@ -361,12 +361,15 @@ class InvariantPointAttention(nn.Module):
             pair_representation=pair_representation, transformation_matrix=transformation_matrix)
 
         # Step 3: Aggregate values and compute outputs
-        v_out, vp_out, vp_out_norm, pairwise_out = self.compute_outputs(
+        value_output, value_point_output, value_point_norm_output, pair_representation_output = self.compute_outputs(
             attention_scores=attention_scores, pair_representation=pair_representation,
             value_tensor=value_tensor, value_point_tensor=value_point_tensor,
             transformation_matrix=transformation_matrix)
 
         # Step 4: Concatenate outputs and project to final single representation dimension
-        output_tensor = self.linear_out(torch.cat(tensors=(v_out, vp_out, vp_out_norm, pairwise_out), dim=-1))
+        output_tensor = self.linear_out(torch.cat(tensors=(value_output,
+                                                           value_point_output,
+                                                           value_point_norm_output,
+                                                           pair_representation_output), dim=-1))
 
         return output_tensor
