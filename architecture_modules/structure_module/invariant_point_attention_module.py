@@ -164,7 +164,8 @@ class InvariantPointAttention(nn.Module):
 
     def compute_attention_scores(self, query_tensor: torch.Tensor, key_tensor: torch.Tensor,
                                  query_point_tensor: torch.Tensor, key_point_tensor: torch.Tensor,
-                                 pair_representation: torch.Tensor, transformation_matrix: torch.Tensor) -> torch.Tensor:
+                                 pair_representation: torch.Tensor,
+                                 transformation_matrix: torch.Tensor) -> torch.Tensor:
         """
         Calculates normalized attention scores by integrating scalar, pairwise, and geometric components.
 
@@ -233,13 +234,15 @@ class InvariantPointAttention(nn.Module):
 
         # Combine all components and apply softmax
         attention_scores = torch.softmax(
-            ipa_normalization_factor * (attention + bias - scaled_head_weights * sum_key_query_distances_squared), dim=-1)
+            ipa_normalization_factor * (attention + bias - scaled_head_weights * sum_key_query_distances_squared),
+            dim=-1)
 
         return attention_scores
 
     def compute_outputs(self, attention_scores: torch.Tensor, pair_representation: torch.Tensor,
                         value_tensor: torch.Tensor, value_point_tensor: torch.Tensor,
-                        transformation_matrix: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                        transformation_matrix: torch.Tensor) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Aggregates scalar, geometric, and pairwise information weighted by the attention scores.
 

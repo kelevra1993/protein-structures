@@ -12,8 +12,12 @@ from utilities.constants import atom_types, canonical_amino_acid_residues
 
 class StructureModuleTransition(nn.Module):
     """
-    A transition layer within the Structure Module that applies a sequence of linear layers,
-    ReLU activations, and Layer Normalization to the single representation.
+    A transition layer within the Structure Module that updates the single representation
+    through a series of linear transformations and non-linearities.
+
+    This module is used in each iteration of the StructureModule after the Invariant Point
+    Attention (IPA) layer to refine the residue-level features before they are used
+    to predict backbone updates and torsion angles.
     """
 
     def __init__(self, single_representation_embedding: int, device: torch.device, dtype: torch.dtype):
@@ -68,6 +72,11 @@ class StructureModuleTransition(nn.Module):
 class BackboneUpdate(nn.Module):
     """
     Predicts updates to the backbone transformation matrices from the single representation.
+
+    In each iteration of the StructureModule, this module takes the refined single
+    representation and predicts a 6D vector for each residue (3 for an unnormalized
+    quaternion and 3 for a translation vector). These are then used to update the
+    local 4x4 transformation matrices (frames) for each residue.
     """
 
     def __init__(self, single_representation_embedding: int, device: torch.device, dtype: torch.dtype):
@@ -75,7 +84,8 @@ class BackboneUpdate(nn.Module):
         Initializes the BackboneUpdate module.
 
         Args:
-            single_representation_embedding (int): Feature dimension of the single representation.
+            single_representation_embedding (int): Feature dimension of the single representation
+                (`single_representation_dimension`).
             device (torch.device): Device for tensor allocation.
             dtype (torch.dtype): Data type for tensors.
         """
@@ -88,14 +98,14 @@ class BackboneUpdate(nn.Module):
 
     def forward(self, single_representation: torch.Tensor) -> torch.Tensor:
         """
-        Computes 4x4 transformation updates.
+        Computes 4x4 transformation updates from the single representation.
 
         Args:
             single_representation (torch.Tensor): Input residue-level features.
-                Shape: `(..., number_residues, single_representation_embedding)`.
+                Shape: `(..., number_residues, single_representation_dimension)`.
 
         Returns:
-            torch.Tensor: Local transformation matrices.
+            torch.Tensor: Local transformation matrices representing backbone updates.
                 Shape: `(..., number_residues, 4, 4)`.
         """
         output = self.backbone_embedder(single_representation)
@@ -349,17 +359,33 @@ class StructureModule(nn.Module):
                 sequence_amino_acid_labels: torch.Tensor) -> tuple[
         torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Executes the iterative Structure Module pipeline.
+        Executes the iterative Structure Module pipeline to predict 3D protein structure.
+
+        This method performs several iterations of geometric updates. In each iteration,
+        it applies Invariant Point Attention (IPA) and a transition layer to the single
+        representation, updates the backbone frames, and predicts torsion angles.
+        The final backbone frames and angles are used to compute the all-atom coordinates.
 
         Args:
             single_representation (torch.Tensor): Residue-level features.
-                Shape: `(..., number_residues, single_representation_embedding)`.
+                Shape: `(..., number_residues, single_representation_dimension)`.
             pair_representation (torch.Tensor): Pairwise features.
-                Shape: `(..., number_residues, number_residues, pair_representation_embedding)`.
-            sequence_amino_acid_labels (torch.Tensor): Amino acid types.
+                Shape: `(..., number_residues, number_residues, pair_representation_dimension)`.
+            sequence_amino_acid_labels (torch.Tensor): Amino acid type indices.
                 Shape: `(..., number_residues)`.
 
-        # todo properly document outputs
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                - angles: Predicted torsion angles as (cos, sin) pairs for all iterations.
+                  Shape: `(..., number_layers, number_residues, 7, 2)`.
+                - frames: Global backbone transformation matrices for all iterations.
+                  Shape: `(..., number_layers, number_residues, 4, 4)`.
+                - final_positions: Final 3D coordinates for all 37 atom types.
+                  Shape: `(..., number_residues, 37, 3)`.
+                - position_mask: Binary mask indicating the presence of each atom in the final positions.
+                  Shape: `(..., number_residues, 37)`.
+                - pseudo_beta_positions: Predicted positions of C-beta atoms (or C-alpha for Glycine).
+                  Shape: `(..., number_residues, 3)`.
         """
         number_residues = pair_representation.shape[-2]
         batch_dimension = single_representation.shape[:-2]

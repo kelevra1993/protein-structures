@@ -24,10 +24,10 @@ def test_structure_module_forward():
         dtype=dtype,
         number_layers=8,
         angle_representation_embedding=20,
-        number_query_points=4,# 4
-        number_value_points=8,# 8
-        number_heads=12,# 12
-        head_embedding_dimension=16, #16
+        number_query_points=4,  # 4
+        number_value_points=8,  # 8
+        number_heads=12,  # 12
+        head_embedding_dimension=16,  # 16
     )
 
     input_tensor_dictionary = {
