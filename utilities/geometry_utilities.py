@@ -595,7 +595,5 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
     # (number_residues, 37, 3)
     global_positions = apply_transformation_on_vector(transformation_matrix=global_frames,
                                                       vector=local_positions)
-    print(global_positions.shape)
-    print(all_atom_mask.shape)
 
     return global_positions, all_atom_mask
