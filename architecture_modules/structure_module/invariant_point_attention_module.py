@@ -4,25 +4,6 @@ from torch import nn
 
 from utilities.geometry_utilities import invert_4x4_transform_matrix, apply_transformation_on_vector
 
-"""
-TODO : Note to self
-Rename c_s -> single_representation_embedding
-Rename c_z -> pair_representation_embedding
-Rename n_query_points -> number_query_points
-Rename n_point_values -> number_value_points
-Rename N_head -> number_heads
-Rename c -> head_embedding_dimension
-Rename s -> single_representation
-Rename z -> pair_representation
-Rename q -> query_tensor
-Rename k -> key_tensor
-Rename qp-> query_point_tensor
-Rename kp-> key_point_tensor
-Rename T -> transformation_matrix
-Rename warp_3d_point -> apply_transformation_on_vector
-Rename N_res -> number_residues
-"""
-
 
 class InvariantPointAttention(nn.Module):
     """
@@ -52,20 +33,21 @@ class InvariantPointAttention(nn.Module):
     """
 
     def __init__(self, single_representation_embedding: int, pair_representation_embedding: int,
+                 device: torch.device, dtype: torch.dtype,
                  number_query_points: int = 4, number_value_points: int = 8, number_heads: int = 12,
-                 head_embedding_dimension: int = 16, device: torch.device = None, dtype: torch.dtype = None):
+                 head_embedding_dimension: int = 16):
         """
         Initializes the InvariantPointAttention module with the specified architectural dimensions.
 
         Args:
             single_representation_embedding (int): Feature dimension of the single representation.
             pair_representation_embedding (int): Feature dimension of the pair representation.
+            device (torch.device): Device for tensor allocation. REQUIRED.
+            dtype (torch.dtype): Data type for tensors. REQUIRED.
             number_query_points (int): Number of geometric query points per head. Defaults to 4.
             number_value_points (int): Number of geometric value points per head. Defaults to 8.
             number_heads (int): Number of attention heads. Defaults to 12.
             head_embedding_dimension (int): Hidden dimension per head. Defaults to 16.
-            device (torch.device, optional): Device for tensor allocation.
-            dtype (torch.dtype, optional): Data type for tensors.
         """
         super().__init__()
         self.single_representation_embedding = single_representation_embedding
@@ -126,7 +108,7 @@ class InvariantPointAttention(nn.Module):
         self.head_weights = nn.Parameter(torch.zeros((self.number_heads,), device=self.device, dtype=self.dtype))
         self.softplus = nn.Softplus()
 
-    def separate_key_query_value_heads(self, single_representation: torch.Tensor):
+    def separate_key_query_value_heads(self, single_representation: torch.Tensor) -> list[torch.Tensor]:
         """
         Projects the input single representation into scalar and point-based Query, Key, and Value spaces.
 
@@ -139,7 +121,7 @@ class InvariantPointAttention(nn.Module):
                 Shape: `(..., number_residues, single_representation_embedding)`.
 
         Returns:
-            tuple[torch.Tensor, ...]: A tuple of six tensors:
+            list[torch.Tensor]: A list of six tensors:
                 - query_tensor: Scalar queries. Shape `(..., number_heads, number_residues, head_embedding_dimension)`.
                 - key_tensor: Scalar keys. Shape `(..., number_heads, number_residues, head_embedding_dimension)`.
                 - value_tensor: Scalar values. Shape `(..., number_heads, number_residues, head_embedding_dimension)`.
@@ -171,19 +153,19 @@ class InvariantPointAttention(nn.Module):
         out_shapes = [out.shape[:-1] + shape_add for out, shape_add in zip(embeddings, shape_adds)]
         embeddings = [out.view(out_shape) for out, out_shape in zip(embeddings, out_shapes)]
         for i in range(3):
-            # Move number_residue_dimension to -2 spot
-            # (..., number_heads, num_residues, number_channels)
+            # Move number_residues to -2 spot
+            # (..., number_heads, number_residues, number_channels)
             embeddings[i] = embeddings[i].movedim(-3, -2)
         for i in range(3, 6):
             # Move position coordinates to last spot and move number_residues to -2 spot
-            # From (..., number_heads, number_value_points, num_residues, 3)
+            # From (..., number_heads, number_value_points, number_residues, 3)
             embeddings[i] = embeddings[i].movedim(-3, -1).movedim(-4, -2)
 
         return embeddings
 
     def compute_attention_scores(self, query_tensor: torch.Tensor, key_tensor: torch.Tensor,
                                  query_point_tensor: torch.Tensor, key_point_tensor: torch.Tensor,
-                                 pair_representation: torch.Tensor, transformation_matrix: torch.Tensor):
+                                 pair_representation: torch.Tensor, transformation_matrix: torch.Tensor) -> torch.Tensor:
         """
         Calculates normalized attention scores by integrating scalar, pairwise, and geometric components.
 
@@ -212,8 +194,8 @@ class InvariantPointAttention(nn.Module):
                 Shape: `(..., number_heads, number_residues, number_residues)`.
         """
 
-        wc = math.sqrt(2 / (9 * self.number_query_points))
-        wl = math.sqrt(1 / 3)
+        geometric_point_scaling = math.sqrt(2 / (9 * self.number_query_points))
+        ipa_normalization_factor = math.sqrt(1 / 3)
 
         # Standard dot-product attention
         # Shape : (..., number_heads, number_residues, number_residues)
@@ -237,7 +219,7 @@ class InvariantPointAttention(nn.Module):
         transformation_matrix = transformation_matrix.unsqueeze(dim=-4).unsqueeze(dim=-4)
 
         # Calculate geometric attention weights
-        scaled_head_weights = self.softplus(self.head_weights) * (wc / 2)
+        scaled_head_weights = self.softplus(self.head_weights) * (geometric_point_scaling / 2)
         scaled_head_weights = scaled_head_weights.view((-1, 1, 1))
 
         # Transform points to the global frame and compute squared distances
@@ -252,13 +234,13 @@ class InvariantPointAttention(nn.Module):
 
         # Combine all components and apply softmax
         attention_scores = torch.softmax(
-            wl * (attention + bias - scaled_head_weights * sum_key_query_distances_squared), dim=-1)
+            ipa_normalization_factor * (attention + bias - scaled_head_weights * sum_key_query_distances_squared), dim=-1)
 
         return attention_scores
 
     def compute_outputs(self, attention_scores: torch.Tensor, pair_representation: torch.Tensor,
                         value_tensor: torch.Tensor, value_point_tensor: torch.Tensor,
-                        transformation_matrix: torch.Tensor):
+                        transformation_matrix: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Aggregates scalar, geometric, and pairwise information weighted by the attention scores.
 
@@ -290,7 +272,7 @@ class InvariantPointAttention(nn.Module):
 
         # Scalar value aggregation (classic attention)
         value_output = torch.einsum('...hij,...hjc->...hic', attention_scores, value_tensor)
-        # (..., number_residues, number_heads * number_channels)
+        # (..., number_residues, number_heads * head_embedding_dimension)
         value_output = value_output.movedim(source=-3, destination=-2).flatten(start_dim=-2)
 
         # Pairwise representation aggregation
@@ -300,11 +282,11 @@ class InvariantPointAttention(nn.Module):
             source=-3, destination=-2).flatten(start_dim=-2, end_dim=-1)
 
         # 3D Point value aggregation
-        # Same explaination as in compute_attention_scores for why we unsqueeze twice at dimension -4
+        # Same explanation as in compute_attention_scores for why we unsqueeze twice at dimension -4
         transformation_matrix = transformation_matrix.unsqueeze(dim=-4).unsqueeze(dim=-4)
         global_value_point_output = apply_transformation_on_vector(transformation_matrix=transformation_matrix,
                                                                    vector=value_point_tensor)
-        # scaled_global_value_point : (..., number_heads, number_value_points, num_residues, 3)
+        # scaled_global_value_point : (..., number_heads, number_value_points, number_residues, 3)
         scaled_global_value_point = torch.einsum('...Bij,...BNjk->...BNik',
                                                  attention_scores, global_value_point_output)
 
@@ -313,15 +295,15 @@ class InvariantPointAttention(nn.Module):
             transformation_matrix=invert_4x4_transform_matrix(transformation_matrix),
             vector=scaled_global_value_point)
         # Move coordinates to dimension spot -3 and residues to spot -4
-        # (..., num_residues, 3, number_heads, number_value_points)
+        # (..., number_residues, 3, number_heads, number_value_points)
         value_point_output = torch.einsum('...hpic->...ichp', value_point_output)
         # Normalise on the points
-        # (..., num_residues, 1, number_heads, number_value_points)
+        # (..., number_residues, 1, number_heads, number_value_points)
         value_point_output_norm = torch.linalg.vector_norm(value_point_output, dim=-3, keepdim=True)
 
         # Flatten to :
-        # Vector (..., num_residues, number_heads * 3 * number_value_points)
-        # Norm (..., num_residues, number_heads * number_value_points)
+        # Vector (..., number_residues, number_heads * 3 * number_value_points)
+        # Norm (..., number_residues, number_heads * number_value_points)
         value_point_output = value_point_output.flatten(start_dim=-3)
         value_point_output_norm = value_point_output_norm.flatten(start_dim=-3)
 
@@ -329,7 +311,7 @@ class InvariantPointAttention(nn.Module):
 
     def forward(self, single_representation: torch.Tensor,
                 pair_representation: torch.Tensor,
-                transformation_matrix: torch.Tensor):
+                transformation_matrix: torch.Tensor) -> torch.Tensor:
         """
         Executes the full forward pass of the Invariant Point Attention module.
 
