@@ -4,6 +4,7 @@ import torch
 from architecture_modules.structure_module.structure_module import StructureModule
 from tests.utilities.testing_utilities import check_nn_module_method, get_structure_module_test_inputs
 
+
 def test_structure_module_forward():
     device = torch.device('cpu')
     dtype = torch.float64
@@ -21,15 +22,12 @@ def test_structure_module_forward():
         pair_representation_embedding=config["pair_representation_embedding"],
         device=device,
         dtype=dtype,
-        number_layers=config["number_layers"],
-        # Assuming angle_representation_embedding in StructureModule defaults to 128,
-        # or we use the head_embedding_dimension if we want to match the shapes dict
-        # but let's just let it use defaults or we can pass head_embedding_dimension
-        angle_representation_embedding=config["head_embedding_dimension"], 
-        number_query_points=4,
-        number_value_points=8,
-        number_heads=12,
-        head_embedding_dimension=16
+        number_layers=8,
+        angle_representation_embedding=20,
+        number_query_points=4,# 4
+        number_value_points=8,# 8
+        number_heads=12,# 12
+        head_embedding_dimension=16, #16
     )
 
     input_tensor_dictionary = {
@@ -45,10 +43,10 @@ def test_structure_module_forward():
     }
 
     output_tensor_names = [
-        "structure_module_angles", 
-        "structure_module_frames", 
-        "structure_module_final_positions", 
-        "structure_module_position_mask", 
+        "structure_module_angles",
+        "structure_module_frames",
+        "structure_module_final_positions",
+        "structure_module_position_mask",
         "structure_module_pseudo_beta_positions"
     ]
 
@@ -60,3 +58,4 @@ def test_structure_module_forward():
         batch_size=config["batch_size"],
         batched_input_tensor_dictionary=batched_input_tensor_dictionary
     )
+    print(" - StructureModule Test Completed Successfuly.")

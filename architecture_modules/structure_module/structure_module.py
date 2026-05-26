@@ -381,6 +381,8 @@ class StructureModule(nn.Module):
         # TODO NOTE : IT IS IN THIS BLOCK WHERE WE WILL BE INSERTING LOSSES FOR BACKPROPAGATION
         for iteration in range(self.number_layers):
             # IPA and it's normalizer
+            # TODO It would have been better to normalise the input of the invariant point attention before adding it
+            #  it is unusually large compared to the incoming single representation
             single_representation += self.invariant_point_attention(single_representation=single_representation,
                                                                     pair_representation=pair_representation,
                                                                     transformation_matrix=transformation_matrix)

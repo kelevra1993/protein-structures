@@ -348,6 +348,7 @@ class InvariantPointAttention(nn.Module):
             transformation_matrix=transformation_matrix)
 
         # Step 4: Concatenate outputs and project to final single representation dimension
+        # Todo this is actually problematic not to normalise this before feeding it to the single_representation
         output_tensor = self.linear_out(torch.cat(tensors=(value_output,
                                                            value_point_output,
                                                            value_point_norm_output,
