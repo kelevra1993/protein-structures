@@ -144,3 +144,87 @@ def get_evoformer_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.T
     }
 
     return config, test_inputs
+
+
+def get_structure_module_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[torch.Tensor, torch.Tensor]]]:
+    """
+    Generates deterministic test inputs and configurations for the Structure Module.
+
+    This utility creates standardized, reproducible tensors initialized via `torch.linspace`.
+    It returns both the simple tensors and their broadcasted batched equivalents, alongside
+    the structural dimension configurations required to instantiate the modules.
+
+    Returns:
+        Tuple containing:
+            - A configuration dictionary mapping dimension names (str) to their integer sizes.
+            - A test inputs dictionary mapping tensor names (str) to a tuple containing
+              (simple_tensor, batched_tensor). Both tensors are cast to float64.
+    """
+    number_layers = 2
+    batch_size = 3
+    msa_embedding_dimension = 4
+    pair_representation_embedding = 5
+    head_embedding_dimension = 6
+    number_heads = 7
+    number_sequences = 8
+    number_extra_sequences = 9
+    number_residues = 10
+    single_representation_embedding = 11
+    number_query_points = 12
+    number_value_points = 13
+    number_torsion_angles = 7
+
+    feature_shapes = {
+        'msa_representation': (number_sequences, number_residues, msa_embedding_dimension),
+        'single_representation': (number_residues, single_representation_embedding),
+        'pair_representation': (number_residues, number_residues, pair_representation_embedding),
+        'residue_index': (number_residues,),
+        'positions': (number_residues, 3),
+        'query_tensor': (number_heads, number_residues, head_embedding_dimension),
+        'key_tensor': (number_heads, number_residues, head_embedding_dimension),
+        'value_tensor': (number_heads, number_residues, head_embedding_dimension),
+        'query_point_tensor': (number_heads, number_query_points, number_residues, 3),
+        'key_point_tensor': (number_heads, number_query_points, number_residues, 3),
+        'value_point_tensor': (number_heads, number_value_points, number_residues, 3),
+        'transformation_matrix': (number_residues, 4, 4),
+        'att_scores': (number_heads, number_residues, number_residues),
+        'angle_representation': (number_residues, head_embedding_dimension),
+        's_initial': (number_residues, single_representation_embedding),
+        'residue_angles': (number_residues, number_torsion_angles, 2),
+        'sequence_amino_acid_labels': (number_residues,),
+    }
+
+    config = {
+        "number_layers": number_layers,
+        "batch_size": batch_size,
+        "msa_embedding_dimension": msa_embedding_dimension,
+        "pair_representation_embedding": pair_representation_embedding,
+        "head_embedding_dimension": head_embedding_dimension,
+        "number_heads": number_heads,
+        "number_sequences": number_sequences,
+        "number_extra_sequences": number_extra_sequences,
+        "number_residues": number_residues,
+        "single_representation_embedding": single_representation_embedding,
+        "number_query_points": number_query_points,
+        "number_value_points": number_value_points,
+        "number_torsion_angles": number_torsion_angles,
+    }
+
+    test_inputs = {
+        key: torch.linspace(-2-i/5, 2+i/5, math.prod(shape)).reshape(shape).double()
+        for i, (key, shape) in enumerate(feature_shapes.items())
+    }
+
+    test_inputs['sequence_amino_acid_labels'] = torch.arange(test_inputs['sequence_amino_acid_labels'].numel()).reshape(test_inputs['sequence_amino_acid_labels'].shape) % 20
+
+    batched_test_inputs = {
+        key: tensor.unsqueeze(0).broadcast_to((batch_size,) + tensor.shape)
+        for key, tensor in test_inputs.items()
+    }
+
+    combined_inputs = {
+        key: (test_inputs[key], batched_test_inputs[key])
+        for key in feature_shapes.keys()
+    }
+
+    return config, combined_inputs
