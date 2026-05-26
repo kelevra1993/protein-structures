@@ -78,36 +78,50 @@ class InvariantPointAttention(nn.Module):
         self.dtype = dtype
 
         # Here alpha fold's implementation did not use bias but we will use Bias
-        self.linear_k = nn.Linear(in_features=self.single_representation_embedding,
-                                  out_features=self.head_embedding_dimension * self.number_heads,
-                                  bias=True, device=self.device, dtype=self.dtype)
-        self.linear_q = nn.Linear(in_features=self.single_representation_embedding,
-                                  out_features=self.head_embedding_dimension * self.number_heads,
-                                  bias=True, device=self.device, dtype=self.dtype)
-        self.linear_v = nn.Linear(in_features=self.single_representation_embedding,
-                                  out_features=self.head_embedding_dimension * self.number_heads,
-                                  bias=True, device=self.device, dtype=self.dtype)
+        self.key_embedder = nn.Linear(in_features=self.single_representation_embedding,
+                                      out_features=self.head_embedding_dimension * self.number_heads,
+                                      bias=True, device=self.device, dtype=self.dtype)
+        self.query_embedder = nn.Linear(in_features=self.single_representation_embedding,
+                                        out_features=self.head_embedding_dimension * self.number_heads,
+                                        bias=True, device=self.device, dtype=self.dtype)
+        self.value_embedder = nn.Linear(in_features=self.single_representation_embedding,
+                                        out_features=self.head_embedding_dimension * self.number_heads,
+                                        bias=True, device=self.device, dtype=self.dtype)
 
-        self.linear_k_points = nn.Linear(in_features=self.single_representation_embedding,
-                                         out_features=self.number_heads * self.number_query_points * 3,
-                                         bias=True, device=self.device, dtype=self.dtype)
-        self.linear_q_points = nn.Linear(in_features=self.single_representation_embedding,
-                                         out_features=self.number_heads * self.number_query_points * 3,
-                                         bias=True, device=self.device, dtype=self.dtype)
-        self.linear_v_points = nn.Linear(in_features=self.single_representation_embedding,
-                                         out_features=self.number_heads * self.number_value_points * 3,
-                                         bias=True, device=self.device, dtype=self.dtype)
+        self.key_points_embedder = nn.Linear(in_features=self.single_representation_embedding,
+                                             out_features=self.number_heads * self.number_query_points * 3,
+                                             bias=True, device=self.device, dtype=self.dtype)
+        self.query_points_embedder = nn.Linear(in_features=self.single_representation_embedding,
+                                               out_features=self.number_heads * self.number_query_points * 3,
+                                               bias=True, device=self.device, dtype=self.dtype)
+        self.value_points_embedder = nn.Linear(in_features=self.single_representation_embedding,
+                                               out_features=self.number_heads * self.number_value_points * 3,
+                                               bias=True, device=self.device, dtype=self.dtype)
 
-        self.linear_b = nn.Linear(in_features=self.pair_representation_embedding,
-                                  out_features=self.number_heads,
-                                  bias=True, device=self.device, dtype=self.dtype)
+        # Here the bias embedder is used to get the pair_representation, which is our bias
+        # to an embedding of number of heads
+        self.bias_embedder = nn.Linear(in_features=self.pair_representation_embedding,
+                                       out_features=self.number_heads,
+                                       bias=True, device=self.device, dtype=self.dtype)
 
-        self.linear_out = nn.Linear(
-            in_features=self.number_heads * (self.head_embedding_dimension +
-                                             self.pair_representation_embedding +
-                                             self.number_value_points * 4),
-            out_features=self.single_representation_embedding,
-            bias=True, device=self.device, dtype=self.dtype)
+        # Attention applied on pair representation :
+        # From (..., number_heads, number_residues, number_residues, pair_representation_embedding)
+        # To -> (..., number_residues, number_residues, number_heads * pair_representation_embedding)
+        # Because it is broadcasted to number_heads at one point todo to be added
+        # Attention applied on classic value :
+        # From (..., number_heads, number_residues, number_channels)
+        # To -> (..., number_residues, number_heads * number_channels)
+        # Attention applied on value point :
+        # From (..., number_heads, number_value_points, number_residues, 3)
+        # To -> (..., number_residues, number_heads * number_value_points * 3)
+        # Norm of Attention applied on value point :
+        # From (..., number_heads, number_value_points, number_residues)
+        # To -> (..., number_residues, number_heads * number_value_points)
+        self.linear_out = nn.Linear(in_features=self.number_heads * (self.head_embedding_dimension +
+                                                                     self.pair_representation_embedding +
+                                                                     self.number_value_points * 4),
+                                    out_features=self.single_representation_embedding,
+                                    bias=True, device=self.device, dtype=self.dtype)
 
         self.head_weights = nn.Parameter(torch.zeros((self.number_heads,), device=self.device, dtype=self.dtype))
         self.softplus = nn.Softplus()
@@ -138,11 +152,13 @@ class InvariantPointAttention(nn.Module):
         number_query_points = self.number_query_points
         number_value_points = self.number_value_points
 
-        layers = [self.linear_q, self.linear_k, self.linear_v, self.linear_q_points, self.linear_k_points,
-                  self.linear_v_points]
+        layers = [self.query_embedder, self.key_embedder, self.value_embedder,
+                  self.query_points_embedder, self.key_points_embedder, self.value_points_embedder]
+
+        # Run single representation through all layers.
         embeddings = [layer(single_representation) for layer in layers]
 
-        # Solution proposed by Kilian Mandon
+        # Reshape can be done in multiple ways
         shape_adds = [
             (number_heads, head_embedding_dimension),
             (number_heads, head_embedding_dimension),
@@ -155,23 +171,13 @@ class InvariantPointAttention(nn.Module):
         out_shapes = [out.shape[:-1] + shape_add for out, shape_add in zip(embeddings, shape_adds)]
         embeddings = [out.view(out_shape) for out, out_shape in zip(embeddings, out_shapes)]
         for i in range(3):
+            # Move number_residue_dimension to -2 spot
+            # (..., number_heads, num_residues, number_channels)
             embeddings[i] = embeddings[i].movedim(-3, -2)
         for i in range(3, 6):
+            # Move position coordinates to last spot and move number_residues to -2 spot
+            # # From (..., number_heads, num_residues, number_value_points, 3)
             embeddings[i] = embeddings[i].movedim(-3, -1).movedim(-4, -2)
-
-        # TODO Decide on which implementation makes sense.
-        # # Personal implementation
-        # for i in range(3):
-        #     embedding_chunks = torch.split(embeddings[i], split_size_or_sections=self.head_embedding_dimension, dim=-1)
-        #     embeddings[i] = torch.stack(embedding_chunks, dim=-3)
-        #     print_shape(name="After Reshape Tensor Points", tensor=embeddings[i])
-        #
-        # points = [number_query_points, number_query_points, number_value_points]
-        # for i in range(3,6):
-        #     embedding_chunks = torch.split(embeddings[i], split_size_or_sections=points[i%3]*3, dim=-1)
-        #     embeddings[i] = torch.stack(embedding_chunks, dim=-3)
-        #     embedding_chunks = torch.split(embeddings[i], split_size_or_sections=3, dim=-1)
-        #     embeddings[i] = torch.stack(embedding_chunks, dim=-3)
 
         return embeddings
 
@@ -210,27 +216,33 @@ class InvariantPointAttention(nn.Module):
         wl = math.sqrt(1 / 3)
 
         # Standard dot-product attention
+        # Shape : (..., number_heads, number_residues, number_residues)
         scaler = math.sqrt(1 / self.head_embedding_dimension)
         attention = torch.matmul(query_tensor, torch.transpose(key_tensor, dim0=-1, dim1=-2)) * scaler
 
         # Calculate attention bias from pair representation
-        bias = self.linear_b(pair_representation)
+        # First turn pair_representation_embedding to number_heads for addition broadcasting.
+        # So dimension (..., number_residues, number_residues, pair_representation_embedding)
+        # to (..., number_residues, number_residues, number_heads)
+        bias = self.bias_embedder(pair_representation)
+        # Move Dimensions to match attention broadcasting (..., number_residues, number_residues, number_heads)
+        # (..., number_heads, number_residues, number_residues) to be broadcasted to attention matrix
         bias = bias.movedim(source=-1, destination=-3)
 
         # Reshape transformation matrix for broadcasting with point coordinates
+        # Transformation Matrix (..., number_residues, 4, 4)
+        # Point matrices (..., number_heads, number_query_points, number_residues, 3)
+        # So we need to unsqueeze transformation matrix to (..., 1, 1, number_residues, 4, 4)
+        # To account for number_heads, number_query_points that are not in the transformation matrix.
         transformation_matrix = transformation_matrix.unsqueeze(dim=-4).unsqueeze(dim=-4)
 
         # Calculate geometric attention weights
         scaled_head_weights = self.softplus(self.head_weights) * (wc / 2)
         scaled_head_weights = scaled_head_weights.view((-1, 1, 1))
 
-        # Personal Implementation
-        # global_query = apply_transformation_on_vector(transformation_matrix=transformation_matrix, vector=query_point_tensor)
-        # global_key = apply_transformation_on_vector(transformation_matrix=transformation_matrix, vector=key_point_tensor)
-        # key_query_distance_squared = torch.linalg.vector_norm(global_key.unsqueeze(-3) - global_query.unsqueeze(-2), dim=-1, keepdim=True)**2
-        # proposal that might need to be checked to be properly understood especially the outer product
-
         # Transform points to the global frame and compute squared distances
+        # Be careful, inverting the unsqueeze dimension does not yield the same results,
+        # but nevertheless can be trained both ways.
         global_query = apply_transformation_on_vector(transformation_matrix=transformation_matrix,
                                                       vector=query_point_tensor).unsqueeze(-2)
         global_key = apply_transformation_on_vector(transformation_matrix=transformation_matrix,
@@ -288,7 +300,7 @@ class InvariantPointAttention(nn.Module):
         # 3D Point value aggregation
         transformation_matrix = transformation_matrix.unsqueeze(dim=-4).unsqueeze(dim=-4)
         global_value_point_output = apply_transformation_on_vector(transformation_matrix=transformation_matrix,
-                                                            vector=value_point_tensor)
+                                                                   vector=value_point_tensor)
         scaled_global_value_point = torch.einsum('...Bij,...BNjk->...BNik',
                                                  attention_scores, global_value_point_output)
 
