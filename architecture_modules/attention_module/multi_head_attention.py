@@ -201,7 +201,7 @@ if __name__ == "__main__":
     from pathlib import Path
     from utilities.tensor_utilities import get_device, print_tensor_shape
     from feature_extraction.extractor import FeatureExtractor
-    from embedders.input_embedder.embedder import InputEmbedder
+    from embedders.input_embedder import InputEmbedder
 
     # Robust path to the test file
     current_file_path = Path(__file__).resolve()
