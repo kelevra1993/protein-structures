@@ -104,10 +104,10 @@ class InvariantPointAttention(nn.Module):
                                        out_features=self.number_heads,
                                        bias=True, device=self.device, dtype=self.dtype)
 
-        # Attention applied on pair representation :
-        # From (..., number_heads, number_residues, number_residues, pair_representation_embedding)
-        # To -> (..., number_residues, number_residues, number_heads * pair_representation_embedding)
-        # Because it is broadcasted to number_heads at one point todo to be added
+        # Attention applied on pair representation + merging last dimensions :
+        # From (..., number_residues, number_residues, pair_representation_embedding)
+        # To -> (..., number_residues, number_heads * pair_representation_embedding)
+        # Because it is broadcasted to number_heads at one point (through torch.einsum)
         # Attention applied on classic value :
         # From (..., number_heads, number_residues, number_channels)
         # To -> (..., number_residues, number_heads * number_channels)
@@ -176,7 +176,7 @@ class InvariantPointAttention(nn.Module):
             embeddings[i] = embeddings[i].movedim(-3, -2)
         for i in range(3, 6):
             # Move position coordinates to last spot and move number_residues to -2 spot
-            # # From (..., number_heads, num_residues, number_value_points, 3)
+            # From (..., number_heads, number_value_points, num_residues, 3)
             embeddings[i] = embeddings[i].movedim(-3, -1).movedim(-4, -2)
 
         return embeddings
@@ -290,17 +290,21 @@ class InvariantPointAttention(nn.Module):
 
         # Scalar value aggregation (classic attention)
         value_output = torch.einsum('...hij,...hjc->...hic', attention_scores, value_tensor)
+        # (..., number_residues, number_heads * number_channels)
         value_output = value_output.movedim(source=-3, destination=-2).flatten(start_dim=-2)
 
         # Pairwise representation aggregation
+        # (..., number_residues, number_heads * pair_representation_embedding)
         pair_representation_output = torch.einsum('...hij,...ijc->...hic', attention_scores, pair_representation)
         pair_representation_output = pair_representation_output.movedim(
             source=-3, destination=-2).flatten(start_dim=-2, end_dim=-1)
 
         # 3D Point value aggregation
+        # Same explaination as in compute_attention_scores for why we unsqueeze twice at dimension -4
         transformation_matrix = transformation_matrix.unsqueeze(dim=-4).unsqueeze(dim=-4)
         global_value_point_output = apply_transformation_on_vector(transformation_matrix=transformation_matrix,
                                                                    vector=value_point_tensor)
+        # scaled_global_value_point : (..., number_heads, number_value_points, num_residues, 3)
         scaled_global_value_point = torch.einsum('...Bij,...BNjk->...BNik',
                                                  attention_scores, global_value_point_output)
 
@@ -308,9 +312,16 @@ class InvariantPointAttention(nn.Module):
         value_point_output = apply_transformation_on_vector(
             transformation_matrix=invert_4x4_transform_matrix(transformation_matrix),
             vector=scaled_global_value_point)
+        # Move coordinates to dimension spot -3 and residues to spot -4
+        # (..., num_residues, 3, number_heads, number_value_points)
         value_point_output = torch.einsum('...hpic->...ichp', value_point_output)
+        # Normalise on the points
+        # (..., num_residues, 1, number_heads, number_value_points)
         value_point_output_norm = torch.linalg.vector_norm(value_point_output, dim=-3, keepdim=True)
 
+        # Flatten to :
+        # Vector (..., num_residues, number_heads * 3 * number_value_points)
+        # Norm (..., num_residues, number_heads * number_value_points)
         value_point_output = value_point_output.flatten(start_dim=-3)
         value_point_output_norm = value_point_output_norm.flatten(start_dim=-3)
 
