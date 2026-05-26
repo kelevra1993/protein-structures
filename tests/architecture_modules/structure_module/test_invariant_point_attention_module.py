@@ -3,7 +3,6 @@ import torch
 
 from architecture_modules.structure_module.invariant_point_attention_module import InvariantPointAttention
 from tests.utilities.testing_utilities import check_nn_module_method, get_structure_module_test_inputs
-from utilities.tensor_utilities import get_device
 
 
 def test_invariant_point_attention_forward():

@@ -1,67 +1,62 @@
-"""
-TODO : Note to self
-Rename c_s -> single_representation_embedding
-Rename c_z -> pair_representation_embedding
-Rename n_query_points -> number_query_points
-Rename n_point_values -> number_value_points
-Rename N_head -> number_heads
-Rename c -> head_embedding_dimension
-Rename s -> single_representation
-Rename z -> pair_representation
-Rename q -> query_tensor
-Rename k -> key_tensor
-Rename qp-> query_point_tensor
-Rename kp-> key_point_tensor
-Rename T -> transformation_matrix
-Rename warp_3d_point -> apply_transformation_on_vector
-Rename N_res -> number_residues
-"""
-
+import os
 import torch
-import math
 
-n_layer = 2
-N = 3
-c_m = 4
-c_z = 5
-c = 6
-N_head = 7
-N_seq = 8
-N_extra = 9
-N_res = 10
-c_s = 11
-n_qp = 12
-n_pv = 13
-n_torsion_angles = 7
+from architecture_modules.structure_module.structure_module import StructureModule
+from tests.utilities.testing_utilities import check_nn_module_method, get_structure_module_test_inputs
 
-feature_shapes = {
-    'm': (N_seq, N_res, c_m),
-    's': (N_res, c_s),
-    'z': (N_res, N_res, c_z),
-    'residue_index': (N_res,),
-    'x': (N_res, 3),
-    'q': (N_head, N_res, c),
-    'k': (N_head, N_res, c),
-    'v': (N_head, N_res, c),
-    'qp': (N_head, n_qp, N_res, 3),
-    'kp': (N_head, n_qp, N_res, 3),
-    'vp': (N_head, n_pv, N_res, 3),
-    'T': (N_res, 4, 4),
-    'att_scores': (N_head, N_res, N_res),
-    'a': (N_res, c),
-    's_initial': (N_res, c_s),
-    'alpha': (N_res, n_torsion_angles, 2),
-    'F': (N_res,),
-}
+def test_structure_module_forward():
+    device = torch.device('cpu')
+    dtype = torch.float64
 
-batched_feature_shapes = {
-    key: (N,) + value
-    for key, value in feature_shapes.items()
-}
+    config, combined_inputs = get_structure_module_test_inputs()
 
-test_inputs = {
-    key: torch.linspace(-2-i/5, 2+i/5, math.prod(shape)).reshape(shape).double()
-    for i, (key, shape) in enumerate(feature_shapes.items())
-}
+    reference_folder = os.path.join(os.path.dirname(__file__), 'reference_values')
 
-test_inputs['F'] = torch.arange(test_inputs['F'].numel()).reshape(test_inputs['F'].shape) % 20
+    simple_inputs = {k: v[0] for k, v in combined_inputs.items()}
+    batched_inputs = {k: v[1] for k, v in combined_inputs.items()}
+
+    # Initialize the module
+    module = StructureModule(
+        single_representation_embedding=config["single_representation_embedding"],
+        pair_representation_embedding=config["pair_representation_embedding"],
+        device=device,
+        dtype=dtype,
+        number_layers=config["number_layers"],
+        # Assuming angle_representation_embedding in StructureModule defaults to 128,
+        # or we use the head_embedding_dimension if we want to match the shapes dict
+        # but let's just let it use defaults or we can pass head_embedding_dimension
+        angle_representation_embedding=config["head_embedding_dimension"], 
+        number_query_points=4,
+        number_value_points=8,
+        number_heads=12,
+        head_embedding_dimension=16
+    )
+
+    input_tensor_dictionary = {
+        "single_representation": simple_inputs["single_representation"].to(device),
+        "pair_representation": simple_inputs["pair_representation"].to(device),
+        "sequence_amino_acid_labels": simple_inputs["sequence_amino_acid_labels"].to(device),
+    }
+
+    batched_input_tensor_dictionary = {
+        "single_representation": batched_inputs["single_representation"].to(device),
+        "pair_representation": batched_inputs["pair_representation"].to(device),
+        "sequence_amino_acid_labels": batched_inputs["sequence_amino_acid_labels"].to(device),
+    }
+
+    output_tensor_names = [
+        "structure_module_angles", 
+        "structure_module_frames", 
+        "structure_module_final_positions", 
+        "structure_module_position_mask", 
+        "structure_module_pseudo_beta_positions"
+    ]
+
+    check_nn_module_method(
+        module=module,
+        input_tensor_dictionary=input_tensor_dictionary,
+        output_tensor_names=output_tensor_names,
+        reference_folder=reference_folder,
+        batch_size=config["batch_size"],
+        batched_input_tensor_dictionary=batched_input_tensor_dictionary
+    )

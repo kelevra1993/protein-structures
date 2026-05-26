@@ -1,6 +1,6 @@
-
 import torch
 from torch import nn
+from typing import Tuple
 
 from architecture_modules.structure_module.invariant_point_attention_module import InvariantPointAttention
 from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_4x4_transform_matrix, \
@@ -233,10 +233,10 @@ class StructureModule(nn.Module):
     """
 
     def __init__(self, single_representation_embedding: int, pair_representation_embedding: int,
-                 device: torch.device, dtype: torch.dtype,
-                 number_layers: int = 8, angle_representation_embedding: int = 128,
-                 number_query_points: int = 4, number_value_points: int = 8,
-                 number_heads: int = 12, head_embedding_dimension: int = 16):
+                 number_layers: int, angle_representation_embedding: int,
+                 number_query_points: int, number_value_points: int,
+                 number_heads: int, head_embedding_dimension: int,
+                 device: torch.device, dtype: torch.dtype):
         """
         Initializes the StructureModule.
 
@@ -245,12 +245,12 @@ class StructureModule(nn.Module):
             pair_representation_embedding (int): Feature dimension of the pair representation.
             device (torch.device): Device for tensor allocation.
             dtype (torch.dtype): Data type for tensors.
-            number_layers (int): Number of iterative updates. Defaults to 8.
-            angle_representation_embedding (int): Dimension for angle ResNet. Defaults to 128.
-            number_query_points (int): Number of geometric query points for IPA. Defaults to 4.
-            number_value_points (int): Number of geometric value points for IPA. Defaults to 8.
-            number_heads (int): Number of attention heads for IPA. Defaults to 12.
-            head_embedding_dimension (int): Hidden dimension per head for IPA. Defaults to 16.
+            number_layers (int): Number of iterative updates.
+            angle_representation_embedding (int): Dimension for angle ResNet.
+            number_query_points (int): Number of geometric query points for IPA.
+            number_value_points (int): Number of geometric value points for IPA.
+            number_heads (int): Number of attention heads for IPA.
+            head_embedding_dimension (int): Hidden dimension per head for IPA.
         """
         super().__init__()
 
@@ -344,8 +344,10 @@ class StructureModule(nn.Module):
 
         return final_positions, position_mask, pseudo_beta_positions
 
-    def forward(self, single_representation: torch.Tensor, pair_representation: torch.Tensor,
-                sequence_amino_acid_labels: torch.Tensor) -> dict:
+    def forward(self, single_representation: torch.Tensor,
+                pair_representation: torch.Tensor,
+                sequence_amino_acid_labels: torch.Tensor) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the iterative Structure Module pipeline.
 
@@ -357,8 +359,7 @@ class StructureModule(nn.Module):
             sequence_amino_acid_labels (torch.Tensor): Amino acid types.
                 Shape: `(..., number_residues)`.
 
-        Returns:
-            dict: A dictionary containing predicted angles, frames, and final Cartesian coordinates.
+        # todo properly document outputs
         """
         number_residues = pair_representation.shape[-2]
         batch_dimension = single_representation.shape[:-2]
@@ -400,16 +401,12 @@ class StructureModule(nn.Module):
             outputs['angles'].append(residue_angles)
             outputs['frames'].append(transformation_matrix)
 
-        outputs['angles'] = torch.stack(outputs['angles'], dim=-4)
-        outputs['frames'] = torch.stack(outputs['frames'], dim=-4)
+        angles = torch.stack(outputs['angles'], dim=-4)
+        frames = torch.stack(outputs['frames'], dim=-4)
 
         final_positions, position_mask, pseudo_beta_positions = self.process_outputs(
             transformation_matrix=transformation_matrix,
             residue_angles=residue_angles,
             sequence_amino_acid_labels=sequence_amino_acid_labels)
 
-        outputs['final_positions'] = final_positions
-        outputs['position_mask'] = position_mask
-        outputs['pseudo_beta_positions'] = pseudo_beta_positions
-
-        return outputs
+        return angles, frames, final_positions, position_mask, pseudo_beta_positions
