@@ -12,166 +12,170 @@ from architecture_modules.structure_module.structure_module import StructureModu
 
 class Model(nn.Module):
 
-    def __init__(self, input_sequence_feature_dimension: int = 21, input_msa_feature_dimension: int = 49,
-                 input_extra_msa_feature_dimension: int = 25, number_neighbouring_amino_acids: int = 32,
-                 single_representation_embedding: int = 384, pair_representation_embedding: int = 128,
-                 msa_embedding: int = 256, extra_msa_embedding: int = 64,
-                 number_extra_msa_blocks: int = 4, number_evoformer_blocks: int = 48,
-                 extra_msa_stack_msa_number_heads: int = 8, extra_msa_stack_msa_head_embedding_dimension: int = 32,
-                 extra_msa_stack_msa_global_number_heads: int = 8, extra_msa_stack_msa_global_head_embedding_dimension: int = 8,
-                 extra_msa_stack_pair_number_heads: int = 4, extra_msa_stack_pair_head_embedding_dimension: int = 32,
-                 extra_msa_stack_intermediate_embedding: int = 32, extra_msa_stack_channel_scaler: int = 4,
-                 extra_msa_stack_triangle_multiplication_embedding: int = 128,
-                 evoformer_msa_number_heads: int = 8, evoformer_msa_head_embedding_dimension: int = 32,
-                 evoformer_pair_number_heads: int = 4, evoformer_pair_head_embedding_dimension: int = 32,
-                 evoformer_channel_scaler: int = 4, evoformer_intermediate_embedding: int = 32,
-                 evoformer_triangle_multiplication_embedding: int = 128,
-                 structure_module_number_heads: int = 12, structure_module_head_embedding_dimension: int = 16,
-                 number_query_points: int = 4, number_value_points: int = 8,
-                 number_structure_module_iterations: int = 8, number_torsion_angles: int = 7,
-                 device: torch.device = None, dtype: torch.dtype = None):
+    def __init__(self, configuration: dict, device: torch.device = None, dtype: torch.dtype = None):
         """
-        Initializes the Alphafold model.
+        Initializes the Alphafold model using a configuration dictionary.
 
         Args:
-            msa_embedding (int, optional): Number of channels for the MSA representation. Defaults to 256.
-            pair_representation_embedding (int, optional): Number of channels for the pair representation. Defaults to 128.
-            extra_msa_embedding (int, optional): Number of channels for the extra MSA representation. Defaults to 64.
-            input_extra_msa_feature_dimension (int, optional): Number of channels of the extra MSA feature. Defaults to 25.
-            input_sequence_feature_dimension (int, optional): Number of channels of the target feature. Defaults to 22.
-            input_msa_feature_dimension (int, optional): Dimension of input MSA features. Defaults to 49.
-            number_neighbouring_amino_acids (int, optional): Window size for relative position encoding. Defaults to None.
-            single_representation_embedding (int, optional): Number of channels for the single representation. Defaults to 384.
-            number_extra_msa_blocks (int, optional): Number of blocks for the extra MSA stack. Defaults to 4.
-            number_evoformer_blocks (int, optional): Number of blocks for the Evoformer. Defaults to 48.
-            extra_msa_stack_msa_number_heads (int, optional): Number of attention heads for the MSA row-wise attention. Defaults to None.
-            extra_msa_stack_msa_head_embedding_dimension (int, optional): Dimension per attention head for the MSA row-wise attention. Defaults to None.
-            extra_msa_stack_msa_global_number_heads (int, optional): Number of attention heads for the MSA global column-wise attention. Defaults to None.
-            extra_msa_stack_msa_global_head_embedding_dimension (int, optional): Dimension per attention head for the MSA global column-wise attention. Defaults to None.
-            extra_msa_stack_pair_number_heads (int, optional): Number of attention heads for the pair stack embedder. Defaults to None.
-            extra_msa_stack_pair_head_embedding_dimension (int, optional): Dimension per attention head for the pair stack embedder. Defaults to None.
-            extra_msa_stack_intermediate_embedding (int, optional): Intermediate dimension for OuterProductMean in Extra MSA stack. Defaults to None.
-            extra_msa_stack_channel_scaler (int, optional): Channel scaler for transition layers in Extra MSA stack. Defaults to None.
-            extra_msa_stack_triangle_multiplication_embedding (int, optional): Dimension for triangle multiplication in Extra MSA stack. Defaults to None.
-            evoformer_msa_number_heads (int, optional): Number of attention heads for the MSA stack in Evoformer. Defaults to None.
-            evoformer_msa_head_embedding_dimension (int, optional): Dimension per attention head for the MSA stack in Evoformer. Defaults to None.
-            evoformer_pair_number_heads (int, optional): Number of attention heads for the Pair stack in Evoformer. Defaults to None.
-            evoformer_pair_head_embedding_dimension (int, optional): Dimension per attention head for the Pair stack in Evoformer. Defaults to None.
-            evoformer_channel_scaler (int, optional): Channel scaler for hidden layers in Evoformer. Defaults to None.
-            evoformer_intermediate_embedding (int, optional): Intermediate dimension for outer product mean in Evoformer. Defaults to None.
-            evoformer_triangle_multiplication_embedding (int, optional): Dimension for triangle multiplication in Evoformer. Defaults to None.
-            structure_module_number_heads (int, optional): Number of attention heads for the Structure Module. Defaults to None.
-            structure_module_head_embedding_dimension (int, optional): Dimension of each attention head for the Structure Module. Defaults to None.
-            number_query_points (int, optional): Number of query points. Defaults to None.
-            number_value_points (int, optional): Number of value points. Defaults to None.
-            # update this number_structure_module_iterations (int, optional): Number of layers in the Structure Module. Defaults to None.
-            number_torsion_angles (int, optional): Number of torsion angles to predict. Defaults to None.
+            configuration (dict): A dictionary parsed from a YAML configuration file.
             device (torch.device, optional): Device on which the model should run.
             dtype (torch.dtype, optional): Data type of the model.
         """
         super().__init__()
 
-        self.msa_embedding = msa_embedding
-        self.pair_representation_embedding = pair_representation_embedding
-        self.extra_msa_embedding = extra_msa_embedding
-        self.single_representation_embedding = single_representation_embedding
-        self.input_extra_msa_feature_dimension = input_extra_msa_feature_dimension
-        self.input_sequence_feature_dimension = input_sequence_feature_dimension
-        self.input_msa_feature_dimension = input_msa_feature_dimension
-        self.number_neighbouring_amino_acids = number_neighbouring_amino_acids
-        self.number_extra_msa_blocks = number_extra_msa_blocks
-        self.number_evoformer_blocks = number_evoformer_blocks
-        self.extra_msa_stack_msa_number_heads = extra_msa_stack_msa_number_heads
-        self.extra_msa_stack_msa_head_embedding_dimension = extra_msa_stack_msa_head_embedding_dimension
-        self.extra_msa_stack_msa_global_number_heads = extra_msa_stack_msa_global_number_heads
-        self.extra_msa_stack_msa_global_head_embedding_dimension = extra_msa_stack_msa_global_head_embedding_dimension
-        self.extra_msa_stack_pair_number_heads = extra_msa_stack_pair_number_heads
-        self.extra_msa_stack_pair_head_embedding_dimension = extra_msa_stack_pair_head_embedding_dimension
-        self.extra_msa_stack_intermediate_embedding = extra_msa_stack_intermediate_embedding
-        self.extra_msa_stack_channel_scaler = extra_msa_stack_channel_scaler
-        self.extra_msa_stack_triangle_multiplication_embedding = extra_msa_stack_triangle_multiplication_embedding
-        
-        self.evoformer_msa_number_heads = evoformer_msa_number_heads
-        self.evoformer_msa_head_embedding_dimension = evoformer_msa_head_embedding_dimension
-        self.evoformer_pair_number_heads = evoformer_pair_number_heads
-        self.evoformer_pair_head_embedding_dimension = evoformer_pair_head_embedding_dimension
-        self.evoformer_channel_scaler = evoformer_channel_scaler
-        self.evoformer_intermediate_embedding = evoformer_intermediate_embedding
-        self.evoformer_triangle_multiplication_embedding = evoformer_triangle_multiplication_embedding
-        
-        self.structure_module_number_heads = structure_module_number_heads
-        self.structure_module_head_embedding_dimension = structure_module_head_embedding_dimension
-        self.number_query_points = number_query_points
-        self.number_value_points = number_value_points
-        self.number_structure_module_iterations = number_structure_module_iterations
-        self.number_torsion_angles = number_torsion_angles
         self.device = device
         self.dtype = dtype
 
+        global_configuration = configuration.get('GlobalConfiguration', {})
+        input_embedder_configuration = configuration.get('InputEmbedder', {})
+        extra_msa_stack_configuration = configuration.get('ExtraMsaStack', {})
+        evoformer_stack_configuration = configuration.get('EvoformerStack', {})
+        structure_module_configuration = configuration.get('StructureModule', {})
+
+        # TODO Kept for usage in the forward pass
+        self.msa_embedding = global_configuration.get('msa_embedding')
+        self.pair_representation_embedding = global_configuration.get('pair_representation_embedding')
+        self.extra_msa_embedding = global_configuration.get('extra_msa_embedding')
+        self.single_representation_embedding = global_configuration.get('single_representation_embedding')
+
         self.input_embedder = InputEmbedder(
-            input_sequence_feature_dimension=self.input_sequence_feature_dimension,
-            input_msa_feature_dimension=self.input_msa_feature_dimension,
-            input_extra_msa_feature_dimension=self.input_extra_msa_feature_dimension,
-            msa_embedding=self.msa_embedding,
-            extra_msa_embedding=self.extra_msa_embedding,
-            pair_representation_embedding=self.pair_representation_embedding,
-            number_neighbouring_amino_acids=self.number_neighbouring_amino_acids,
+            input_sequence_feature_dimension=global_configuration.get('input_sequence_feature_dimension'),
+            input_msa_feature_dimension=global_configuration.get('input_msa_feature_dimension'),
+            input_extra_msa_feature_dimension=global_configuration.get('input_extra_msa_feature_dimension'),
+            msa_embedding=global_configuration.get('msa_embedding'),
+            extra_msa_embedding=global_configuration.get('extra_msa_embedding'),
+            pair_representation_embedding=global_configuration.get('pair_representation_embedding'),
+            number_neighbouring_amino_acids=input_embedder_configuration.get('number_neighbouring_amino_acids'),
             device=self.device,
-            dtype=self.dtype
-        )
+            dtype=self.dtype)
+
         self.extra_msa_embedder = ExtraMsaEmbedder(
-            input_extra_msa_feature_dimension=self.input_extra_msa_feature_dimension,
-            extra_msa_embedding=self.extra_msa_embedding,
+            input_extra_msa_feature_dimension=global_configuration.get('input_extra_msa_feature_dimension'),
+            extra_msa_embedding=global_configuration.get('extra_msa_embedding'),
             device=self.device,
-            dtype=self.dtype
-        )
+            dtype=self.dtype)
+
         self.recycling_embedder = RecyclingEmbedder(
-            msa_embedding=self.msa_embedding,
-            pair_representation_embedding=self.pair_representation_embedding,
+            msa_embedding=global_configuration.get('msa_embedding'),
+            pair_representation_embedding=global_configuration.get('pair_representation_embedding'),
             device=self.device,
-            dtype=self.dtype
-        )
+            dtype=self.dtype)
+
         self.extra_msa_stack = ExtraMsaStack(
-            extra_msa_embedding=self.extra_msa_embedding,
-            pair_representation_embedding=self.pair_representation_embedding,
-            number_blocks=self.number_extra_msa_blocks,
-            msa_number_heads=self.extra_msa_stack_msa_number_heads,
-            msa_head_embedding_dimension=self.extra_msa_stack_msa_head_embedding_dimension,
-            msa_global_number_heads=self.extra_msa_stack_msa_global_number_heads,
-            msa_global_head_embedding_dimension=self.extra_msa_stack_msa_global_head_embedding_dimension,
-            pair_number_heads=self.extra_msa_stack_pair_number_heads,
-            pair_head_embedding_dimension=self.extra_msa_stack_pair_head_embedding_dimension,
-            intermediate_embedding=self.extra_msa_stack_intermediate_embedding,
-            channel_scaler=self.extra_msa_stack_channel_scaler,
-            triangle_multiplication_embedding=self.extra_msa_stack_triangle_multiplication_embedding,
+            extra_msa_embedding=global_configuration.get('extra_msa_embedding'),
+            pair_representation_embedding=global_configuration.get('pair_representation_embedding'),
+            number_blocks=extra_msa_stack_configuration.get('number_blocks'),
+            msa_number_heads=extra_msa_stack_configuration.get('msa_number_heads'),
+            msa_head_embedding_dimension=extra_msa_stack_configuration.get('msa_head_embedding_dimension'),
+            msa_global_number_heads=extra_msa_stack_configuration.get('msa_global_number_heads'),
+            msa_global_head_embedding_dimension=extra_msa_stack_configuration.get('msa_global_head_embedding_dimension'),
+            pair_number_heads=extra_msa_stack_configuration.get('pair_number_heads'),
+            pair_head_embedding_dimension=extra_msa_stack_configuration.get('pair_head_embedding_dimension'),
+            intermediate_embedding=extra_msa_stack_configuration.get('intermediate_embedding'),
+            channel_scaler=extra_msa_stack_configuration.get('channel_scaler'),
+            triangle_multiplication_embedding=extra_msa_stack_configuration.get('triangle_multiplication_embedding'),
             device=self.device,
-            dtype=self.dtype
-        )
+            dtype=self.dtype)
+
         self.evoformer = EvoformerStack(
-            msa_embedding=self.msa_embedding,
-            pair_representation_embedding=self.pair_representation_embedding,
-            number_blocks=self.number_evoformer_blocks,
-            msa_number_heads=self.evoformer_msa_number_heads,
-            msa_head_embedding_dimension=self.evoformer_msa_head_embedding_dimension,
-            pair_number_heads=self.evoformer_pair_number_heads,
-            pair_head_embedding_dimension=self.evoformer_pair_head_embedding_dimension,
-            channel_scaler=self.evoformer_channel_scaler,
-            intermediate_embedding=self.evoformer_intermediate_embedding,
-            triangle_multiplication_embedding=self.evoformer_triangle_multiplication_embedding,
-            single_representation_embedding=self.single_representation_embedding,
+            msa_embedding=global_configuration.get('msa_embedding'),
+            pair_representation_embedding=global_configuration.get('pair_representation_embedding'),
+            number_blocks=evoformer_stack_configuration.get('number_blocks'),
+            msa_number_heads=evoformer_stack_configuration.get('msa_number_heads'),
+            msa_head_embedding_dimension=evoformer_stack_configuration.get('msa_head_embedding_dimension'),
+            pair_number_heads=evoformer_stack_configuration.get('pair_number_heads'),
+            pair_head_embedding_dimension=evoformer_stack_configuration.get('pair_head_embedding_dimension'),
+            channel_scaler=evoformer_stack_configuration.get('channel_scaler'),
+            intermediate_embedding=evoformer_stack_configuration.get('intermediate_embedding'),
+            triangle_multiplication_embedding=evoformer_stack_configuration.get('triangle_multiplication_embedding'),
+            single_representation_embedding=global_configuration.get('single_representation_embedding'),
             device=self.device,
-            dtype=self.dtype
-        )
+            dtype=self.dtype)
+
         self.structure_module = StructureModule(
-            single_representation_embedding=self.single_representation_embedding,
-            pair_representation_embedding=self.pair_representation_embedding,
-            number_heads=self.structure_module_number_heads,
-            head_embedding_dimension=self.structure_module_head_embedding_dimension,
-            number_query_points=self.number_query_points,
-            number_value_points=self.number_value_points,
-            number_iterations=self.number_structure_module_iterations,
-            number_torsion_angles=self.number_torsion_angles,
+            single_representation_embedding=global_configuration.get('single_representation_embedding'),
+            pair_representation_embedding=global_configuration.get('pair_representation_embedding'),
+            number_iterations=structure_module_configuration.get('number_structure_module_iterations'),
+            angle_representation_embedding=global_configuration.get('single_representation_embedding'),
+            number_query_points=structure_module_configuration.get('number_query_points'),
+            number_value_points=structure_module_configuration.get('number_value_points'),
+            number_heads=structure_module_configuration.get('number_heads'),
+            head_embedding_dimension=structure_module_configuration.get('head_embedding_dimension'),
+            number_torsion_angles=structure_module_configuration.get('number_torsion_angles'),
             device=self.device,
-            dtype=self.dtype
-        )
+            dtype=self.dtype)
+
+
+
+
+
+
+    """
+    Note for documentation : 
+    here the forward expects a dictionary that looks like this :
+    batch={
+        'msa_feat': msa_feat,
+        'extra_msa_feat': extra_msa_feat,
+        'target_feat': target_feat,
+        'residue_index': residue_index
+    }
+    but in our code,
+    we change the feature extractor so that it can output something like this :
+    input_sequence_feature (this corresponds to target_feat)
+    input_residue_index_feature (this corresponds to residue_index)
+    input_msa_feature (this corresponds to msa_feat)
+    input_extra_msa_feature (this corresponds to extra_msa_feat)
+    so change the keys in the batch dictionary accordingly.
+    """
+
+    def forward(self, batch):
+        """
+        Forward pass for the Alphafold model.
+
+        Args:
+            batch (dict): A dictionary containing the following features:
+                * msa_feat:  Tensor of shape (*, N_seq, N_res, msa_feat_dim, N_cycle).
+                * extra_msa_feat: Tensor of shape (*, N_extra, N_res, f_e, N_cycle).
+                * target_feat: Tensor of shape (*, N_res, tf_dim, N_cycle). One-hot encoding of the target sequence.
+                * residue_index: Tensor of shape (*, N_res, N_cycle). The index of each residue, which is [0,...,N_res-1].
+
+        Returns:
+            dict: A dictionary with the following entries:
+                * final_positions: Heavy-atom positions in Angstrom of shape (*, N_res, 37, 3, N_cycle).
+                * position_mask: Boolean tensor of shape (*, N_res, 37, N_cycle), masking atoms that
+                    aren't present in the amino acids.
+                * angles: Torsion angles of shape (*, N_layers, N_res, n_torsion_angles, 2, N_cycle) for
+                    every iteration of the Structure Module in every cycle.
+                * frames: Backbone frames of shape (*, N_layers, N_res, 4, 4, N_cycle) for every iteration
+                    of the Structure Module in every cycle.
+        """
+        N_cycle = batch['msa_feat'].shape[-1]
+        N_seq, N_res = batch['msa_feat'].shape[-4:-2]
+        batch_shape = batch['msa_feat'].shape[:-4]
+        device = batch['msa_feat'].device
+        dtype = batch['msa_feat'].dtype
+
+        c_m = self.c_m
+        c_z = self.c_z
+
+        outputs = {}
+
+        # todo will have to put dtype in every single class as an input and by default dtype=torch.float64
+        # Todo Remind Yourself that N_seq is for the msa sequences and does not represent the batch
+        # Todo condsider calling .forward explicitly to explicitly hand out arguments
+
+        # Initialisation of first tensors
+        prev_m = torch.zeros((batch_shape + (N_seq, N_res, c_m)), dtype=torch.float64)
+        prev_z = torch.zeros((batch_shape + (N_res, N_res, c_z)), dtype=torch.float64)
+        prev_pseudo_beta_x = torch.zeros((batch_shape + (N_res, 3)), dtype=torch.float64)
+
+        for cycle in range(N_cycle):
+            print(20 * '-')
+            print(f'Starting iteration {cycle}')
+
+            current_cycle_input_batch = {key: value[..., cycle] for key, value in batch.items()}
+
+            # Here current_cycle_input_batch has to be totally unpacked so that it can be fed to the
+            # self.input_embedder explicity while showing the arguments func(arg1=variable1,....)
+            msa_tensor, pair_rep_tensor = self.input_embedder(current_cycle_input_batch)
 
