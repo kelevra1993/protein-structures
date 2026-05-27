@@ -1,0 +1,47 @@
+GlobalConfiguration:
+  msa_embedding: 256
+  pair_representation_embedding: 128
+  extra_msa_embedding: 64
+  single_representation_embedding: 384
+  input_sequence_feature_dimension: 21
+  input_msa_feature_dimension: 49
+  input_extra_msa_feature_dimension: 25
+
+InputEmbedder:
+  number_neighbouring_amino_acids: 32
+
+ExtraMsaEmbedder:
+  # Uses global config for inputs and outputs
+
+RecyclingEmbedder:
+  # Uses global config for inputs and outputs
+
+ExtraMsaStack:
+  number_blocks: 4
+  msa_number_heads: 8
+  msa_head_embedding_dimension: 32
+  msa_global_number_heads: 8
+  msa_global_head_embedding_dimension: 8
+  pair_number_heads: 4
+  pair_head_embedding_dimension: 32
+  intermediate_embedding: 32
+  channel_scaler: 4
+  triangle_multiplication_embedding: 128
+
+EvoformerStack:
+  number_blocks: 48
+  msa_number_heads: 8
+  msa_head_embedding_dimension: 32
+  pair_number_heads: 4
+  pair_head_embedding_dimension: 32
+  channel_scaler: 4
+  intermediate_embedding: 32
+  triangle_multiplication_embedding: 128
+
+StructureModule:
+  number_structure_module_iterations: 8
+  number_heads: 12
+  head_embedding_dimension: 16
+  number_query_points: 4
+  number_value_points: 8
+  number_torsion_angles: 7
