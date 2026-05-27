@@ -116,7 +116,8 @@ class ExtraMsaBlock(nn.Module):
                  msa_number_heads: int, msa_head_embedding_dimension: int,
                  msa_global_number_heads: int, msa_global_head_embedding_dimension: int,
                  pair_number_heads: int, pair_head_embedding_dimension: int,
-                 intermediate_embedding: int, channel_scaler: int, triangle_multiplication_embedding: int,
+                 intermediate_embedding: int, msa_transition_channel_scaler: int,
+                 pair_stack_channel_scaler: int, triangle_multiplication_embedding: int,
                  device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the ExtraMsaBlock module.
@@ -131,7 +132,8 @@ class ExtraMsaBlock(nn.Module):
             pair_number_heads (int): Number of attention heads for the pair stack embedder.
             pair_head_embedding_dimension (int): Embedding dimension per attention head for the pair stack embedder.
             intermediate_embedding (int): Intermediate dimension for OuterProductMean.
-            channel_scaler (int): Channel scaler for transition layers.
+            msa_transition_channel_scaler (int): Channel scaler for the MSA transition layer.
+            pair_stack_channel_scaler (int): Channel scaler for the Pair Stack transition layer.
             triangle_multiplication_embedding (int): Dimension for triangle multiplication.
             device (torch.device): The device on which to initialize the tensors.
             dtype (torch.dtype): The data type for the tensors.
@@ -160,7 +162,7 @@ class ExtraMsaBlock(nn.Module):
 
         self.extra_msa_transition_embedder = MSATransition(
             msa_embedding=self.extra_msa_embedding,
-            channel_scaler=channel_scaler,
+            channel_scaler=msa_transition_channel_scaler,
             device=self.device,
             dtype=self.dtype)
 
@@ -176,7 +178,7 @@ class ExtraMsaBlock(nn.Module):
             head_embedding_dimension=pair_head_embedding_dimension,
             triangle_multiplication_embedding=triangle_multiplication_embedding,
             number_heads=pair_number_heads,
-            channel_scaler=channel_scaler,
+            channel_scaler=pair_stack_channel_scaler,
             device=self.device,
             dtype=self.dtype)
 
@@ -228,11 +230,12 @@ class ExtraMsaStack(nn.Module):
                  msa_number_heads: int, msa_head_embedding_dimension: int,
                  msa_global_number_heads: int, msa_global_head_embedding_dimension: int,
                  pair_number_heads: int, pair_head_embedding_dimension: int,
-                 intermediate_embedding: int, channel_scaler: int,
+                 intermediate_embedding: int, msa_transition_channel_scaler: int,
+                 pair_stack_channel_scaler: int,
                  triangle_multiplication_embedding: int, device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the ExtraMsaStack module.
-
+        
         Args:
             extra_msa_embedding (int): Hidden dimension size for the Extra MSA representation.
             pair_representation_embedding (int): Hidden dimension size for the pair representation.
@@ -244,7 +247,8 @@ class ExtraMsaStack(nn.Module):
             pair_number_heads (int): Number of attention heads for the pair stack embedder.
             pair_head_embedding_dimension (int): Embedding dimension per attention head for the pair stack embedder.
             intermediate_embedding (int): Intermediate dimension for OuterProductMean.
-            channel_scaler (int): Channel scaler for transition layers.
+            msa_transition_channel_scaler (int): Channel scaler for the MSA transition layer.
+            pair_stack_channel_scaler (int): Channel scaler for the Pair Stack transition layer.
             triangle_multiplication_embedding (int): Dimension for triangle multiplication.
             device (torch.device): The device on which to initialize the tensors.
             dtype (torch.dtype): The data type for the tensors.
@@ -275,7 +279,8 @@ class ExtraMsaStack(nn.Module):
                 pair_number_heads=self.pair_number_heads,
                 pair_head_embedding_dimension=self.pair_head_embedding_dimension,
                 intermediate_embedding=intermediate_embedding,
-                channel_scaler=channel_scaler,
+                msa_transition_channel_scaler=msa_transition_channel_scaler,
+                pair_stack_channel_scaler=pair_stack_channel_scaler,
                 triangle_multiplication_embedding=triangle_multiplication_embedding
             ) for _ in range(self.number_blocks)
         ])

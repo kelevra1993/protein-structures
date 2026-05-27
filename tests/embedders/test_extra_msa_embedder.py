@@ -83,7 +83,8 @@ def test_extra_msa_embedder_modules():
         pair_number_heads=4,
         pair_head_embedding_dimension=32,
         intermediate_embedding=32,
-        channel_scaler=4,
+        msa_transition_channel_scaler=4,
+        pair_stack_channel_scaler=4,
         triangle_multiplication_embedding=128)
 
     check_nn_module_method(
@@ -114,7 +115,8 @@ def test_extra_msa_embedder_modules():
         pair_number_heads=4,
         pair_head_embedding_dimension=32,
         intermediate_embedding=32,
-        channel_scaler=4,
+        msa_transition_channel_scaler=4,
+        pair_stack_channel_scaler=4,
         triangle_multiplication_embedding=128)
 
     check_nn_module_method(

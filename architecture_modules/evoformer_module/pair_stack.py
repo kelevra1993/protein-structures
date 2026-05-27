@@ -243,7 +243,7 @@ class PairStack(nn.Module):
     """
 
     def __init__(self, pair_representation_dimension: int,
-                 head_embedding_dimension: int,triangle_multiplication_embedding: int,
+                 head_embedding_dimension: int, triangle_multiplication_embedding: int,
                  number_heads: int, channel_scaler: int, device: torch.device, dtype: torch.dtype):
         """
         Initializes the PairStack module.

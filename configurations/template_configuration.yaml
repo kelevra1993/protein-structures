@@ -25,7 +25,8 @@ ExtraMsaStack:
   pair_number_heads: 4
   pair_head_embedding_dimension: 32
   intermediate_embedding: 32
-  channel_scaler: 4
+  msa_transition_channel_scaler: 4
+  pair_stack_channel_scaler: 4
   triangle_multiplication_embedding: 128
 
 EvoformerStack:
@@ -34,7 +35,8 @@ EvoformerStack:
   msa_head_embedding_dimension: 32
   pair_number_heads: 4
   pair_head_embedding_dimension: 32
-  channel_scaler: 4
+  msa_transition_channel_scaler: 4
+  pair_stack_channel_scaler: 4
   intermediate_embedding: 32
   triangle_multiplication_embedding: 128
 

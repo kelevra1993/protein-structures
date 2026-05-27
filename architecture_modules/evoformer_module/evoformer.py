@@ -22,7 +22,7 @@ class EvoformerBlock(nn.Module):
     def __init__(self, msa_embedding: int, pair_representation_embedding: int,
                  msa_number_heads: int, msa_head_embedding_dimension: int,
                  pair_number_heads: int, pair_head_embedding_dimension: int,
-                 channel_scaler: int,
+                 msa_transition_channel_scaler: int, pair_stack_channel_scaler: int,
                  intermediate_embedding: int, triangle_multiplication_embedding: int,
                  device: torch.device, dtype: torch.dtype):
         """
@@ -37,7 +37,8 @@ class EvoformerBlock(nn.Module):
             pair_number_heads (int): The total number of attention heads in the Pair Stack attention modules.
             pair_head_embedding_dimension (int): The dimensionality of each individual attention head in
              the Pair Stack attention modules.
-            channel_scaler (int): The scaling factor for the hidden layer dimensions.
+            msa_transition_channel_scaler (int): The scaling factor for the MSA transition layer.
+            pair_stack_channel_scaler (int): The scaling factor for the Pair Stack transition layer.
             intermediate_embedding (int): The intermediate dimension for outer product mean.
             triangle_multiplication_embedding (int): The reduced hidden dimension for triangle updates.
             device (torch.device): The computational device.
@@ -60,7 +61,7 @@ class EvoformerBlock(nn.Module):
         )
         self.msa_transition_embedder = MSATransition(
             msa_embedding=msa_embedding,
-            channel_scaler=channel_scaler,
+            channel_scaler=msa_transition_channel_scaler,
             device=device, dtype=dtype
         )
         self.outer_product_mean = OuterProductMean(
@@ -74,7 +75,7 @@ class EvoformerBlock(nn.Module):
             head_embedding_dimension=pair_head_embedding_dimension,
             triangle_multiplication_embedding=triangle_multiplication_embedding,
             number_heads=pair_number_heads,
-            channel_scaler=channel_scaler,
+            channel_scaler=pair_stack_channel_scaler,
             device=device, dtype=dtype
         )
 
@@ -120,7 +121,7 @@ class EvoformerStack(nn.Module):
     def __init__(self, msa_embedding: int, pair_representation_embedding: int,
                  msa_number_heads: int, msa_head_embedding_dimension: int,
                  pair_number_heads: int, pair_head_embedding_dimension: int,
-                 channel_scaler: int,
+                 msa_transition_channel_scaler: int, pair_stack_channel_scaler: int,
                  intermediate_embedding: int, triangle_multiplication_embedding: int,
                  number_blocks: int, single_representation_embedding: int,
                  device: torch.device, dtype: torch.dtype):
@@ -134,7 +135,8 @@ class EvoformerStack(nn.Module):
             msa_head_embedding_dimension (int): The dimensionality of each MSA attention head in each block.
             pair_number_heads (int): The total number of attention heads for the Pair stack in each block.
             pair_head_embedding_dimension (int): The dimensionality of each Pair attention head in each block.
-            channel_scaler (int): The scaling factor for hidden layers in each block.
+            msa_transition_channel_scaler (int): The scaling factor for the MSA transition layer in each block.
+            pair_stack_channel_scaler (int): The scaling factor for the Pair Stack transition layer in each block.
             intermediate_embedding (int): The intermediate dimension for outer product mean.
             triangle_multiplication_embedding (int): The reduced hidden dimension for triangle updates.
             number_blocks (int): The total number of EvoformerBlocks to instantiate.
@@ -152,7 +154,8 @@ class EvoformerStack(nn.Module):
                 msa_head_embedding_dimension=msa_head_embedding_dimension,
                 pair_number_heads=pair_number_heads,
                 pair_head_embedding_dimension=pair_head_embedding_dimension,
-                channel_scaler=channel_scaler,
+                msa_transition_channel_scaler=msa_transition_channel_scaler,
+                pair_stack_channel_scaler=pair_stack_channel_scaler,
                 intermediate_embedding=intermediate_embedding,
                 triangle_multiplication_embedding=triangle_multiplication_embedding,
                 device=device, dtype=dtype
