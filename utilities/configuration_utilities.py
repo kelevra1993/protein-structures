@@ -3,12 +3,12 @@ from pathlib import Path
 from typing import Dict, Any
 
 
-def load_configuration(config_path: str | Path) -> Dict[str, Any]:
+def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
     """
     Parses a YAML configuration file into a dictionary.
 
     Args:
-        config_path (str | Path): The file path to the YAML configuration.
+        configuration_path (str | Path): The file path to the YAML configuration.
 
     Returns:
         Dict[str, Any]: The parsed configuration dictionary.
@@ -17,7 +17,7 @@ def load_configuration(config_path: str | Path) -> Dict[str, Any]:
         FileNotFoundError: If the specified configuration file does not exist.
         yaml.YAMLError: If there is an error parsing the YAML file.
     """
-    path = Path(config_path)
+    path = Path(configuration_path)
 
     if not path.is_file():
         raise FileNotFoundError(f"Configuration file not found at: {path}")

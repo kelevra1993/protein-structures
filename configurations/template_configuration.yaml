@@ -11,10 +11,10 @@ InputEmbedder:
   number_neighbouring_amino_acids: 32
 
 ExtraMsaEmbedder:
-  # Uses global config for inputs and outputs
+  # Uses global configuration for inputs and outputs
 
 RecyclingEmbedder:
-  # Uses global config for inputs and outputs
+  # Uses global configuration for inputs and outputs
 
 ExtraMsaStack:
   number_blocks: 4

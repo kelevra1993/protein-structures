@@ -225,3 +225,24 @@ class Model(nn.Module):
         }
 
         return outputs
+
+
+if __name__ == "__main__":
+    import os
+    from pathlib import Path
+    from utilities.configuration_utilities import load_configuration
+    from utilities.tensor_utilities import get_device
+
+    project_folder = Path(os.getcwd()).parent
+    configuration_file = project_folder / "configurations" / "template_configuration.yaml"
+
+    model_configuration = load_configuration(configuration_path=configuration_file)
+    computer_device = get_device()
+
+    if str(computer_device) == "mps":
+        tensor_dtype = torch.float32
+    else:
+        tensor_dtype = torch.float64
+
+    # Test the alphafold model with template configuration
+    alphafold_model = Model(configuration=model_configuration, device=computer_device, dtype=tensor_dtype)
