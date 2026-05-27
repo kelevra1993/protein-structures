@@ -179,3 +179,47 @@ class Model(nn.Module):
             # self.input_embedder explicity while showing the arguments func(arg1=variable1,....)
             msa_tensor, pair_rep_tensor = self.input_embedder(current_cycle_input_batch)
 
+            # TODO Same here for the arguments in the calling of the function
+            recycled_msa, recycled_pair_rep = self.recycling_embedder(prev_m, prev_z, prev_pseudo_beta_x)
+
+            # The very first sequence of the msa
+            # The recycling embedder just actually normalizes the msa_representation_input using a layer normaliser
+            # todo just to check that the first recycled_msa is actually 0
+            msa_tensor[..., 0, :, :] += recycled_msa
+            pair_rep_tensor += recycled_pair_rep
+
+            # TODO Same here for the arguments in the calling of the function
+            # Here this is just a simple linear layer
+            extra_msa_embedding = self.extra_msa_embedder(current_cycle_input_batch)
+
+            # TODO Same here for the arguments in the calling of the function
+            # The pair representation is updated by the extra msa embedding before being fed to the evoformer stack
+            pair_rep_tensor = self.extra_msa_stack(extra_msa_embedding, pair_rep_tensor)
+
+            # Pass through the evorformer block
+            # TODO Same here for the arguments in the calling of the function
+            msa_tensor, pair_rep_tensor, single_representation_tensor = self.evoformer(msa_tensor, pair_rep_tensor)
+
+            # TODO Rename F not clear enough
+            F = torch.argmax(current_cycle_input_batch["target_feat"], dim=-1)
+
+            # TODO Same here for the arguments in the calling of the function
+            # For structure module we actually have a certain amount of outputs that are not dictionaries so change the output to reflect that
+            structure_module_output = self.structure_module(single_representation_tensor, pair_rep_tensor, F)
+
+            prev_m = msa_tensor
+            prev_z = pair_rep_tensor
+            prev_pseudo_beta_x = structure_module_output['pseudo_beta_positions']
+
+            # todo to be changed since the output of the structure module is not a dictionary
+            for key, value in structure_module_output.items():
+                if key in outputs:
+                    outputs[key].append(value)
+                else:
+                    outputs[key] = [value]
+
+        outputs = {
+            key: torch.stack(value, dim=-1) for key, value in outputs.items()
+        }
+
+        return outputs
