@@ -12,16 +12,16 @@ from architecture_modules.structure_module.structure_module import StructureModu
 
 class Model(nn.Module):
 
-    def __init__(self, msa_embedding=256, pair_representation_embedding=128, extra_msa_embedding=64, 
-                 input_extra_msa_feature_dimension=25, input_sequence_feature_dimension=21, 
-                 single_representation_embedding=384, number_extra_msa_blocks=4,
-                 number_evoformer_blocks=48, 
-                 extra_msa_number_heads=None, extra_msa_head_embedding_dimension=None,
-                 evoformer_number_heads=None, evoformer_head_embedding_dimension=None,
-                 structure_module_number_heads=None, structure_module_head_embedding_dimension=None,
-                 number_query_points=None, number_value_points=None,
-                 number_layers=None, number_torsion_angles=None,
-                 device=None, dtype=None):
+    def __init__(self, msa_embedding: int = 256, pair_representation_embedding: int = 128, extra_msa_embedding: int = 64, 
+                 input_extra_msa_feature_dimension: int = 25, input_sequence_feature_dimension: int = 21, 
+                 single_representation_embedding: int = 384, number_extra_msa_blocks: int = 4,
+                 number_evoformer_blocks: int = 48, 
+                 extra_msa_number_heads: int = None, extra_msa_head_embedding_dimension: int = None,
+                 evoformer_number_heads: int = None, evoformer_head_embedding_dimension: int = None,
+                 structure_module_number_heads: int = None, structure_module_head_embedding_dimension: int = None,
+                 number_query_points: int = None, number_value_points: int = None,
+                 number_layers: int = None, number_torsion_angles: int = None,
+                 device: torch.device = None, dtype: torch.dtype = None):
         """
         Initializes the Alphafold model.
 
