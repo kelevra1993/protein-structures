@@ -140,7 +140,9 @@ class Model(nn.Module):
         number_clusters, number_residues = batch_input_dictionary['input_msa_feature'].shape[-4:-2]
         batch_shape = batch_input_dictionary['input_msa_feature'].shape[:-4]
 
-        outputs = {}
+        # Model outputs emanating from structure module
+        model_outputs = {key: [] for key in
+                         ["angles", "frames", "final_positions", "position_mask", "pseudo_beta_positions"]}
 
         # Initialisation of first tensors
         msa_shape = (batch_shape + (number_clusters, number_residues, self.msa_embedding))
@@ -196,27 +198,25 @@ class Model(nn.Module):
             sequence_amino_acid_labels = torch.argmax(
                 current_cycle_input_batch["input_sequence_feature"], dim=-1)
 
-            structure_module_output = self.structure_module(
+            angles, frames, final_positions, position_mask, pseudo_beta_positions = self.structure_module(
                 single_representation=single_representation_tensor,
                 pair_representation=pair_representation_tensor,
                 sequence_amino_acid_labels=sequence_amino_acid_labels)
 
             previous_msa_representation_tensor = msa_representation_tensor
             previous_pair_representation_tensor = pair_representation_tensor
-            previous_pseudo_carbon_beta_positions = structure_module_output['pseudo_beta_positions']
+            previous_pseudo_carbon_beta_positions = pseudo_beta_positions
 
-            # todo to be changed since the output of the structure module is not a dictionary
-            for key, value in structure_module_output.items():
-                if key in outputs:
-                    outputs[key].append(value)
-                else:
-                    outputs[key] = [value]
+            model_outputs["angles"] = angles
+            model_outputs["frames"] = frames
+            model_outputs["final_positions"] = final_positions
+            model_outputs["position_mask"] = position_mask
+            model_outputs["pseudo_beta_positions"] = pseudo_beta_positions
 
-        outputs = {
-            key: torch.stack(value, dim=-1) for key, value in outputs.items()
-        }
+        # Stack all tensors emanating from different cycles
+        model_outputs = {key: torch.stack(value, dim=-1) for key, value in model_outputs.items()}
 
-        return outputs
+        return model_outputs
 
 
 if __name__ == "__main__":
