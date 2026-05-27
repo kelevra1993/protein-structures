@@ -220,7 +220,11 @@ if __name__ == "__main__":
     )
 
     computer_device = get_device()
-    tensor_dtype = torch.float64
+
+    if str(computer_device) == "mps":
+        tensor_dtype = torch.float32
+    else:
+        tensor_dtype = torch.float64
 
     # Initialize Input Embedder
     input_embedder = InputEmbedder(
