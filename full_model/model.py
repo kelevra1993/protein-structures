@@ -32,7 +32,7 @@ class Model(nn.Module):
         evoformer_stack_configuration = configuration.get('EvoformerStack', {})
         structure_module_configuration = configuration.get('StructureModule', {})
 
-        # TODO Kept for usage in the forward pass
+        # Kept for usage in the forward pass
         self.msa_embedding = global_configuration.get('msa_embedding')
         self.pair_representation_embedding = global_configuration.get('pair_representation_embedding')
         self.extra_msa_embedding = global_configuration.get('extra_msa_embedding')
@@ -68,7 +68,8 @@ class Model(nn.Module):
             msa_number_heads=extra_msa_stack_configuration.get('msa_number_heads'),
             msa_head_embedding_dimension=extra_msa_stack_configuration.get('msa_head_embedding_dimension'),
             msa_global_number_heads=extra_msa_stack_configuration.get('msa_global_number_heads'),
-            msa_global_head_embedding_dimension=extra_msa_stack_configuration.get('msa_global_head_embedding_dimension'),
+            msa_global_head_embedding_dimension=extra_msa_stack_configuration.get(
+                'msa_global_head_embedding_dimension'),
             pair_number_heads=extra_msa_stack_configuration.get('pair_number_heads'),
             pair_head_embedding_dimension=extra_msa_stack_configuration.get('pair_head_embedding_dimension'),
             intermediate_embedding=extra_msa_stack_configuration.get('intermediate_embedding'),
@@ -107,111 +108,102 @@ class Model(nn.Module):
             device=self.device,
             dtype=self.dtype)
 
-
-
-
-
-
-    """
-    Note for documentation : 
-    here the forward expects a dictionary that looks like this :
-    batch={
-        'msa_feat': msa_feat,
-        'extra_msa_feat': extra_msa_feat,
-        'target_feat': target_feat,
-        'residue_index': residue_index
-    }
-    but in our code,
-    we change the feature extractor so that it can output something like this :
-    input_sequence_feature (this corresponds to target_feat)
-    input_residue_index_feature (this corresponds to residue_index)
-    input_msa_feature (this corresponds to msa_feat)
-    input_extra_msa_feature (this corresponds to extra_msa_feat)
-    so change the keys in the batch dictionary accordingly.
-    """
-
-    def forward(self, batch):
+    def forward(self, batch_input_dictionary):
         """
-        Forward pass for the Alphafold model.
-
+        Forward pass for the Alphafold model ran for multiple cycles.
+        The msa and extra msa features change in each cycle
         Args:
-            batch (dict): A dictionary containing the following features:
-                * msa_feat:  Tensor of shape (*, N_seq, N_res, msa_feat_dim, N_cycle).
-                * extra_msa_feat: Tensor of shape (*, N_extra, N_res, f_e, N_cycle).
-                * target_feat: Tensor of shape (*, N_res, tf_dim, N_cycle). One-hot encoding of the target sequence.
-                * residue_index: Tensor of shape (*, N_res, N_cycle). The index of each residue, which is [0,...,N_res-1].
+        batch_input_dictionary (dict): A dictionary containing the following features:
+         * input_msa_feature:
+         Tensor of shape (*, number_clusters, number_residues, msa_feature_dimension, number_cycles).
+         * input_extra_msa_feature:
+         Tensor of shape (*, number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_cycles).
+         * input_sequence_feature:
+         Tensor of shape (*, number_residues, input_sequence_feature_dimension, number_cycles).
+         One-hot encoding of the target sequence.
+         * input_residue_index_feature:
+         Tensor of shape (*, number_residues, number_cycles).
+         The index of each residue, which is [0,...,number_residues-1].
 
         Returns:
-            dict: A dictionary with the following entries:
-                * final_positions: Heavy-atom positions in Angstrom of shape (*, N_res, 37, 3, N_cycle).
-                * position_mask: Boolean tensor of shape (*, N_res, 37, N_cycle), masking atoms that
-                    aren't present in the amino acids.
-                * angles: Torsion angles of shape (*, N_layers, N_res, n_torsion_angles, 2, N_cycle) for
-                    every iteration of the Structure Module in every cycle.
-                * frames: Backbone frames of shape (*, N_layers, N_res, 4, 4, N_cycle) for every iteration
-                    of the Structure Module in every cycle.
+        dict: A dictionary with the following entries:
+            * final_positions: Heavy-atom positions in Angstrom of shape (*, number_residues, 37, 3, number_cycles).
+            * position_mask: Boolean tensor of shape (*, number_residues, 37, number_cycles), masking atoms that
+                aren't present in the amino acids.
+            * angles: Torsion angles of shape (*, num_layers, number_residues, number_torsion_angles, 2, number_cycles)
+             for every iteration of the Structure Module in every cycle.
+            * frames: Backbone frames of shape (*, num_layers, number_residues, 4, 4, number_cycles)
+             for every iteration of the Structure Module in every cycle.
         """
-        N_cycle = batch['msa_feat'].shape[-1]
-        N_seq, N_res = batch['msa_feat'].shape[-4:-2]
-        batch_shape = batch['msa_feat'].shape[:-4]
-        device = batch['msa_feat'].device
-        dtype = batch['msa_feat'].dtype
 
-        c_m = self.c_m
-        c_z = self.c_z
+        number_cycles = batch_input_dictionary['input_msa_feature'].shape[-1]
+        number_clusters, number_residues = batch_input_dictionary['input_msa_feature'].shape[-4:-2]
+        batch_shape = batch_input_dictionary['input_msa_feature'].shape[:-4]
 
         outputs = {}
 
-        # todo will have to put dtype in every single class as an input and by default dtype=torch.float64
-        # Todo Remind Yourself that N_seq is for the msa sequences and does not represent the batch
-        # Todo condsider calling .forward explicitly to explicitly hand out arguments
-
         # Initialisation of first tensors
-        prev_m = torch.zeros((batch_shape + (N_seq, N_res, c_m)), dtype=torch.float64)
-        prev_z = torch.zeros((batch_shape + (N_res, N_res, c_z)), dtype=torch.float64)
-        prev_pseudo_beta_x = torch.zeros((batch_shape + (N_res, 3)), dtype=torch.float64)
+        msa_shape = (batch_shape + (number_clusters, number_residues, self.msa_embedding))
+        previous_msa_representation_tensor = torch.zeros(msa_shape, dtype=self.dtype, device=self.device)
 
-        for cycle in range(N_cycle):
-            print(20 * '-')
-            print(f'Starting iteration {cycle}')
+        pair_shape = (batch_shape + (number_residues, number_residues, self.pair_representation_embedding))
+        previous_pair_representation_tensor = torch.zeros(pair_shape, dtype=self.dtype, device=self.device)
 
-            current_cycle_input_batch = {key: value[..., cycle] for key, value in batch.items()}
+        position_shape = (batch_shape + (number_residues, 3))
+        previous_pseudo_carbon_beta_positions = torch.zeros(position_shape, dtype=self.dtype, device=self.device)
 
-            # Here current_cycle_input_batch has to be totally unpacked so that it can be fed to the
-            # self.input_embedder explicity while showing the arguments func(arg1=variable1,....)
-            msa_tensor, pair_rep_tensor = self.input_embedder(current_cycle_input_batch)
+        for cycle in range(number_cycles):
+            print(f'Iteration Cycle {cycle}')
 
-            # TODO Same here for the arguments in the calling of the function
-            recycled_msa, recycled_pair_rep = self.recycling_embedder(prev_m, prev_z, prev_pseudo_beta_x)
+            # Extract Current Input Features For This Cycle
+            current_cycle_input_batch = {key: value[..., cycle] for key, value in batch_input_dictionary.items()}
 
-            # The very first sequence of the msa
-            # The recycling embedder just actually normalizes the msa_representation_input using a layer normaliser
-            # todo just to check that the first recycled_msa is actually 0
-            msa_tensor[..., 0, :, :] += recycled_msa
-            pair_rep_tensor += recycled_pair_rep
+            # Get embeddings for msa and pair representation
+            msa_representation_tensor, pair_representation_tensor = self.input_embedder(
+                input_sequence_feature=current_cycle_input_batch['input_sequence_feature'],
+                input_msa_feature=current_cycle_input_batch['input_msa_feature'],
+                input_extra_msa_feature=current_cycle_input_batch['input_extra_msa_feature'],
+                residue_index=current_cycle_input_batch['input_residue_index_feature'])
 
-            # TODO Same here for the arguments in the calling of the function
-            # Here this is just a simple linear layer
-            extra_msa_embedding = self.extra_msa_embedder(current_cycle_input_batch)
+            # Run the model through the recycling embedder
+            recycled_msa_representation, recycled_pair_representation = self.recycling_embedder(
+                msa_representation=previous_msa_representation_tensor,
+                pair_representation=previous_pair_representation_tensor,
+                pseudo_beta_positions=previous_pseudo_carbon_beta_positions)
 
-            # TODO Same here for the arguments in the calling of the function
+            # Only the very first sequence of the msa is updated with the recycled msa
+            # The recycling embedder just actually normalizes the msa_representation_input using a layer normalizer
+            msa_representation_tensor[..., 0, :, :] += recycled_msa_representation
+            pair_representation_tensor += recycled_pair_representation
+
+            extra_msa_representation = self.extra_msa_embedder(
+                input_extra_msa_feature=current_cycle_input_batch['input_extra_msa_feature'])
+
             # The pair representation is updated by the extra msa embedding before being fed to the evoformer stack
-            pair_rep_tensor = self.extra_msa_stack(extra_msa_embedding, pair_rep_tensor)
+            pair_representation_tensor = self.extra_msa_stack(
+                extra_msa_representation=extra_msa_representation,
+                pair_representation=pair_representation_tensor)
 
-            # Pass through the evorformer block
-            # TODO Same here for the arguments in the calling of the function
-            msa_tensor, pair_rep_tensor, single_representation_tensor = self.evoformer(msa_tensor, pair_rep_tensor)
+            # Pass through the evoformer block
+            msa_representation_tensor, pair_representation_tensor, single_representation_tensor = self.evoformer(
+                msa_representation=msa_representation_tensor,
+                pair_representation=pair_representation_tensor)
 
-            # TODO Rename F not clear enough
-            F = torch.argmax(current_cycle_input_batch["target_feat"], dim=-1)
+            # Sequence amino acid labels used for :
+            # - selecting backbones
+            # - computing atom coordinates
+            # - computing masks
+            sequence_amino_acid_labels = torch.argmax(
+                current_cycle_input_batch["input_sequence_feature"], dim=-1)
 
-            # TODO Same here for the arguments in the calling of the function
-            # For structure module we actually have a certain amount of outputs that are not dictionaries so change the output to reflect that
-            structure_module_output = self.structure_module(single_representation_tensor, pair_rep_tensor, F)
+            structure_module_output = self.structure_module(
+                single_representation=single_representation_tensor,
+                pair_representation=pair_representation_tensor,
+                sequence_amino_acid_labels=sequence_amino_acid_labels)
 
-            prev_m = msa_tensor
-            prev_z = pair_rep_tensor
-            prev_pseudo_beta_x = structure_module_output['pseudo_beta_positions']
+            previous_msa_representation_tensor = msa_representation_tensor
+            previous_pair_representation_tensor = pair_representation_tensor
+            previous_pseudo_carbon_beta_positions = structure_module_output['pseudo_beta_positions']
 
             # todo to be changed since the output of the structure module is not a dictionary
             for key, value in structure_module_output.items():
