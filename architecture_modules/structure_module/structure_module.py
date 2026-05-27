@@ -246,21 +246,22 @@ class StructureModule(nn.Module):
                  number_iterations: int, angle_representation_embedding: int,
                  number_query_points: int, number_value_points: int,
                  number_heads: int, head_embedding_dimension: int,
-                 device: torch.device, dtype: torch.dtype):
+                 number_torsion_angles: int, device: torch.device, dtype: torch.dtype):
         """
         Initializes the StructureModule.
 
         Args:
             single_representation_embedding (int): Feature dimension of the single representation.
             pair_representation_embedding (int): Feature dimension of the pair representation.
-            device (torch.device): Device for tensor allocation.
-            dtype (torch.dtype): Data type for tensors.
             number_iterations (int): Number of iterative updates.
             angle_representation_embedding (int): Dimension for angle ResNet.
             number_query_points (int): Number of geometric query points for IPA.
             number_value_points (int): Number of geometric value points for IPA.
             number_heads (int): Number of attention heads for IPA.
             head_embedding_dimension (int): Hidden dimension per head for IPA.
+            number_torsion_angles (int): Number of torsion angles to predict per residue.
+            device (torch.device): Device for tensor allocation.
+            dtype (torch.dtype): Data type for tensors.
         """
         super().__init__()
 
@@ -274,6 +275,7 @@ class StructureModule(nn.Module):
         self.number_value_points = number_value_points
         self.number_heads = number_heads
         self.head_embedding_dimension = head_embedding_dimension
+        self.number_torsion_angles = number_torsion_angles
 
         self.single_representation_layer_normalizer = nn.LayerNorm(
             normalized_shape=self.single_representation_embedding,
@@ -307,6 +309,7 @@ class StructureModule(nn.Module):
 
         self.angle_resnet = AngleResNet(single_representation_embedding=self.single_representation_embedding,
                                         angle_representation_embedding=self.angle_representation_embedding,
+                                        number_torsion_angles=self.number_torsion_angles,
                                         device=self.device, dtype=self.dtype)
 
     def process_outputs(self, transformation_matrix: torch.Tensor, residue_angles: torch.Tensor,

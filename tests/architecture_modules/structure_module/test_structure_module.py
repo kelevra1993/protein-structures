@@ -23,6 +23,7 @@ def test_structure_module_forward():
         device=device,
         dtype=dtype,
         number_iterations=8,
+        number_torsion_angles=7,
         angle_representation_embedding=20,
         number_query_points=4,  # 4
         number_value_points=8,  # 8
