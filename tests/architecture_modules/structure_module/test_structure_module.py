@@ -22,7 +22,7 @@ def test_structure_module_forward():
         pair_representation_embedding=config["pair_representation_embedding"],
         device=device,
         dtype=dtype,
-        number_layers=8,
+        number_iterations=8,
         angle_representation_embedding=20,
         number_query_points=4,  # 4
         number_value_points=8,  # 8

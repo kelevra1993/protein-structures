@@ -243,7 +243,7 @@ class StructureModule(nn.Module):
     """
 
     def __init__(self, single_representation_embedding: int, pair_representation_embedding: int,
-                 number_layers: int, angle_representation_embedding: int,
+                 number_iterations: int, angle_representation_embedding: int,
                  number_query_points: int, number_value_points: int,
                  number_heads: int, head_embedding_dimension: int,
                  device: torch.device, dtype: torch.dtype):
@@ -255,7 +255,7 @@ class StructureModule(nn.Module):
             pair_representation_embedding (int): Feature dimension of the pair representation.
             device (torch.device): Device for tensor allocation.
             dtype (torch.dtype): Data type for tensors.
-            number_layers (int): Number of iterative updates.
+            number_iterations (int): Number of iterative updates.
             angle_representation_embedding (int): Dimension for angle ResNet.
             number_query_points (int): Number of geometric query points for IPA.
             number_value_points (int): Number of geometric value points for IPA.
@@ -267,7 +267,7 @@ class StructureModule(nn.Module):
         self.single_representation_embedding = single_representation_embedding
         self.pair_representation_embedding = pair_representation_embedding
         self.angle_representation_embedding = angle_representation_embedding
-        self.number_layers = number_layers
+        self.number_iterations = number_iterations
         self.device = device
         self.dtype = dtype
         self.number_query_points = number_query_points
@@ -405,9 +405,7 @@ class StructureModule(nn.Module):
                                  broadcast_to(batch_dimension + (number_residues, 4, 4)))
 
         # TODO NOTE : IT IS IN THIS BLOCK WHERE WE WILL BE INSERTING LOSSES FOR BACKPROPAGATION
-        # todo we should consider calling this something like self.number_iterations because number layers seems misleading.
-        #  since these are actually shared weights we are iterating over.
-        for iteration in range(self.number_layers):
+        for iteration in range(self.number_iterations):
             # IPA and it's normalizer
             # TODO It would have been better to normalise the input of the invariant point attention before adding it
             #  it is unusually large compared to the incoming single representation.
