@@ -22,13 +22,13 @@ class Model(nn.Module):
                  extra_msa_stack_pair_number_heads: int = 4, extra_msa_stack_pair_head_embedding_dimension: int = 32,
                  extra_msa_stack_intermediate_embedding: int = 32, extra_msa_stack_channel_scaler: int = 4,
                  extra_msa_stack_triangle_multiplication_embedding: int = 128,
-                 evoformer_msa_number_heads: int = None, evoformer_msa_head_embedding_dimension: int = None,
-                 evoformer_pair_number_heads: int = None, evoformer_pair_head_embedding_dimension: int = None,
-                 evoformer_channel_scaler: int = None, evoformer_intermediate_embedding: int = None,
-                 evoformer_triangle_multiplication_embedding: int = None,
-                 structure_module_number_heads: int = None, structure_module_head_embedding_dimension: int = None,
-                 number_query_points: int = None, number_value_points: int = None,
-                 number_structure_module_iterations: int = None, number_torsion_angles: int = 7,
+                 evoformer_msa_number_heads: int = 8, evoformer_msa_head_embedding_dimension: int = 32,
+                 evoformer_pair_number_heads: int = 4, evoformer_pair_head_embedding_dimension: int = 32,
+                 evoformer_channel_scaler: int = 4, evoformer_intermediate_embedding: int = 32,
+                 evoformer_triangle_multiplication_embedding: int = 128,
+                 structure_module_number_heads: int = 12, structure_module_head_embedding_dimension: int = 16,
+                 number_query_points: int = 4, number_value_points: int = 8,
+                 number_structure_module_iterations: int = 8, number_torsion_angles: int = 7,
                  device: torch.device = None, dtype: torch.dtype = None):
         """
         Initializes the Alphafold model.
