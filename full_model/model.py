@@ -134,6 +134,7 @@ class Model(nn.Module):
              for every iteration of the Structure Module in every cycle.
             * frames: Backbone frames of shape (*, num_layers, number_residues, 4, 4, number_cycles)
              for every iteration of the Structure Module in every cycle.
+            * pseudo_beta_positions: Pseudo C-beta positions of shape (*, number_residues, 3, number_cycles).
         """
 
         number_cycles = batch_input_dictionary['input_msa_feature'].shape[-1]
