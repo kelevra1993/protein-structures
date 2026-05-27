@@ -405,6 +405,8 @@ class StructureModule(nn.Module):
                                  broadcast_to(batch_dimension + (number_residues, 4, 4)))
 
         # TODO NOTE : IT IS IN THIS BLOCK WHERE WE WILL BE INSERTING LOSSES FOR BACKPROPAGATION
+        # todo we should consider calling this something like self.number_iterations because number layers seems misleading.
+        #  since these are actually shared weights we are iterating over.
         for iteration in range(self.number_layers):
             # IPA and it's normalizer
             # TODO It would have been better to normalise the input of the invariant point attention before adding it
