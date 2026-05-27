@@ -22,7 +22,10 @@ class Model(nn.Module):
                  extra_msa_stack_pair_number_heads: int = None, extra_msa_stack_pair_head_embedding_dimension: int = None,
                  extra_msa_stack_intermediate_embedding: int = None, extra_msa_stack_channel_scaler: int = None,
                  extra_msa_stack_triangle_multiplication_embedding: int = None,
-                 evoformer_number_heads: int = None, evoformer_head_embedding_dimension: int = None,
+                 evoformer_msa_number_heads: int = None, evoformer_msa_head_embedding_dimension: int = None,
+                 evoformer_pair_number_heads: int = None, evoformer_pair_head_embedding_dimension: int = None,
+                 evoformer_channel_scaler: int = None, evoformer_intermediate_embedding: int = None,
+                 evoformer_triangle_multiplication_embedding: int = None,
                  structure_module_number_heads: int = None, structure_module_head_embedding_dimension: int = None,
                  number_query_points: int = None, number_value_points: int = None,
                  number_structure_module_iterations: int = None, number_torsion_angles: int = 7,
@@ -50,8 +53,13 @@ class Model(nn.Module):
             extra_msa_stack_intermediate_embedding (int, optional): Intermediate dimension for OuterProductMean in Extra MSA stack. Defaults to None.
             extra_msa_stack_channel_scaler (int, optional): Channel scaler for transition layers in Extra MSA stack. Defaults to None.
             extra_msa_stack_triangle_multiplication_embedding (int, optional): Dimension for triangle multiplication in Extra MSA stack. Defaults to None.
-            evoformer_number_heads (int, optional): Number of attention heads for the Evoformer. Defaults to None.
-            evoformer_head_embedding_dimension (int, optional): Dimension of each attention head for the Evoformer. Defaults to None.
+            evoformer_msa_number_heads (int, optional): Number of attention heads for the MSA stack in Evoformer. Defaults to None.
+            evoformer_msa_head_embedding_dimension (int, optional): Dimension per attention head for the MSA stack in Evoformer. Defaults to None.
+            evoformer_pair_number_heads (int, optional): Number of attention heads for the Pair stack in Evoformer. Defaults to None.
+            evoformer_pair_head_embedding_dimension (int, optional): Dimension per attention head for the Pair stack in Evoformer. Defaults to None.
+            evoformer_channel_scaler (int, optional): Channel scaler for hidden layers in Evoformer. Defaults to None.
+            evoformer_intermediate_embedding (int, optional): Intermediate dimension for outer product mean in Evoformer. Defaults to None.
+            evoformer_triangle_multiplication_embedding (int, optional): Dimension for triangle multiplication in Evoformer. Defaults to None.
             structure_module_number_heads (int, optional): Number of attention heads for the Structure Module. Defaults to None.
             structure_module_head_embedding_dimension (int, optional): Dimension of each attention head for the Structure Module. Defaults to None.
             number_query_points (int, optional): Number of query points. Defaults to None.
@@ -82,8 +90,15 @@ class Model(nn.Module):
         self.extra_msa_stack_intermediate_embedding = extra_msa_stack_intermediate_embedding
         self.extra_msa_stack_channel_scaler = extra_msa_stack_channel_scaler
         self.extra_msa_stack_triangle_multiplication_embedding = extra_msa_stack_triangle_multiplication_embedding
-        self.evoformer_number_heads = evoformer_number_heads
-        self.evoformer_head_embedding_dimension = evoformer_head_embedding_dimension
+        
+        self.evoformer_msa_number_heads = evoformer_msa_number_heads
+        self.evoformer_msa_head_embedding_dimension = evoformer_msa_head_embedding_dimension
+        self.evoformer_pair_number_heads = evoformer_pair_number_heads
+        self.evoformer_pair_head_embedding_dimension = evoformer_pair_head_embedding_dimension
+        self.evoformer_channel_scaler = evoformer_channel_scaler
+        self.evoformer_intermediate_embedding = evoformer_intermediate_embedding
+        self.evoformer_triangle_multiplication_embedding = evoformer_triangle_multiplication_embedding
+        
         self.structure_module_number_heads = structure_module_number_heads
         self.structure_module_head_embedding_dimension = structure_module_head_embedding_dimension
         self.number_query_points = number_query_points
@@ -136,8 +151,14 @@ class Model(nn.Module):
             msa_embedding=self.msa_embedding,
             pair_representation_embedding=self.pair_representation_embedding,
             number_blocks=self.number_evoformer_blocks,
-            number_heads=self.evoformer_number_heads,
-            head_embedding_dimension=self.evoformer_head_embedding_dimension,
+            msa_number_heads=self.evoformer_msa_number_heads,
+            msa_head_embedding_dimension=self.evoformer_msa_head_embedding_dimension,
+            pair_number_heads=self.evoformer_pair_number_heads,
+            pair_head_embedding_dimension=self.evoformer_pair_head_embedding_dimension,
+            channel_scaler=self.evoformer_channel_scaler,
+            intermediate_embedding=self.evoformer_intermediate_embedding,
+            triangle_multiplication_embedding=self.evoformer_triangle_multiplication_embedding,
+            single_representation_embedding=self.single_representation_embedding,
             device=self.device,
             dtype=self.dtype
         )
