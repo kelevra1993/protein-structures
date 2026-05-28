@@ -99,7 +99,7 @@ class Model(nn.Module):
             single_representation_embedding=global_configuration.get('single_representation_embedding'),
             pair_representation_embedding=global_configuration.get('pair_representation_embedding'),
             number_iterations=structure_module_configuration.get('number_structure_module_iterations'),
-            angle_representation_embedding=global_configuration.get('single_representation_embedding'),
+            angle_representation_embedding=structure_module_configuration.get('angle_representation_embedding'),
             number_query_points=structure_module_configuration.get('number_query_points'),
             number_value_points=structure_module_configuration.get('number_value_points'),
             number_heads=structure_module_configuration.get('number_heads'),
@@ -162,17 +162,17 @@ class Model(nn.Module):
             current_cycle_input_batch = {key: value[..., cycle] for key, value in batch_input_dictionary.items()}
 
             # Get embeddings for msa and pair representation
-            msa_representation_tensor, pair_representation_tensor = self.input_embedder(
+            msa_representation_tensor, pair_representation_tensor,_ = self.input_embedder(
                 input_sequence_feature=current_cycle_input_batch['input_sequence_feature'],
                 input_msa_feature=current_cycle_input_batch['input_msa_feature'],
                 input_extra_msa_feature=current_cycle_input_batch['input_extra_msa_feature'],
-                residue_index=current_cycle_input_batch['input_residue_index_feature'])
+                input_residue_index_feature=current_cycle_input_batch['input_residue_index_feature'])
 
             # Run the model through the recycling embedder
             recycled_msa_representation, recycled_pair_representation = self.recycling_embedder(
-                msa_representation=previous_msa_representation_tensor,
-                pair_representation=previous_pair_representation_tensor,
-                pseudo_beta_positions=previous_pseudo_carbon_beta_positions)
+                previous_msa_representation=previous_msa_representation_tensor,
+                previous_pair_representation=previous_pair_representation_tensor,
+                previous_pseudo_carbon_beta_positions=previous_pseudo_carbon_beta_positions)
 
             # Only the very first sequence of the msa is updated with the recycled msa
             # The recycling embedder just actually normalizes the msa_representation_input using a layer normalizer
@@ -208,11 +208,11 @@ class Model(nn.Module):
             previous_pair_representation_tensor = pair_representation_tensor
             previous_pseudo_carbon_beta_positions = pseudo_beta_positions
 
-            model_outputs["angles"] = angles
-            model_outputs["frames"] = frames
-            model_outputs["final_positions"] = final_positions
-            model_outputs["position_mask"] = position_mask
-            model_outputs["pseudo_beta_positions"] = pseudo_beta_positions
+            model_outputs["angles"].append(angles)
+            model_outputs["frames"].append(frames)
+            model_outputs["final_positions"].append(final_positions)
+            model_outputs["position_mask"].append(position_mask)
+            model_outputs["pseudo_beta_positions"].append(pseudo_beta_positions)
 
         # Stack all tensors emanating from different cycles
         model_outputs = {key: torch.stack(value, dim=-1) for key, value in model_outputs.items()}

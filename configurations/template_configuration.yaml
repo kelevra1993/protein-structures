@@ -19,7 +19,7 @@ RecyclingEmbedder:
 ExtraMsaStack:
   number_blocks: 4
   msa_number_heads: 8
-  msa_head_embedding_dimension: 32
+  msa_head_embedding_dimension: 8
   msa_global_number_heads: 8
   msa_global_head_embedding_dimension: 8
   pair_number_heads: 4
@@ -42,6 +42,7 @@ EvoformerStack:
 
 StructureModule:
   number_structure_module_iterations: 8
+  angle_representation_embedding: 128
   number_heads: 12
   head_embedding_dimension: 16
   number_query_points: 4

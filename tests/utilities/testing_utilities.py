@@ -11,7 +11,8 @@ from utilities.tensor_utilities import print_tensor_shape
 def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
                            output_tensor_names: List[str],
                            reference_folder: str | Path, batch_size: int,
-                           batched_input_tensor_dictionary: Dict[str, torch.Tensor] = None):
+                           batched_input_tensor_dictionary: Dict[str, torch.Tensor] = None,
+                           use_kwargs=True):
     """
     Performs a deterministic regression test on a PyTorch module's forward pass.
 
@@ -54,8 +55,12 @@ def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str,
                                     for input_name, input_tensor in input_tensor_dictionary.items()}
 
     # Simple Output And Batched Output
-    simple_output = module(**simple_input_dictionary)
-    batched_output = module(**batched_input_dictionary)
+    if use_kwargs:
+        simple_output = module(**simple_input_dictionary)
+        batched_output = module(**batched_input_dictionary)
+    else:
+        simple_output = module(simple_input_dictionary).values()
+        batched_output = module(batched_input_dictionary).values()
 
     if isinstance(simple_output, torch.Tensor):
         simple_output = [simple_output]
