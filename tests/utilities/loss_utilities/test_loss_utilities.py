@@ -4,6 +4,7 @@ import torch
 import math
 from utilities.loss_utilities import compute_fape_loss
 
+
 def test_compute_fape_loss_known_values():
     """Verify loss matches a pre-computed reference value for parity."""
     batch_size = 2
@@ -20,10 +21,12 @@ def test_compute_fape_loss_known_values():
     gt_tr_m = gt_tr_m.repeat((batch_size, 1, 1, 1))
 
     pred_carbon_alpha_positions = torch.ones(number_residues, 3) * (
-        (torch.arange(1, number_residues + 1, 1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size, 1, 1)
+        (torch.arange(1, number_residues + 1, 1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size,
+                                                                                                           1, 1)
 
     gt_carbon_alpha_positions = torch.ones(number_residues, 3) * (
-        (torch.arange(number_residues + 1, 1, -1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size, 1,1)
+        (torch.arange(number_residues + 1, 1, -1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size,
+                                                                                                            1, 1)
 
     fape_loss = compute_fape_loss(predicted_transformation_matrix=pred_tr_m,
                                   predicted_positions=pred_carbon_alpha_positions,
@@ -38,6 +41,7 @@ def test_compute_fape_loss_known_values():
     expected_loss = torch.load(reference_path, weights_only=True)
 
     torch.testing.assert_close(fape_loss, expected_loss)
+
 
 def test_compute_fape_loss_identical_inputs():
     """Verify that identical inputs yield the baseline epsilon-based loss."""
@@ -55,11 +59,12 @@ def test_compute_fape_loss_identical_inputs():
                                   ground_truth_positions=pred_pos.clone(),
                                   length_scaler=length_scaler,
                                   epsilon=epsilon)
-    
+
     expected_loss_value = math.sqrt(epsilon) / length_scaler
     expected_loss = torch.full((batch_size,), expected_loss_value)
-    
+
     torch.testing.assert_close(fape_loss, expected_loss)
+
 
 def test_compute_fape_loss_batch_shapes():
     """Verify the loss computation handles arbitrary batch dimensions correctly."""
@@ -101,6 +106,7 @@ def test_compute_fape_loss_batch_shapes():
                                 length_scaler=length_scaler)
     assert loss_2d.shape == (batch_size_2d_1, batch_size_2d_2)
 
+
 def test_compute_fape_loss_clamping():
     """Verify that the loss correctly applies the distance clamp limit."""
     batch_size = 2
@@ -110,7 +116,7 @@ def test_compute_fape_loss_clamping():
 
     # Identical transformations
     tr_m = torch.eye(4).unsqueeze(0).repeat(batch_size, number_residues, 1, 1)
-    
+
     # Very distant positions to ensure clamp is triggered
     pred_pos = torch.zeros(batch_size, number_residues, 3)
     gt_pos = torch.ones(batch_size, number_residues, 3) * 100.0  # Far away
@@ -124,5 +130,5 @@ def test_compute_fape_loss_clamping():
 
     # If clamped at distance_clamp, the mean should be distance_clamp / length_scaler
     expected_loss = torch.full((batch_size,), distance_clamp / length_scaler)
-    
+
     torch.testing.assert_close(fape_loss, expected_loss)

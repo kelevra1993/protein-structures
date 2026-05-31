@@ -28,6 +28,7 @@ ENV/
 # Operating System Files
 .DS_Store
 Thumbs.db
+*.md
 
 # IDEs
 .idea/

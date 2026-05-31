@@ -89,7 +89,7 @@ class MSARowAttentionWithPairBias(nn.Module):
         # *, number_heads, number_residues, number_residues
         normalized_pair_representation = self.pair_representation_layer_normalizer(pair_representation)
         bias_tensor = self.pair_representation_embedder(normalized_pair_representation).movedim(source=-1,
-                                                                                               destination=-3)
+                                                                                                destination=-3)
 
         output_tensor = self.multi_head_attention.forward(input_tensor=normalized_msa_representation,
                                                           bias_tensor=bias_tensor)
