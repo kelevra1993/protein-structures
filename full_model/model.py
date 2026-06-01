@@ -1,5 +1,3 @@
-
-
 import torch
 from torch import nn
 
@@ -8,6 +6,7 @@ from embedders.recycling_embedder import RecyclingEmbedder
 from embedders.extra_msa_embedder import ExtraMsaStack, ExtraMsaEmbedder
 from architecture_modules.evoformer_module.evoformer import EvoformerStack
 from architecture_modules.structure_module.structure_module import StructureModule
+from architecture_modules.distogram_module.distogram_module import DistogramModule
 
 
 class Model(nn.Module):
@@ -108,6 +107,11 @@ class Model(nn.Module):
             device=self.device,
             dtype=self.dtype)
 
+        self.distogram_module = DistogramModule(
+            pair_representation_embedding=global_configuration.get('pair_representation_embedding'),
+            device=self.device,
+            dtype=self.dtype)
+
     def forward(self, batch_input_dictionary):
         """
         Forward pass for the Alphafold model ran for multiple cycles.
@@ -135,6 +139,7 @@ class Model(nn.Module):
             * frames: Backbone frames of shape (*, num_layers, number_residues, 4, 4, number_cycles)
              for every iteration of the Structure Module in every cycle.
             * pseudo_beta_positions: Pseudo C-beta positions of shape (*, number_residues, 3, number_cycles).
+            * distogram_logits: Distance bin logits of shape (*, number_residues, number_residues, 64).
         """
 
         number_cycles = batch_input_dictionary['input_msa_feature'].shape[-1]
@@ -162,7 +167,7 @@ class Model(nn.Module):
             current_cycle_input_batch = {key: value[..., cycle] for key, value in batch_input_dictionary.items()}
 
             # Get embeddings for msa and pair representation
-            msa_representation_tensor, pair_representation_tensor,_ = self.input_embedder(
+            msa_representation_tensor, pair_representation_tensor, _ = self.input_embedder(
                 input_sequence_feature=current_cycle_input_batch['input_sequence_feature'],
                 input_msa_feature=current_cycle_input_batch['input_msa_feature'],
                 input_extra_msa_feature=current_cycle_input_batch['input_extra_msa_feature'],
@@ -216,6 +221,10 @@ class Model(nn.Module):
 
         # Stack all tensors emanating from different cycles
         model_outputs = {key: torch.stack(value, dim=-1) for key, value in model_outputs.items()}
+
+        # Compute distogram logits from the final pair representation
+        distogram_logits, _ = self.distogram_module(pair_representation_tensor)
+        model_outputs["distogram_logits"] = distogram_logits
 
         return model_outputs
 
