@@ -396,12 +396,12 @@ angle_symetry_amino_acids = {
     "TYR": 4,  # Chi2
 }
 
-angle_alternative_truth_mask = torch.ones((20, 7, 2))
+alternative_angle_mask = torch.ones((20, 7, 2))
 for amino_acid, chi_angle_index in angle_symetry_amino_acids.items():
-    angle_alternative_truth_mask[xxx_to_index[amino_acid], chi_angle_index] *= -1
+    alternative_angle_mask[xxx_to_index[amino_acid], chi_angle_index] *= -1
 
 # Positions
-position_alternative_mask = torch.arange(number_atom_types).repeat(20, 1)
+alternative_position_mask = torch.arange(number_atom_types).repeat(20, 1)
 
 # Swapped atoms
 position_symetry_atoms = {
@@ -417,8 +417,8 @@ for amino_acid, atoms_to_swap in position_symetry_atoms.items():
     for atom_a, atom_b in atoms_to_swap:
         atom_a_index = atom_to_index[atom_a]
         atom_b_index = atom_to_index[atom_b]
-        position_alternative_mask[amino_acid_index, atom_a_index] = atom_b_index
-        position_alternative_mask[amino_acid_index, atom_b_index] = atom_a_index
+        alternative_position_mask[amino_acid_index, atom_a_index] = atom_b_index
+        alternative_position_mask[amino_acid_index, atom_b_index] = atom_a_index
 
 # todo to be kept for now for testing then removed later
 # import numpy as np
