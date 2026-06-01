@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch
 from torch import nn
 
@@ -39,12 +41,12 @@ class DistogramModule(nn.Module):
             dtype=self.dtype
         )
 
-    def forward(self, pair_representation: torch.Tensor) -> torch.Tensor:
+    def forward(self, pair_representation: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Performs the forward pass to produce the distogram.
 
-        The pair representation is first symmetrized to ensure the predicted distances 
-        are consistent (dist(i, j) == dist(j, i)). It is then projected to the 
+        The pair representation is first symmetrized to ensure the predicted distances
+        are consistent (dist(i, j) == dist(j, i)). It is then projected to the
         bin space and normalized using a softmax.
 
         Args:
@@ -52,6 +54,8 @@ class DistogramModule(nn.Module):
                 Expected shape: (..., number_residues, number_residues, pair_representation_dimension)
 
         Returns:
+            distogram_logits: The unnormalized logits for the distance bins.
+                Shape: (..., number_residues, number_residues, 64)
             distogram_probabilities: Probability distribution over 64 distance bins.
                 Shape: (..., number_residues, number_residues, 64)
         """
@@ -61,9 +65,9 @@ class DistogramModule(nn.Module):
         pair_representation = pair_representation + torch.transpose(pair_representation, dim0=-2, dim1=-3)
 
         # Project to logits
-        logits = self.distogram_embedder(pair_representation)
+        distogram_logits = self.distogram_embedder(pair_representation)
 
         # Apply softmax to get probability distribution over the last dimension (bins)
-        distogram_probabilities = torch.softmax(logits, dim=-1)
+        distogram_probabilities = torch.softmax(distogram_logits, dim=-1)
 
-        return distogram_probabilities
+        return distogram_logits, distogram_probabilities
