@@ -1,0 +1,1 @@
+from architecture_modules.distogram_module.distogram_module import DistogramModule
