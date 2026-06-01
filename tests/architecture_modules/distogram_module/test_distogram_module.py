@@ -1,5 +1,4 @@
 import torch
-import pytest
 from architecture_modules.distogram_module import DistogramModule
 from utilities.tensor_utilities import get_device
 
@@ -24,9 +23,10 @@ def test_distogram_module_output_shape():
         dtype=dtype
     )
 
-    output = module(pair_representation)
+    logits, output = module(pair_representation)
 
     # Check shape: (batch_size, number_residues, number_residues, 64)
+    assert logits.shape == (batch_size, number_residues, number_residues, 64)
     assert output.shape == (batch_size, number_residues, number_residues, 64)
 
 
@@ -50,7 +50,7 @@ def test_distogram_module_symmetrization():
         dtype=dtype
     )
 
-    output = module(pair_representation)
+    logits, output = module(pair_representation)
 
     # The output distogram (probabilities) should be symmetric: dist(i, j) == dist(j, i)
     # Output shape: (number_residues, number_residues, 64)
@@ -78,7 +78,7 @@ def test_distogram_module_probability_normalization():
         dtype=dtype
     )
 
-    output = module(pair_representation)
+    logits, output = module(pair_representation)
 
     # Probabilities should sum to 1.0 along the last dimension
     sum_probabilities = torch.sum(output, dim=-1)
