@@ -66,3 +66,31 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
     fape_loss = torch.mean(distance_matrix, dim=[-2, -1]) / length_scaler
 
     return fape_loss
+
+def compute_torsion_angle_loss(predicted_unnormalised_angles,
+                               ground_truth_angles,
+                               alternative_ground_truth_angles,
+                               angle_norm_loss_scaler: float = 0.02):
+    """todo add docstring"""
+
+    # Get prediction angle norms used for angle unit norm loss (batch_size, number_residues, 7)
+    norm_predicted_angles = torch.linalg.norm(predicted_unnormalised_angles, dim=-1)
+
+    # Compute prediction angles (cos(phi), sin(phi)) (batch_size, number_residues, 7, 2)
+    prediction_angles = torch.nn.functional.normalize(predicted_unnormalised_angles, dim=-1)
+
+    # Compute squared norm difference for both ground truth and it's alternative to the predicted angles.
+    pred_gt_difference = torch.linalg.norm((prediction_angles - ground_truth_angles), dim=-1) ** 2
+    pred_alternative_gt_difference = torch.linalg.norm((prediction_angles - alternative_ground_truth_angles),
+                                                       dim=-1) ** 2
+
+    # Compute torsion loss (batch_size, 1)
+    torsion_loss = torch.mean(torch.minimum(input=pred_gt_difference, other=pred_alternative_gt_difference),
+                              dim=[-2, -1])
+
+    # Todo : Later try to keep track of these norms to see if they tend to go towards 1
+    # Be careful, we need the absolute value here to target a positive norm
+    # Compute angle normalisation loss (batch_size, 1)
+    angle_norm_loss = torch.mean(torch.abs(norm_predicted_angles - 1), dim=[-2, -1])
+
+    return torsion_loss + angle_norm_loss_scaler * angle_norm_loss
