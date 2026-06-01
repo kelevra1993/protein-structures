@@ -67,11 +67,38 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
 
     return fape_loss
 
-def compute_torsion_angle_loss(predicted_unnormalised_angles,
-                               ground_truth_angles,
-                               alternative_ground_truth_angles,
-                               angle_norm_loss_scaler: float = 0.02):
-    """todo add docstring"""
+
+def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
+                               ground_truth_angles: torch.Tensor,
+                               alternative_ground_truth_angles: torch.Tensor,
+                               angle_norm_loss_scaler: float = 0.02) -> torch.Tensor:
+    """
+    Computes the torsion angle loss and the angle unit norm loss.
+
+    This loss function is used in AlphaFold II to supervise the prediction of backbone (omega, phi, psi)
+    and side-chain (chi1, chi2, chi3, chi4) torsion angles. Torsion angles are represented as points
+    (cos(theta), sin(theta)) on the unit circle. The loss consists of two components:
+
+    1. Torsion Loss: The squared L2 distance between predicted and ground truth angles. It accounts for
+       side-chain symmetries by taking the minimum distance between the prediction and two possible
+       ground truth configurations (standard and alternative).
+    2. Angle Norm Loss: Penalizes the model when the predicted (unnormalized) (cos, sin) pairs do not
+       lie on the unit circle, ensuring they can be interpreted as valid rotation angles.
+
+    Args:
+        predicted_unnormalised_angles: Unnormalized predicted torsion angles.
+            Expected shape: (*batch_dims, number_residues, 7, 2)
+        ground_truth_angles: Ground truth torsion angles.
+            Expected shape: (*batch_dims, number_residues, 7, 2)
+        alternative_ground_truth_angles: Alternative ground truth torsion angles,
+            accounting for 180-degree symmetries in certain side chains (e.g., TYR chi2).
+            Expected shape: (*batch_dims, number_residues, 7, 2)
+        angle_norm_loss_scaler: Scaling factor for the angle unit norm loss component.
+
+    Returns:
+        total_torsion_loss: Combined torsion and normalization loss.
+            Shape: (*batch_dims)
+    """
 
     # Get prediction angle norms used for angle unit norm loss (batch_size, number_residues, 7)
     norm_predicted_angles = torch.linalg.norm(predicted_unnormalised_angles, dim=-1)
@@ -84,13 +111,13 @@ def compute_torsion_angle_loss(predicted_unnormalised_angles,
     pred_alternative_gt_difference = torch.linalg.norm((prediction_angles - alternative_ground_truth_angles),
                                                        dim=-1) ** 2
 
-    # Compute torsion loss (batch_size, 1)
+    # Compute torsion loss (*batch_dims)
     torsion_loss = torch.mean(torch.minimum(input=pred_gt_difference, other=pred_alternative_gt_difference),
                               dim=[-2, -1])
 
     # Todo : Later try to keep track of these norms to see if they tend to go towards 1
     # Be careful, we need the absolute value here to target a positive norm
-    # Compute angle normalisation loss (batch_size, 1)
+    # Compute angle normalisation loss (*batch_dims)
     angle_norm_loss = torch.mean(torch.abs(norm_predicted_angles - 1), dim=[-2, -1])
 
     return torsion_loss + angle_norm_loss_scaler * angle_norm_loss
