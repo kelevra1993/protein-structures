@@ -1,8 +1,7 @@
 import os
-import pytest
 import torch
 import math
-from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss
+from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, compute_distogram_loss
 
 
 def test_compute_torsion_angle_loss_identical_inputs():
@@ -75,30 +74,31 @@ def test_compute_torsion_angle_loss_normalization_penalty():
     torch.testing.assert_close(loss, expected_loss)
 
 
+def generate_test_inputs(batch_shape, number_residues):
+    """Helper to generate normalized ground truth, alternative, and predicted angles."""
+    ground_truth = torch.randn(*batch_shape, number_residues, 7, 2)
+    ground_truth = torch.nn.functional.normalize(ground_truth, dim=-1)
+    return ground_truth, ground_truth.clone(), ground_truth.clone()
+
+
 def test_compute_torsion_angle_loss_batch_shapes():
     """Verify that torsion loss handles various batch dimensions correctly."""
     number_residues = 4
 
-    def generate_test_inputs(batch_shape):
-        """Helper to generate normalized ground truth, alternative, and predicted angles."""
-        ground_truth = torch.randn(*batch_shape, number_residues, 7, 2)
-        ground_truth = torch.nn.functional.normalize(ground_truth, dim=-1)
-        return ground_truth, ground_truth.clone(), ground_truth.clone()
-
     # No batch shape
-    ground_truth, alternative, predicted = generate_test_inputs(())
+    ground_truth, alternative, predicted = generate_test_inputs((), number_residues)
     loss_unbatched = compute_torsion_angle_loss(predicted, ground_truth, alternative)
     assert loss_unbatched.shape == ()
 
     # 1D batch shape
     batch_size_1d = 3
-    ground_truth, alternative, predicted = generate_test_inputs((batch_size_1d,))
+    ground_truth, alternative, predicted = generate_test_inputs((batch_size_1d,), number_residues)
     loss_1d = compute_torsion_angle_loss(predicted, ground_truth, alternative)
     assert loss_1d.shape == (batch_size_1d,)
 
     # 2D batch shape
     batch_size_2d_1, batch_size_2d_2 = 2, 5
-    ground_truth, alternative, predicted = generate_test_inputs((batch_size_2d_1, batch_size_2d_2))
+    ground_truth, alternative, predicted = generate_test_inputs((batch_size_2d_1, batch_size_2d_2), number_residues)
     loss_2d = compute_torsion_angle_loss(predicted, ground_truth, alternative)
     assert loss_2d.shape == (batch_size_2d_1, batch_size_2d_2)
 
@@ -230,3 +230,29 @@ def test_compute_fape_loss_clamping():
     expected_loss = torch.full((batch_size,), distance_clamp / length_scaler)
 
     torch.testing.assert_close(fape_loss, expected_loss)
+
+
+def test_compute_distogram_loss():
+    """Verify that the distogram loss correctly computes cross-entropy."""
+    batch_size = 2
+    number_residues = 10
+    number_bins = 64
+
+    # Create dummy logits: (batch_size, number_residues, number_residues, number_bins)
+    # We want a very small loss, so we'll make the ground truth category have high logits
+    logits = torch.randn(batch_size, number_residues, number_residues, number_bins)
+    
+    # Labels: (batch_size, number_residues, number_residues)
+    labels = torch.randint(low=0, high=number_bins, size=(batch_size, number_residues, number_residues))
+
+    # Set logits for the correct labels to be very high to ensure the loss is near zero
+    for b in range(batch_size):
+        for i in range(number_residues):
+            for j in range(number_residues):
+                logits[b, i, j, labels[b, i, j]] = 100.0
+
+    loss = compute_distogram_loss(distogram_logits=logits, distogram_labels=labels)
+
+    # Loss should be effectively zero
+    assert loss.item() < 1e-4
+    assert loss.shape == ()

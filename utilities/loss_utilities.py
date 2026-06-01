@@ -68,6 +68,34 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
     return fape_loss
 
 
+def compute_distogram_loss(distogram_logits: torch.Tensor, distogram_labels: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the distogram loss using cross-entropy between predicted logits and ground truth labels.
+
+    The distogram loss supervises the pair representation by comparing the predicted distance 
+    distributions between all residue pairs against the true discretized distances.
+
+    Args:
+        distogram_logits: Unnormalized predicted distance bin logits.
+            Expected shape: (*batch_dims, number_residues, number_residues, 64)
+        distogram_labels: Ground truth distance bin indices.
+            Expected shape: (*batch_dims, number_residues, number_residues)
+
+    Returns:
+        distogram_loss: The mean cross-entropy loss.
+            Shape: ()
+    """
+    # Move dimensions of distogram predictions so that the class prediction is at dimension 1 :
+    # (Batch, classes chanel, d1, d2, ...) as CrossEntropyLoss expects it
+    # therefore move the 64 bins (dim -1) to index 1.
+    logits = distogram_logits.movedim(source=-1, destination=1)
+
+    # Compute cross entropy loss. Reduction is "mean" as per project standard.
+    distogram_loss = torch.nn.functional.cross_entropy(input=logits, target=distogram_labels, reduction="mean")
+
+    return distogram_loss
+
+
 def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
                                ground_truth_angles: torch.Tensor,
                                alternative_ground_truth_angles: torch.Tensor,
@@ -111,13 +139,13 @@ def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
     pred_alternative_gt_difference = torch.linalg.norm((prediction_angles - alternative_ground_truth_angles),
                                                        dim=-1) ** 2
 
-    # Compute torsion loss (*batch_dims)
+    # Compute torsion loss (batch_size, 1)
     torsion_loss = torch.mean(torch.minimum(input=pred_gt_difference, other=pred_alternative_gt_difference),
                               dim=[-2, -1])
 
     # Todo : Later try to keep track of these norms to see if they tend to go towards 1
     # Be careful, we need the absolute value here to target a positive norm
-    # Compute angle normalisation loss (*batch_dims)
+    # Compute angle normalisation loss (batch_size, 1)
     angle_norm_loss = torch.mean(torch.abs(norm_predicted_angles - 1), dim=[-2, -1])
 
     return torsion_loss + angle_norm_loss_scaler * angle_norm_loss
