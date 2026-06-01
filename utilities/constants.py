@@ -259,7 +259,7 @@ rigid_group_atom_positions = {
 rigid_group_atom_positions = {
     key: [
         [name, index, torch.tensor(pos)]
-            for name, index, pos in values
+        for name, index, pos in values
     ] for key, values in rigid_group_atom_positions.items()
 
 }
@@ -277,7 +277,7 @@ rigid_group_atom_positions = {
 # Todo add small description + example
 rigid_group_atom_position_map = {
     aa: {
-        entry[0]: entry[2]  for entry in entries
+        entry[0]: entry[2] for entry in entries
     } for aa, entries in rigid_group_atom_positions.items()
 }
 
@@ -303,24 +303,24 @@ atom_types = ["N", "CA", "C", "CB", "O",
 
 # Maps atoms to their indices
 # Todo add small description + example
-atom_order = {atom_type: i for i, atom_type in enumerate(atom_types)}
+atom_to_index = {atom_type: i for i, atom_type in enumerate(atom_types)}
+index_to_atom = {i: atom_type for i, atom_type in enumerate(atom_types)}
 number_atom_types = len(atom_types)  # := 37.
 
 # Todo add small description + example
 atom_local_positions = torch.zeros((20, 37, 3))
 
 # Todo add small description + example
-atom_frame_indices  = torch.zeros((20, 37), dtype=torch.int64)
+atom_frame_indices = torch.zeros((20, 37), dtype=torch.int64)
 
 # Todo add small description + example
 atom_mask = torch.zeros((20, 37)).to(torch.bool)
 
 for i, (aa, values) in enumerate(rigid_group_atom_positions.items()):
     for name, index, pos in values:
-        atom_local_positions[i, atom_order[name]] = pos
-        atom_frame_indices[i, atom_order[name]] = index
-        atom_mask[i, atom_order[name]] = True
-
+        atom_local_positions[i, atom_to_index[name]] = pos
+        atom_frame_indices[i, atom_to_index[name]] = index
+        atom_mask[i, atom_to_index[name]] = True
 
 # If chi angles given in fixed-length array, this matrix determines how to mask
 # them for each AA type. The order is as per restype_order (see below).
@@ -371,3 +371,61 @@ chi_angles_frame_centers = {
     'TYR': ['CB', 'CG'],
     'VAL': ['CB'],
 }
+#########################################################
+# Management of alternative truths for loss computation #
+#########################################################
+# Angles
+# Simple dictionaries to retrieve canonical amino acid indices
+# Three Letter Codes
+xxx_to_index = {'ALA': 0, 'ARG': 1, 'ASN': 2, 'ASP': 3, 'CYS': 4,
+                'GLN': 5, 'GLU': 6, 'GLY': 7, 'HIS': 8, 'ILE': 9,
+                'LEU': 10, 'LYS': 11, 'MET': 12, 'PHE': 13, 'PRO': 14,
+                'SER': 15, 'THR': 16, 'TRP': 17, 'TYR': 18, 'VAL': 19}
+index_to_xxx = {value: key for key, value in xxx_to_index.items()}
+
+# Single Letter Codes
+x_to_index = {key: index for index, key in enumerate(canonical_amino_acid_residues)}
+index_to_x = {index: key for index, key in enumerate(canonical_amino_acid_residues)}
+
+# Rigid Groups with atom symetry based on torsion angles
+# For amino-acids such as aspartic acid, glutamic acid, phenylalanine and tyrosine
+angle_symetry_amino_acids = {
+    "ASP": 4,  # Chi2
+    "GLU": 5,  # Chi3
+    "PHE": 4,  # Chi2
+    "TYR": 4,  # Chi2
+}
+
+angle_alternative_truth_mask = torch.ones((20, 7, 2))
+for amino_acid, chi_angle_index in angle_symetry_amino_acids.items():
+    angle_alternative_truth_mask[xxx_to_index[amino_acid], chi_angle_index] *= -1
+
+# Positions
+position_alternative_mask = torch.arange(number_atom_types).repeat(20, 1)
+
+# Swapped atoms
+position_symetry_atoms = {
+    "ASP": [("OD1", "OD2")],
+    "GLU": [("OE1", "OE2")],
+    "PHE": [("CD1", "CD2"), ("CE1", "CE2")],
+    "TYR": [("CD1", "CD2"), ("CE1", "CE2")],
+}
+
+for amino_acid, atoms_to_swap in position_symetry_atoms.items():
+    amino_acid_index = xxx_to_index[amino_acid]
+
+    for atom_a, atom_b in atoms_to_swap:
+        atom_a_index = atom_to_index[atom_a]
+        atom_b_index = atom_to_index[atom_b]
+        position_alternative_mask[amino_acid_index, atom_a_index] = atom_b_index
+        position_alternative_mask[amino_acid_index, atom_b_index] = atom_a_index
+
+# todo to be kept for now for testing then removed later
+# import numpy as np
+# np.set_printoptions(linewidth=200, threshold=np.inf)
+# for i in range(20):
+#     print(f"Amino Acid : {index_to_xxx[i]}")
+#     # print(angle_alternative_truth_mask[i].numpy())
+#     print(position_alternative_mask[i].numpy())
+#     print(position_alternative_mask[i].numpy()-np.array(list(range(37))))
+#     print(30 * '-')
