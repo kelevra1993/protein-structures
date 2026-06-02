@@ -601,7 +601,29 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
 
 def create_alternative_truth_transformation_matrix(transformation_matrix: torch.Tensor,
                                                    sequence_amino_acid_labels: torch.Tensor) -> torch.Tensor:
-    """"""
+    """
+    Creates alternative ground truth transformation matrices by accounting for 
+    amino acid side-chain symmetries.
+
+    Certain amino acids (e.g., Asp, Glu, Phe, Tyr) have symmetric side-chains 
+    where a 180-degree rotation around a specific chi angle results in a 
+    chemically identical structure. This function generates the alternative 
+    set of transformations for all 8 rigid groups, which is typically used 
+    during FAPE loss calculation to ensure the model isn't penalized for 
+    predicting one of the two equivalent orientations.
+
+    Args:
+        transformation_matrix (torch.Tensor): The original ground truth global 
+            transformation matrices for all 8 rigid groups.
+            Expected shape: `(..., number_residues, 8, 4, 4)`.
+        sequence_amino_acid_labels (torch.Tensor): The amino acid types encoded 
+            as indices (0-19).
+            Expected shape: `(..., number_residues)`.
+
+    Returns:
+        torch.Tensor: The alternative global transformation matrices.
+            Shape: `(..., number_residues, 8, 4, 4)`.
+    """
 
     device = transformation_matrix.device
     dtype = transformation_matrix.dtype

@@ -153,12 +153,45 @@ def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
     return torsion_loss + angle_norm_loss_scaler * angle_norm_loss
 
 
-def rename_symetric_ground_truth_metrics(predicted_positions,
-                                         ground_truth_transformation_matrix,
-                                         ground_truth_positions,
-                                         alternative_ground_truth_transformation_matrix,
-                                         alternative_ground_truth_positions,
-                                         sequence_amino_acid_labels):
+def rename_symetric_ground_truth_metrics(predicted_positions: torch.Tensor,
+                                         ground_truth_transformation_matrix: torch.Tensor,
+                                         ground_truth_positions: torch.Tensor,
+                                         alternative_ground_truth_transformation_matrix: torch.Tensor,
+                                         alternative_ground_truth_positions: torch.Tensor,
+                                         sequence_amino_acid_labels: torch.Tensor):
+    """
+    Renames symmetric ground truth metrics by selecting the ground truth or alternative ground truth
+    that is closest to the predicted positions.
+
+    This function addresses the ambiguity in side-chain atom labeling due to chemical symmetries
+    (e.g., the two carboxyl oxygens in Aspartate or the symmetric ring in Phenylalanine). It compares
+    the predicted distances between symmetric (ambiguous) atoms and non-ambiguous atoms with the
+    corresponding distances in both the standard ground truth and an alternative (swapped) ground
+    truth. It then updates the ground truth positions and frames to the version that better
+    matches the current model prediction, preventing the loss from penalizing correct structures
+    that simply use a different labeling convention.
+
+    Args:
+        predicted_positions: Predicted 3D Cartesian coordinates for all atoms.
+            Expected shape: (number_residues, 37, 3)
+        ground_truth_transformation_matrix: Standard ground truth local transformation frames.
+            Expected shape: (number_residues, 4, 4)
+        ground_truth_positions: Standard ground truth 3D Cartesian coordinates for all atoms.
+            Expected shape: (number_residues, 37, 3)
+        alternative_ground_truth_transformation_matrix: Alternative ground truth local transformation frames,
+            accounting for side-chain symmetries.
+            Expected shape: (number_residues, 4, 4)
+        alternative_ground_truth_positions: Alternative ground truth 3D Cartesian coordinates.
+            Expected shape: (number_residues, 37, 3)
+        sequence_amino_acid_labels: Integer indices representing the amino acid type for each residue.
+            Expected shape: (number_residues)
+
+    Returns:
+        modified_ground_truth_positions: Selected ground truth positions (standard or alternative).
+            Shape: (number_residues, 37, 3)
+        modified_ground_truth_transformation_matrix: Selected ground truth transformation matrices.
+            Shape: (number_residues, 4, 4)
+    """
     # Important : We assume that there is no batch in our inputs
 
     # Get tensors that will be returned
