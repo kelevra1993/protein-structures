@@ -8,7 +8,7 @@ File containing geometry utilities
 import torch
 from torch import nn
 from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame_centers, chi_angles_mask,
-                                 atom_local_positions, atom_frame_indices, atom_mask)
+                                 atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask)
 from utilities.tensor_utilities import unsqueeze_tensor
 
 
@@ -597,3 +597,43 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
                                                       vector=local_positions)
 
     return global_positions, all_atom_mask
+
+
+def create_alternative_truth_transformation_matrix(transformation_matrix: torch.Tensor,
+                                                   sequence_amino_acid_labels: torch.Tensor) -> torch.Tensor:
+    """"""
+
+    device = transformation_matrix.device
+    dtype = transformation_matrix.dtype
+
+    batch_size, number_residues = sequence_amino_acid_labels.shape[:2]
+
+    alternative_rotations = alternative_angle_mask[sequence_amino_acid_labels]
+    residue_angles = torch.tensor([1.0, 0.0]).repeat(batch_size, number_residues, 7, 1).to(device=device, dtype=dtype)
+
+    # Apply rotation to get alternative rotations
+    residue_angles = residue_angles * alternative_rotations
+
+    omega, phi, psi, chi1, chi2, chi3, chi4 = torch.unbind(residue_angles, dim=-2)
+
+    alternative_transformation_matrix = transformation_matrix.clone()
+
+    for transformation_index, angle in enumerate([omega, phi, psi, chi1], start=1):
+        # Note we already normalised the angles therefore they are in (cos(phi), sin(phi)) format
+        rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
+
+        # Just frame * rotational matrix.
+        alternative_transformation_matrix[..., transformation_index, :, :] = torch.matmul(
+            input=transformation_matrix[..., transformation_index, :, :],
+            other=rotation_matrix
+        )
+
+    # Here we have to keep track of the previous transformation
+    for transformation_index, angle in enumerate([chi2, chi3, chi4], start=5):
+        rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
+        alternative_transformation_matrix[..., transformation_index, :, :] = torch.matmul(
+            input=transformation_matrix[..., transformation_index, :, :],
+            other=rotation_matrix
+        )
+
+    return alternative_transformation_matrix

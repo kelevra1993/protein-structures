@@ -374,7 +374,6 @@ chi_angles_frame_centers = {
 #########################################################
 # Management of alternative truths for loss computation #
 #########################################################
-# Angles
 # Simple dictionaries to retrieve canonical amino acid indices
 # Three Letter Codes
 xxx_to_index = {'ALA': 0, 'ARG': 1, 'ASN': 2, 'ASP': 3, 'CYS': 4,
@@ -387,6 +386,9 @@ index_to_xxx = {value: key for key, value in xxx_to_index.items()}
 x_to_index = {key: index for index, key in enumerate(canonical_amino_acid_residues)}
 index_to_x = {index: key for index, key in enumerate(canonical_amino_acid_residues)}
 
+# Angles : shape (20, 7, 2)
+alternative_angle_mask = torch.ones((20, 7, 2))
+
 # Rigid Groups with atom symetry based on torsion angles
 # For amino-acids such as aspartic acid, glutamic acid, phenylalanine and tyrosine
 angle_symetry_amino_acids = {
@@ -396,11 +398,10 @@ angle_symetry_amino_acids = {
     "TYR": 4,  # Chi2
 }
 
-alternative_angle_mask = torch.ones((20, 7, 2))
 for amino_acid, chi_angle_index in angle_symetry_amino_acids.items():
     alternative_angle_mask[xxx_to_index[amino_acid], chi_angle_index] *= -1
 
-# Positions
+# Positions : shape (20, 37)
 alternative_position_mask = torch.arange(number_atom_types).repeat(20, 1)
 
 # Swapped atoms
@@ -423,6 +424,7 @@ for amino_acid, atoms_to_swap in position_symetry_atoms.items():
 # todo to be kept for now for testing then removed later
 # import numpy as np
 # np.set_printoptions(linewidth=200, threshold=np.inf)
+# print(alternative_position_mask.numpy())
 # for i in range(20):
 #     print(f"Amino Acid : {index_to_xxx[i]}")
 #     # print(angle_alternative_truth_mask[i].numpy())
