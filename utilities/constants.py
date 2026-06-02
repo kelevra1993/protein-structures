@@ -421,10 +421,17 @@ for amino_acid, atoms_to_swap in position_symetry_atoms.items():
         alternative_position_mask[amino_acid_index, atom_a_index] = atom_b_index
         alternative_position_mask[amino_acid_index, atom_b_index] = atom_a_index
 
-# todo to be kept for now for testing then removed later
+# Variable containing atoms that might have ambiguous positions
+ambiguous_position_mask = torch.abs(alternative_position_mask - torch.arange(number_atom_types)).to(dtype=torch.bool)
+
+
+# # todo to be kept for now for testing then removed later
 # import numpy as np
 # np.set_printoptions(linewidth=200, threshold=np.inf)
 # print(alternative_position_mask.numpy())
+# print(ambiguous_position_mask.numpy())
+# print(alternative_position_mask.numpy() - np.array(list(range(37))))
+# print(ambigous_position_mask.numpy())
 # for i in range(20):
 #     print(f"Amino Acid : {index_to_xxx[i]}")
 #     # print(angle_alternative_truth_mask[i].numpy())

@@ -1,4 +1,6 @@
 import torch
+
+from utilities.constants import ambiguous_position_mask
 from utilities.geometry_utilities import invert_4x4_transform_matrix, apply_transformation_on_vector
 
 
@@ -149,3 +151,67 @@ def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
     angle_norm_loss = torch.mean(torch.abs(norm_predicted_angles - 1), dim=[-2, -1])
 
     return torsion_loss + angle_norm_loss_scaler * angle_norm_loss
+
+
+def rename_symetric_ground_truth_metrics(predicted_positions,
+                                         ground_truth_transformation_matrix,
+                                         ground_truth_positions,
+                                         alternative_ground_truth_transformation_matrix,
+                                         alternative_ground_truth_positions,
+                                         sequence_amino_acid_labels):
+    # Important : We assume that there is no batch in our inputs
+
+    # Get tensors that will be returned
+    modified_ground_truth_positions = ground_truth_positions.clone()
+    modified_ground_truth_transformation_matrix = ground_truth_transformation_matrix.clone()
+
+    # Get non-ambiguous positions
+    sequence_ambiguous_positions_masks = ambiguous_position_mask[sequence_amino_acid_labels]
+    sequence_non_ambiguous_position_masks = ~sequence_ambiguous_positions_masks
+
+    # Gets all the non ambigouous positions : (non_ambiguous_atoms_of_sequence, 3)
+    sequence_unambiguous_predicted_positions = predicted_positions[sequence_non_ambiguous_position_masks]
+    sequence_unambiguous_ground_truth_positions = ground_truth_positions[sequence_non_ambiguous_position_masks]
+
+    # Go through all residues and only evaluate the amino acid residues with ambigous atoms
+    for index, residue_index in enumerate(sequence_amino_acid_labels):
+
+        # Skip if this residue has no ambiguous atoms.
+        if not sequence_ambiguous_positions_masks[index].any():
+            continue
+
+        # Get current residue positions
+        pred_res_pos = predicted_positions[index]
+        gt_res_pos = ground_truth_positions[index]
+        alt_gt_res_pos = alternative_ground_truth_positions[index]
+
+        # Get current residue ambiguous positions
+        pred_ambiguous_positions = pred_res_pos[ambiguous_position_mask[residue_index]]
+        gt_ambiguous_positions = gt_res_pos[ambiguous_position_mask[residue_index]]
+        alt_gt_ambiguous_positions = alt_gt_res_pos[ambiguous_position_mask[residue_index]]
+
+        # Get the different distances
+        # - predicitions<->predictions
+        distance_predictions = torch.cdist(x1=pred_ambiguous_positions,
+                                           x2=sequence_unambiguous_predicted_positions)
+
+        # - ground_truth<->ground_truth
+        distance_ground_truths = torch.cdist(x1=gt_ambiguous_positions,
+                                             x2=sequence_unambiguous_ground_truth_positions)
+
+        # - alternative_ground_truth <-> ground_truth
+        distance_alternative_ground_truths = torch.cdist(x1=alt_gt_ambiguous_positions,
+                                                         x2=sequence_unambiguous_ground_truth_positions)
+
+        # Left element abs(predictions-alt_ground_truth)
+        left_side = torch.sum(torch.abs(distance_predictions - distance_alternative_ground_truths))
+
+        # Right element abs(predictions-ground_truth)
+        right_side = torch.sum(torch.abs(distance_predictions - distance_ground_truths))
+
+        # Modify the ground truth transformation matrix accordingly.
+        if left_side < right_side:
+            modified_ground_truth_positions[index] = alternative_ground_truth_positions[index]
+            modified_ground_truth_transformation_matrix[index] = alternative_ground_truth_transformation_matrix[index]
+
+    return modified_ground_truth_positions, modified_ground_truth_transformation_matrix
