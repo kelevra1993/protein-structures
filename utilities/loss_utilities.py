@@ -254,6 +254,34 @@ def compute_local_distance_difference_test(prediction_positions,
                                            ground_truth_positions,
                                            clamp_threshold=15.0,
                                            distance_thresholds=None):
+    """
+    Computes the Local Distance Difference Test (lDDT) score per residue.
+
+    lDDT is a superposition-independent metric used to evaluate the local quality of a predicted
+    protein structure. It compares the distances between all pairs of atoms in the prediction
+    to the corresponding distances in the ground truth structure, provided those atoms are within
+    a certain distance (the clamp threshold) in the ground truth. The score is calculated based
+    on the fraction of preserved distances within several tolerance thresholds.
+
+    In AlphaFold II, lDDT is primarily used as a validation metric and as the target for the
+    confidence head (pLDDT). This implementation specifically focuses on Carbon Alpha (CA)
+    atoms to assess the backbone quality.
+
+    Args:
+        prediction_positions: Predicted 3D Cartesian coordinates for all atoms.
+            Expected shape: (*batch_dims, number_residues, 37, 3)
+        ground_truth_positions: Ground truth 3D Cartesian coordinates for all atoms.
+            Expected shape: (*batch_dims, number_residues, 37, 3)
+        clamp_threshold: Maximum distance (in Angstroms) in the ground truth structure
+            for an atom pair to be considered in the lDDT calculation.
+        distance_thresholds: A list of tolerance thresholds (in Angstroms). A distance
+            is considered "preserved" if the absolute difference between the predicted
+            and ground truth distance is less than the threshold.
+
+    Returns:
+        local_difference_distance_test: The computed lDDT score for each residue.
+            Shape: (*batch_dims, number_residues)
+    """
     batch_size, number_residues = prediction_positions.shape[:2]
     device = prediction_positions.device
     dtype = prediction_positions.dtype
@@ -282,7 +310,7 @@ def compute_local_distance_difference_test(prediction_positions,
                                             other=(ground_truth_distances < clamp_threshold))
 
     # Get number of pairs to consider for each residue
-    considered_ca_pair_counts = torch.sum(considered_ca_pairs.to(torch.float64), dim=-1)
+    considered_ca_pair_counts = torch.sum(considered_ca_pairs.to(dtype), dim=-1)
 
     # Difference Distance Predictions and Ground Truth
     # Shape -> (batch_size, number_residues, nmber_residues)
@@ -306,10 +334,16 @@ def compute_local_distance_difference_test(prediction_positions,
         )
 
         # Count the number of correct predictions and add them to the lddt matrix
-        number_accurate_distances = torch.sum(current_indices.to(torch.float64), dim=-1)
+        number_accurate_distances = torch.sum(current_indices.to(dtype), dim=-1)
         local_difference_distance_test += number_accurate_distances
 
-    # Normalise the local difference distance test
-    local_difference_distance_test /= (L * considered_ca_pair_counts)
+    # Normalize the local difference distance test
+    # Handle division by zero for residues with no neighbors within clamp_threshold
+    normalization_factor = L * considered_ca_pair_counts
+    local_difference_distance_test = torch.where(
+        normalization_factor > 0,
+        local_difference_distance_test / normalization_factor,
+        torch.zeros_like(local_difference_distance_test)
+    )
 
     return local_difference_distance_test

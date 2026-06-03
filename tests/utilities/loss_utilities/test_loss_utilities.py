@@ -1,7 +1,10 @@
 import os
 import torch
 import math
-from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, compute_distogram_loss
+
+from utilities.constants import atom_to_index
+from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, compute_distogram_loss, \
+    compute_local_distance_difference_test
 
 
 def test_compute_torsion_angle_loss_identical_inputs():
@@ -241,7 +244,7 @@ def test_compute_distogram_loss():
     # Create dummy logits: (batch_size, number_residues, number_residues, number_bins)
     # We want a very small loss, so we'll make the ground truth category have high logits
     logits = torch.randn(batch_size, number_residues, number_residues, number_bins)
-    
+
     # Labels: (batch_size, number_residues, number_residues)
     labels = torch.randint(low=0, high=number_bins, size=(batch_size, number_residues, number_residues))
 
@@ -256,3 +259,117 @@ def test_compute_distogram_loss():
     # Loss should be effectively zero
     assert loss.item() < 1e-4
     assert loss.shape == ()
+
+
+def test_lddt_shape():
+    """Verify that the lDDT output shape matches (batch_size, number_residues)."""
+    batch_size = 2
+    number_residues = 10
+    prediction_positions = torch.randn((batch_size, number_residues, 37, 3))
+    ground_truth_positions = torch.randn((batch_size, number_residues, 37, 3))
+
+    lddt = compute_local_distance_difference_test(prediction_positions=prediction_positions,
+                                                  ground_truth_positions=ground_truth_positions)
+
+    assert lddt.shape == (batch_size, number_residues)
+
+
+def test_lddt_perfect_prediction():
+    """Verify that identical structures yield a perfect lDDT score of 1.0."""
+    batch_size = 1
+    number_residues = 5
+    # Create CA positions in a line: (0,0,0), (1,0,0), (2,0,0), (3,0,0), (4,0,0)
+    # All pairs are within 15A clamp threshold
+    positions = torch.zeros((batch_size, number_residues, 37, 3))
+    ca_idx = atom_to_index["CA"]
+    for i in range(number_residues):
+        positions[:, i, ca_idx, 0] = float(i)
+
+    lddt = compute_local_distance_difference_test(prediction_positions=positions,
+                                                  ground_truth_positions=positions)
+
+    # All residues should have score 1.0 since they all have at least one neighbor
+    torch.testing.assert_close(lddt, torch.ones_like(lddt))
+
+
+def test_lddt_complete_mismatch():
+    """Verify that structures with large distance errors yield an lDDT score of 0.0."""
+    batch_size = 1
+    number_residues = 5
+    ca_idx = atom_to_index["CA"]
+
+    # Ground truth: line at x=0, 1, 2, 3, 4
+    # Prediction: line at x=0, 10, 20, 30, 40 (distance differences > 4.0A)
+    gt_positions = torch.zeros((batch_size, number_residues, 37, 3))
+    pred_positions = torch.zeros((batch_size, number_residues, 37, 3))
+    for i in range(number_residues):
+        gt_positions[:, i, ca_idx, 0] = float(i)
+        pred_positions[:, i, ca_idx, 0] = float(i * 10)
+
+    lddt = compute_local_distance_difference_test(prediction_positions=pred_positions,
+                                                  ground_truth_positions=gt_positions)
+
+    # All residues should have score 0.0
+    torch.testing.assert_close(lddt, torch.zeros_like(lddt))
+
+
+def test_lddt_clamp_threshold():
+    """Verify that atom pairs beyond the clamp threshold are ignored in lDDT."""
+    batch_size = 1
+    number_residues = 2
+    ca_idx = atom_to_index["CA"]
+
+    # Residue 0 and 1 are 20A apart (clamped at 15A)
+    gt_positions = torch.zeros((batch_size, number_residues, 37, 3))
+    gt_positions[:, 1, ca_idx, 0] = 20.0
+
+    # Prediction matches exactly
+    pred_positions = gt_positions.clone()
+
+    lddt = compute_local_distance_difference_test(prediction_positions=pred_positions,
+                                                  ground_truth_positions=gt_positions,
+                                                  clamp_threshold=15.0)
+
+    # Since they are 20A apart, they have NO neighbors within 15A.
+    # The score should be 0.0 (due to our division by zero fix)
+    torch.testing.assert_close(lddt, torch.zeros_like(lddt))
+
+
+def test_lddt_distance_thresholds_accuracy():
+    """Verify that lDDT correctly scores partially preserved distances based on thresholds."""
+    batch_size = 1
+    number_residues = 2
+    ca_idx = atom_to_index["CA"]
+
+    # Ground Truth : Two residues 5A apart
+    # Prediction is 6.5A apart (error of 1.5A)
+    # Thresholds: [0.5, 1.0, 2.0, 4.0]
+    # 1.5 < 0.5: No
+    # 1.5 < 1.0: No
+    # 1.5 < 2.0: Yes
+    # 1.5 < 4.0: Yes
+    # Expected score: 2/4 = 0.5
+    gt_positions = torch.zeros((batch_size, number_residues, 37, 3))
+    pred_positions = torch.zeros((batch_size, number_residues, 37, 3))
+    gt_positions[:, 1, ca_idx, 0] = 5.0
+    pred_positions[:, 1, ca_idx, 0] = 6.5
+
+    lddt = compute_local_distance_difference_test(prediction_positions=pred_positions,
+                                                  ground_truth_positions=gt_positions)
+
+    expected_lddt = torch.tensor([[0.5, 0.5]])
+    torch.testing.assert_close(lddt, expected_lddt)
+
+
+def test_lddt_isolated_residue():
+    """Verify that residues with no neighbors within the clamp threshold yield a score of 0.0."""
+    batch_size = 1
+    number_residues = 1
+    # Single residue structure - no neighbors possible
+    positions = torch.zeros((batch_size, number_residues, 37, 3))
+
+    lddt = compute_local_distance_difference_test(prediction_positions=positions, ground_truth_positions=positions)
+
+    # Should be 0.0 instead of NaN
+    assert not torch.isnan(lddt).any()
+    torch.testing.assert_close(lddt, torch.zeros_like(lddt))
