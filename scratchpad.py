@@ -5,7 +5,7 @@ np.set_printoptions(linewidth=200, threshold=np.inf)
 
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, specialised_one_hot_encoder
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
-    compute_local_distance_difference_test
+    compute_local_distance_difference_test,compute_plddt_loss
 from utilities.constants import alternative_angle_mask, alternative_position_mask, index_to_xxx, \
     ambiguous_position_mask, atom_types
 from utilities.geometry_utilities import create_alternative_truth_transformation_matrix
@@ -63,63 +63,14 @@ lddt_module = LddtModule(single_representation_embedding=embedding_dimension,
                          device=torch.device("cpu"),
                          dtype=torch.float64)
 
-lddt_logits, predicted_lddt_probabilities = lddt_module(single_representation=single_representation)
+lddt_logits, predicted_lddt_probabilities, plddt = lddt_module(single_representation=single_representation)
 
 
-def compute_predicted_lddt_and_associated_loss(ground_truth_lddt,
-                                               predicted_lddt_logits,
-                                               predicted_lddt_probabilities):
-    device = predicted_lddt_probabilities.device
-    dtype = predicted_lddt_probabilities.dtype
-
-    # Set the 50 lddt bins : [1, 3, 5,...99]
-    lddt_bins = torch.arange(start=1, end=100, step=2, dtype=dtype, device=device)
-
-    # Scale Local Difference Distance Test : (batch_size, number_residues)
-    scaled_ground_truth_lddt = 100.0 * ground_truth_lddt
-
-    # Scale Local Difference Distance Test : (batch_size, number_residues, 50)
-    ground_truth_lddt_labels = specialised_one_hot_encoder(input_tensor=scaled_ground_truth_lddt,
-                                                           bin_tensor=lddt_bins)
-
-    # Preparing data for torch.nn.functional.cross_entropy which expect class indices
-    ground_truth_labels = torch.argmax(ground_truth_lddt_labels, dim=-1)
-
-    # Confidence Loss
-    confidence_loss = torch.nn.functional.cross_entropy(input=predicted_lddt_logits.transpose(dim0=-1, dim1=-2),
-                                                        target=ground_truth_labels,
-                                                        reduction="mean")
-
-    predicted_lddt_per_residue = torch.sum(predicted_lddt_probabilities * lddt_bins, dim=-1)
-
-    return predicted_lddt_per_residue, confidence_loss
-
-    # print(predicted_lddt_probabilities.detach().numpy()[0][0])
-    # print(40*'-')
-    # print(predicted_lddt_per_residue.shape)
-    # print(predicted_lddt_per_residue.detach().numpy())
-
-    # print(ground_truth_lddt_labels.shape)
-    # print(ground_truth_labels.shape)
-    # print(ground_truth_labels.numpy())
-    # exit()
-
-    # print(lddt_logits.transpose(dim0=-1, dim1=-2).shape)
-    # print(confidence_loss)
-    # print(softmax_confidence_loss)
-    exit()
-    print(ground_truth_lddt_labels.shape)
-    print(ground_truth_lddt.numpy())
-    print_tensor_shape(tensor=lddt_bins, name="lddt_bins")
-    print(lddt_bins.numpy())
-
-
-# print_tensor_shape(tensor=local_difference_distance_test, name="local_difference_distance_test")
-
-compute_predicted_lddt_and_associated_loss(
+plddt_loss = compute_plddt_loss(
     ground_truth_lddt=local_difference_distance_test,
     predicted_lddt_logits=lddt_logits,
-    predicted_lddt_probabilities=predicted_lddt_probabilities)
+    lddt_bins=lddt_module.lddt_bins
+)
 # def create_transformation_matrices(batch_size: int,
 #                                    number_residues: int,
 #                                    number_frames: int = 8,
