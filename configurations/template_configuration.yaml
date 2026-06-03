@@ -48,3 +48,6 @@ StructureModule:
   number_query_points: 4
   number_value_points: 8
   number_torsion_angles: 7
+
+LddtModule:
+  intermediate_embedding: 128

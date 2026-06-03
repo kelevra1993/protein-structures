@@ -3,14 +3,14 @@ import numpy as np
 
 np.set_printoptions(linewidth=200, threshold=np.inf)
 
-from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
-from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss
+from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, specialised_one_hot_encoder
+from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
+    compute_local_distance_difference_test
 from utilities.constants import alternative_angle_mask, alternative_position_mask, index_to_xxx, \
     ambiguous_position_mask, atom_types
 from utilities.geometry_utilities import create_alternative_truth_transformation_matrix
 
 
-# todo to be used to create positions
 def create_all_atom_positions(batch_size: int, number_residues: int, flip: bool = False, random=False):
     if random:
         positions = torch.randperm(number_residues * 37 * 3).reshape(number_residues, 37, 3)
@@ -25,26 +25,8 @@ def create_all_atom_positions(batch_size: int, number_residues: int, flip: bool 
     return positions
 
 
-def create_transformation_matrices(batch_size: int,
-                                   number_residues: int,
-                                   number_frames: int = 8,
-                                   delta=2):
-    transformation_matrix = torch.eye(4).to(torch.float64).unsqueeze(dim=0).repeat(number_residues, number_frames, 1, 1)
-
-    # Replace the last column (equivalent to the translation with some known value > simple (x,x,x) translation)
-    for k in range(number_residues):
-        for j in range(number_frames):
-            transformation_matrix[k, j, :3, -1] += k + j + 1 + delta
-
-    # Accommodate batch
-    transformation_matrix = transformation_matrix.repeat(batch_size, 1, 1, 1, 1)
-
-    return transformation_matrix
-
-
 batch_size = 8
-number_residues = 5
-number_frames = 8
+number_residues = 10
 dtype = torch.float32
 scale = 30
 threshold = 15
@@ -61,76 +43,100 @@ prediction_positions = create_all_atom_positions(batch_size=batch_size, number_r
 ground_truth_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues,
                                                    flip=True) / (scale / 2)
 
+local_difference_distance_test = compute_local_distance_difference_test(
+    # prediction_positions=ground_truth_positions,
+    prediction_positions=prediction_positions,
+    ground_truth_positions=ground_truth_positions,
+    distance_thresholds=distance_thresholds)
 
-def compute_local_distance_difference_test(prediction_positions,
-                                           ground_truth_positions,
-                                           clamp_threshold=15.0,
-                                           distance_thresholds=None):
-    batch_size, number_residues = prediction_positions.shape[:2]
-    device = prediction_positions.device
-    dtype = prediction_positions.dtype
+from architecture_modules.lddt_module.lddt_module import LddtModule
 
-    if not distance_thresholds:
-        distance_thresholds = [0.5, 1.0, 2.0, 4.0]
+# Create single_representation
+embedding_dimension = 100
+single_representation = torch.randperm(batch_size * number_residues * embedding_dimension, dtype=torch.float64).reshape(
+    batch_size,
+    number_residues,
+    embedding_dimension)
 
-    # First Extract the carbon alpha postion
-    carbon_alpha_index = atom_types.index("CA")
+lddt_module = LddtModule(single_representation_embedding=embedding_dimension,
+                         intermediate_embedding=int(embedding_dimension / 4),
+                         device=torch.device("cpu"),
+                         dtype=torch.float64)
 
-    # Alpha Carbon Positions
-    predictions_ca_positions = prediction_positions[..., carbon_alpha_index, :]
-    ground_truth_ca_positions = ground_truth_positions[..., carbon_alpha_index, :]
-
-    # Compute distances
-    prediction_distances = torch.cdist(predictions_ca_positions, predictions_ca_positions)
-    ground_truth_distances = torch.cdist(ground_truth_ca_positions, ground_truth_ca_positions)
-
-    # Boolean identity matrix of shape (number_residues, number_residues) used to avoid diagonals.
-    diagonal_mask = torch.eye(number_residues, dtype=torch.bool, device=ground_truth_distances.device)
-    off_diagonal_mask = ~diagonal_mask
-
-    # Get a mask for pair distances that are not in the diagonal (avoid self difference)
-    # and below the clamp_threshold
-    considered_ca_pairs = torch.bitwise_and(input=off_diagonal_mask,
-                                            other=(ground_truth_distances < clamp_threshold))
-
-    # Get number of pairs to consider for each residue
-    considered_ca_pair_counts = torch.sum(considered_ca_pairs.to(torch.float64), dim=-1)
-
-    # Difference Distance Predictions and Ground Truth
-    # Shape -> (batch_size, number_residues, nmber_residues)
-    difference_prediction_ground_truth_distance = torch.abs(prediction_distances - ground_truth_distances)
-
-    # Used to scale the final lddt matrix
-    L = len(distance_thresholds)
-
-    # Since we are prediciting the per residue local distance difference test
-    # we sum over the residue columns thus the shape (batch_size, number_residues)
-    local_difference_distance_test = torch.zeros((batch_size, number_residues), device=device, dtype=dtype)
-
-    # Here be very careful, we set the pairs that should not be considered (~considered) to -1
-    difference_prediction_ground_truth_distance[~considered_ca_pairs] = -1
-
-    for current_threshold in distance_thresholds:
-        # Now get indices of distance pairs >0 and under the current threshold value
-        current_indices = torch.bitwise_and(
-            input=(difference_prediction_ground_truth_distance >= 0),
-            other=(difference_prediction_ground_truth_distance < current_threshold),
-        )
-
-        # Count the number of correct predictions and add them to the lddt matrix
-        number_accurate_distances = torch.sum(current_indices.to(torch.float64), dim=-1)
-        local_difference_distance_test += number_accurate_distances
-
-    # Normalise the local difference distance test
-    local_difference_distance_test /= (L * considered_ca_pair_counts)
-
-    return local_difference_distance_test
+lddt_logits, predicted_lddt_probabilities = lddt_module(single_representation=single_representation)
 
 
-local_difference_distance_test = compute_local_distance_difference_test(prediction_positions=prediction_positions,
-                                                                        ground_truth_positions=ground_truth_positions,
-                                                                        distance_thresholds=distance_thresholds)
-print(local_difference_distance_test)
+def compute_predicted_lddt_and_associated_loss(ground_truth_lddt,
+                                               predicted_lddt_logits,
+                                               predicted_lddt_probabilities):
+    device = predicted_lddt_probabilities.device
+    dtype = predicted_lddt_probabilities.dtype
+
+    # Set the 50 lddt bins : [1, 3, 5,...99]
+    lddt_bins = torch.arange(start=1, end=100, step=2, dtype=dtype, device=device)
+
+    # Scale Local Difference Distance Test : (batch_size, number_residues)
+    scaled_ground_truth_lddt = 100.0 * ground_truth_lddt
+
+    # Scale Local Difference Distance Test : (batch_size, number_residues, 50)
+    ground_truth_lddt_labels = specialised_one_hot_encoder(input_tensor=scaled_ground_truth_lddt,
+                                                           bin_tensor=lddt_bins)
+
+    # Preparing data for torch.nn.functional.cross_entropy which expect class indices
+    ground_truth_labels = torch.argmax(ground_truth_lddt_labels, dim=-1)
+
+    # Confidence Loss
+    confidence_loss = torch.nn.functional.cross_entropy(input=predicted_lddt_logits.transpose(dim0=-1, dim1=-2),
+                                                        target=ground_truth_labels,
+                                                        reduction="mean")
+
+    predicted_lddt_per_residue = torch.sum(predicted_lddt_probabilities * lddt_bins, dim=-1)
+
+    return predicted_lddt_per_residue, confidence_loss
+
+    # print(predicted_lddt_probabilities.detach().numpy()[0][0])
+    # print(40*'-')
+    # print(predicted_lddt_per_residue.shape)
+    # print(predicted_lddt_per_residue.detach().numpy())
+
+    # print(ground_truth_lddt_labels.shape)
+    # print(ground_truth_labels.shape)
+    # print(ground_truth_labels.numpy())
+    # exit()
+
+    # print(lddt_logits.transpose(dim0=-1, dim1=-2).shape)
+    # print(confidence_loss)
+    # print(softmax_confidence_loss)
+    exit()
+    print(ground_truth_lddt_labels.shape)
+    print(ground_truth_lddt.numpy())
+    print_tensor_shape(tensor=lddt_bins, name="lddt_bins")
+    print(lddt_bins.numpy())
+
+
+# print_tensor_shape(tensor=local_difference_distance_test, name="local_difference_distance_test")
+
+compute_predicted_lddt_and_associated_loss(
+    ground_truth_lddt=local_difference_distance_test,
+    predicted_lddt_logits=lddt_logits,
+    predicted_lddt_probabilities=predicted_lddt_probabilities)
+# def create_transformation_matrices(batch_size: int,
+#                                    number_residues: int,
+#                                    number_frames: int = 8,
+#                                    delta=2):
+#     transformation_matrix = torch.eye(4).to(torch.float64).unsqueeze(dim=0).repeat(number_residues, number_frames, 1, 1)
+#
+#     # Replace the last column (equivalent to the translation with some known value > simple (x,x,x) translation)
+#     for k in range(number_residues):
+#         for j in range(number_frames):
+#             transformation_matrix[k, j, :3, -1] += k + j + 1 + delta
+#
+#     # Accommodate batch
+#     transformation_matrix = transformation_matrix.repeat(batch_size, 1, 1, 1, 1)
+#
+#     return transformation_matrix
+#
+#
 # # The position matrices
 # ground_truth_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=False)
 # predicted_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=True)

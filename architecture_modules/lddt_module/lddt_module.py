@@ -35,8 +35,9 @@ class LddtModule(nn.Module):
         self.device = device
         self.dtype = dtype
 
-        self.layer_norm = nn.LayerNorm(normalized_shape=self.single_representation_embedding,
-                                       device=self.device, dtype=self.dtype)
+        self.single_representation_layer_normalizer = nn.LayerNorm(
+            normalized_shape=self.single_representation_embedding,
+            device=self.device, dtype=self.dtype)
 
         self.first_linear_layer = nn.Linear(in_features=self.single_representation_embedding,
                                             out_features=self.intermediate_embedding,
@@ -71,7 +72,7 @@ class LddtModule(nn.Module):
                 Shape: (..., number_residues, 50)
         """
 
-        normalized_representation = self.layer_norm(single_representation)
+        normalized_representation = self.single_representation_layer_normalizer(single_representation)
 
         # activation = relu(Linear(relu(Linear(normalized_representation))))
         activation = self.relu(self.second_linear_layer(self.relu(self.first_linear_layer(normalized_representation))))
