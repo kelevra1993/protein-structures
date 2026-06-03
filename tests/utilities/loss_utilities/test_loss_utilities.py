@@ -4,7 +4,7 @@ import math
 
 from utilities.constants import atom_to_index
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, compute_distogram_loss, \
-    compute_local_distance_difference_test
+    compute_local_distance_difference_test, compute_plddt_loss
 
 
 def test_compute_torsion_angle_loss_identical_inputs():
@@ -373,3 +373,40 @@ def test_lddt_isolated_residue():
     # Should be 0.0 instead of NaN
     assert not torch.isnan(lddt).any()
     torch.testing.assert_close(lddt, torch.zeros_like(lddt))
+
+
+def test_compute_plddt_loss_perfect_prediction():
+    """Verify that a perfect bin prediction yields effectively zero cross-entropy loss."""
+    batch_size = 2
+    number_residues = 10
+
+    # Ground truth lDDT of 0.01 scales to 1.0. 
+    # The bins are [1, 3, 5, ..., 99].
+    # So 1.0 falls perfectly into the first bin (index 0).
+    ground_truth_lddt = torch.full((batch_size, number_residues), 0.01)
+
+    # Create logits where index 0 has high confidence and others are very low
+    predicted_lddt_logits = torch.full((batch_size, number_residues, 50), -100.0)
+    predicted_lddt_logits[..., 0] = 100.0
+
+    lddt_bins = torch.arange(start=1, end=100, step=2, dtype=torch.float32)
+
+    loss = compute_plddt_loss(ground_truth_lddt=ground_truth_lddt,
+                              predicted_lddt_logits=predicted_lddt_logits,
+                              lddt_bins=lddt_bins)
+
+    # Loss should be extremely close to 0
+    assert loss.item() < 1e-5
+
+
+def test_compute_plddt_loss_batch_shapes():
+    """Verify that the pLDDT loss computation handles standard 1D batched shapes properly."""
+    number_residues = 5
+    lddt_bins = torch.arange(start=1, end=100, step=2, dtype=torch.float32)
+
+    # 1D Batched (batch_size, number_residues)
+    batch_size_1 = 3
+    gt_1d = torch.rand(batch_size_1, number_residues)
+    logits_1d = torch.randn(batch_size_1, number_residues, 50)
+    loss_1d = compute_plddt_loss(gt_1d, logits_1d, lddt_bins)
+    assert loss_1d.shape == ()
