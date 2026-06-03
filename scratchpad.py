@@ -5,13 +5,17 @@ np.set_printoptions(linewidth=200, threshold=np.inf)
 
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss
-from utilities.constants import alternative_angle_mask, alternative_position_mask, index_to_xxx, ambiguous_position_mask
+from utilities.constants import alternative_angle_mask, alternative_position_mask, index_to_xxx, \
+    ambiguous_position_mask, atom_types
 from utilities.geometry_utilities import create_alternative_truth_transformation_matrix
 
 
 # todo to be used to create positions
-def create_all_atom_positions(batch_size: int, number_residues: int, flip: bool = False, delta: int = 0):
-    positions = torch.arange(number_residues * 37 * 3).reshape(number_residues, 37, 3)
+def create_all_atom_positions(batch_size: int, number_residues: int, flip: bool = False, random=False):
+    if random:
+        positions = torch.randperm(number_residues * 37 * 3).reshape(number_residues, 37, 3)
+    else:
+        positions = torch.arange(number_residues * 37 * 3).reshape(number_residues, 37, 3)
 
     if flip:
         positions = torch.flip(positions, dims=[-2])
@@ -38,113 +42,201 @@ def create_transformation_matrices(batch_size: int,
     return transformation_matrix
 
 
-batch_size = 1
-number_residues = 4
+batch_size = 8
+number_residues = 5
 number_frames = 8
 dtype = torch.float32
+scale = 30
+threshold = 15
+distance_thresholds = [9.5, 1.0, 2.0, 4.0]
 
 # Get the residues of the sequence
 amino_acid_residues = (torch.arange(batch_size * number_residues) % 20).reshape(batch_size, number_residues)
 amino_acid_residues = torch.flip(amino_acid_residues, dims=[-1])
 
-# The position matrices
-ground_truth_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=False)
-predicted_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=True)
-# Shape (number_residues, 37)
-alternative_positions = alternative_position_mask[amino_acid_residues].unsqueeze(dim=-1).repeat(1, 1, 1, 3)
-alternative_ground_truth_positions = torch.gather(ground_truth_positions, dim=2, index=alternative_positions)
-
-# The transformation matrices
-ground_truth_transformation_matrix = create_transformation_matrices(batch_size=batch_size,
-                                                                    number_residues=number_residues,
-                                                                    number_frames=number_frames, delta=0)
-predicted_transformation_matrix = create_transformation_matrices(batch_size=batch_size,
-                                                                 number_residues=number_residues,
-                                                                 number_frames=number_frames, delta=1)
-
-# Swap change the rotations of the transformation matrices
-alternative_rotations = alternative_angle_mask[amino_acid_residues]
-alternative_rotations = alternative_rotations.repeat(batch_size, 1, 1, 1)
-residue_angles = torch.tensor([1.0, 0.0]).repeat(batch_size, number_residues, 7, 1)
-alternative_ground_truth_transformation_matrix = create_alternative_truth_transformation_matrix(
-    transformation_matrix=ground_truth_transformation_matrix,
-    sequence_amino_acid_labels=amino_acid_residues)
+# Create the positions of predictions and ground truths
+# (batch, number_residues, 37, 3)
+prediction_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues,
+                                                 random=True) / scale
+ground_truth_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues,
+                                                   flip=True) / (scale / 2)
 
 
-def rename_symetric_ground_truth_metrics(predicted_transformation_matrix,
-                                         predicted_positions,
-                                         ground_truth_transformation_matrix,
-                                         ground_truth_positions,
-                                         alternative_ground_truth_transformation_matrix,
-                                         alternative_ground_truth_positions,
-                                         sequence_amino_acid_labels):
-    # Important : We assume that there is no batch in our inputs
+def compute_local_distance_difference_test(prediction_positions,
+                                           ground_truth_positions,
+                                           clamp_threshold=15.0,
+                                           distance_thresholds=None):
+    batch_size, number_residues = prediction_positions.shape[:2]
 
-    # Get tensors that will be returned
-    modified_ground_truth_positions = ground_truth_positions.clone()
-    modified_ground_truth_transformation_matrix = ground_truth_transformation_matrix.clone()
+    if not distance_thresholds:
+        distance_thresholds = [0.5, 1.0, 2.0, 4.0]
 
-    # Get non-ambiguous positions
-    sequence_ambiguous_positions_masks = ambiguous_position_mask[sequence_amino_acid_labels]
-    sequence_non_ambiguous_position_masks = ~sequence_ambiguous_positions_masks
+    # First Extract the carbon alpha postion
+    carbon_alpha_index = atom_types.index("CA")
 
-    # Gets all the non ambigouous positions : (non_ambiguous_atoms_of_sequence, 3)
-    sequence_unambiguous_predicted_positions = predicted_positions[sequence_non_ambiguous_position_masks]
-    sequence_unambiguous_ground_truth_positions = ground_truth_positions[sequence_non_ambiguous_position_masks]
+    # Alpha Carbon Positions
+    predictions_ca_positions = prediction_positions[..., carbon_alpha_index, :]
+    ground_truth_ca_positions = ground_truth_positions[..., carbon_alpha_index, :]
 
-    # Go through all residues and only evaluate the amino acid residues with ambigous atoms
-    for index, residue_index in enumerate(sequence_amino_acid_labels):
+    # Compute distances
+    prediction_distances = torch.cdist(predictions_ca_positions, predictions_ca_positions)
+    ground_truth_distances = torch.cdist(ground_truth_ca_positions, ground_truth_ca_positions)
 
-        # Skip if this residue has no ambiguous atoms.
-        if not sequence_ambiguous_positions_masks[index].any():
-            continue
+    # Get a mask for pair distances that are above 0 (avoid self difference) and below the clamp_threshold
+    considered_ca_pairs = torch.bitwise_and(input=(ground_truth_distances > 0),
+                                            other=(ground_truth_distances < clamp_threshold))
 
-        # Get current residue positions
-        pred_res_pos = predicted_positions[index]
-        gt_res_pos = ground_truth_positions[index]
-        alt_gt_res_pos = alternative_ground_truth_positions[index]
+    # Get number of pairs to consider for each residue
+    considered_ca_pair_counts = torch.sum(considered_ca_pairs.to(torch.float64), dim=-1)
 
-        # Get current residue ambiguous positions
-        pred_ambiguous_positions = pred_res_pos[ambiguous_position_mask[residue_index]]
-        gt_ambiguous_positions = gt_res_pos[ambiguous_position_mask[residue_index]]
-        alt_gt_ambiguous_positions = alt_gt_res_pos[ambiguous_position_mask[residue_index]]
+    # print(considered_ca_pair_counts)
+    # print(considered_ca_pair_counts.shape)
 
-        # Get the different distances
-        # - predicitions<->predictions
-        distance_predictions = torch.cdist(x1=pred_ambiguous_positions,
-                                           x2=sequence_unambiguous_predicted_positions)
+    # # # For viewing thresholds
+    # print_tensor_list(considered_ca_pairs[0].to(torch.float32))
+    # print_tensor_list(ground_truth_distances[0].to(torch.float32))
 
-        # - ground_truth<->ground_truth
-        distance_ground_truths = torch.cdist(x1=gt_ambiguous_positions,
-                                             x2=sequence_unambiguous_ground_truth_positions)
+    # Difference Distance Predictions and Ground Truth
+    # Shape -> (batch_size, number_residues, nmber_residues)
+    difference_prediction_ground_truth_distance = torch.abs(prediction_distances - ground_truth_distances)
 
-        # - alternative_ground_truth <-> ground_truth
-        distance_alternative_ground_truths = torch.cdist(x1=alt_gt_ambiguous_positions,
-                                                         x2=sequence_unambiguous_ground_truth_positions)
+    # Used to scale the final lddt matrix
+    L = len(distance_thresholds)
 
-        # Left element abs(predictions-alt_ground_truth)
-        left_side = torch.sum(torch.abs(distance_predictions - distance_alternative_ground_truths))
+    # Since we are prediciting the per residue local distance difference test
+    # we sum over the residue columns thus the shape (batch_size, number_residues)
+    local_difference_distance_test = torch.zeros((batch_size, number_residues))
 
-        # Right element abs(predictions-ground_truth)
-        right_side = torch.sum(torch.abs(distance_predictions - distance_ground_truths))
+    print_tensor_list(difference_prediction_ground_truth_distance[0], round=6)
+    # Here be very careful, we set the pairs that should not be considered (~considered) to -1
+    difference_prediction_ground_truth_distance[~considered_ca_pairs] = -1
 
-        if left_side < right_side:
-            modified_ground_truth_positions[index] = alternative_ground_truth_positions[index]
-            modified_ground_truth_transformation_matrix[index] = alternative_ground_truth_transformation_matrix[index]
+    for current_threshold in distance_thresholds:
+        print(40 * '--')
+        print(f"{current_threshold=}")
+        print_tensor_list(difference_prediction_ground_truth_distance[0], round=6)
 
-    return modified_ground_truth_positions, modified_ground_truth_transformation_matrix
+        # Now get indices of distance pairs >0 and under the current threshold value
+        current_indices = torch.bitwise_and(
+            input=(difference_prediction_ground_truth_distance > 0),
+            other=(difference_prediction_ground_truth_distance < current_threshold),
+        )
 
+        # Count the number of correct predictions and add them to the lddt matrix
+        number_accurate_distances = torch.sum(current_indices.to(torch.float64), dim=-1)
+        local_difference_distance_test += number_accurate_distances
 
-for batch_index in range(batch_size):
-    modified_ground_truth_positions, modified_ground_truth_transformation_matrix = rename_symetric_ground_truth_metrics(
-        predicted_transformation_matrix=predicted_transformation_matrix[batch_index],
-        predicted_positions=predicted_positions[batch_index],
-        ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
-        ground_truth_positions=ground_truth_positions[batch_index],
-        alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[batch_index],
-        alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
-        sequence_amino_acid_labels=amino_acid_residues[batch_index],
-    )
+        print(number_accurate_distances.numpy())
+        print(10 * '--')
+        print(local_difference_distance_test.numpy())
+
+    # Normalise everything
+    local_difference_distance_test
+
+    return None
+
+_ = compute_local_distance_difference_test(prediction_positions=prediction_positions,
+                                           ground_truth_positions=ground_truth_positions,
+                                           distance_thresholds=distance_thresholds)
+
+# # The position matrices
+# ground_truth_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=False)
+# predicted_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=True)
+# # Shape (number_residues, 37)
+# alternative_positions = alternative_position_mask[amino_acid_residues].unsqueeze(dim=-1).repeat(1, 1, 1, 3)
+# alternative_ground_truth_positions = torch.gather(ground_truth_positions, dim=2, index=alternative_positions)
+#
+# # The transformation matrices
+# ground_truth_transformation_matrix = create_transformation_matrices(batch_size=batch_size,
+#                                                                     number_residues=number_residues,
+#                                                                     number_frames=number_frames, delta=0)
+# predicted_transformation_matrix = create_transformation_matrices(batch_size=batch_size,
+#                                                                  number_residues=number_residues,
+#                                                                  number_frames=number_frames, delta=1)
+#
+# # Swap change the rotations of the transformation matrices
+# alternative_rotations = alternative_angle_mask[amino_acid_residues]
+# alternative_rotations = alternative_rotations.repeat(batch_size, 1, 1, 1)
+# residue_angles = torch.tensor([1.0, 0.0]).repeat(batch_size, number_residues, 7, 1)
+# alternative_ground_truth_transformation_matrix = create_alternative_truth_transformation_matrix(
+#     transformation_matrix=ground_truth_transformation_matrix,
+#     sequence_amino_acid_labels=amino_acid_residues)
+#
+#
+# def rename_symetric_ground_truth_metrics(predicted_transformation_matrix,
+#                                          predicted_positions,
+#                                          ground_truth_transformation_matrix,
+#                                          ground_truth_positions,
+#                                          alternative_ground_truth_transformation_matrix,
+#                                          alternative_ground_truth_positions,
+#                                          sequence_amino_acid_labels):
+#     # Important : We assume that there is no batch in our inputs
+#
+#     # Get tensors that will be returned
+#     modified_ground_truth_positions = ground_truth_positions.clone()
+#     modified_ground_truth_transformation_matrix = ground_truth_transformation_matrix.clone()
+#
+#     # Get non-ambiguous positions
+#     sequence_ambiguous_positions_masks = ambiguous_position_mask[sequence_amino_acid_labels]
+#     sequence_non_ambiguous_position_masks = ~sequence_ambiguous_positions_masks
+#
+#     # Gets all the non ambigouous positions : (non_ambiguous_atoms_of_sequence, 3)
+#     sequence_unambiguous_predicted_positions = predicted_positions[sequence_non_ambiguous_position_masks]
+#     sequence_unambiguous_ground_truth_positions = ground_truth_positions[sequence_non_ambiguous_position_masks]
+#
+#     # Go through all residues and only evaluate the amino acid residues with ambigous atoms
+#     for index, residue_index in enumerate(sequence_amino_acid_labels):
+#
+#         # Skip if this residue has no ambiguous atoms.
+#         if not sequence_ambiguous_positions_masks[index].any():
+#             continue
+#
+#         # Get current residue positions
+#         pred_res_pos = predicted_positions[index]
+#         gt_res_pos = ground_truth_positions[index]
+#         alt_gt_res_pos = alternative_ground_truth_positions[index]
+#
+#         # Get current residue ambiguous positions
+#         pred_ambiguous_positions = pred_res_pos[ambiguous_position_mask[residue_index]]
+#         gt_ambiguous_positions = gt_res_pos[ambiguous_position_mask[residue_index]]
+#         alt_gt_ambiguous_positions = alt_gt_res_pos[ambiguous_position_mask[residue_index]]
+#
+#         # Get the different distances
+#         # - predicitions<->predictions
+#         distance_predictions = torch.cdist(x1=pred_ambiguous_positions,
+#                                            x2=sequence_unambiguous_predicted_positions)
+#
+#         # - ground_truth<->ground_truth
+#         distance_ground_truths = torch.cdist(x1=gt_ambiguous_positions,
+#                                              x2=sequence_unambiguous_ground_truth_positions)
+#
+#         # - alternative_ground_truth <-> ground_truth
+#         distance_alternative_ground_truths = torch.cdist(x1=alt_gt_ambiguous_positions,
+#                                                          x2=sequence_unambiguous_ground_truth_positions)
+#
+#         # Left element abs(predictions-alt_ground_truth)
+#         left_side = torch.sum(torch.abs(distance_predictions - distance_alternative_ground_truths))
+#
+#         # Right element abs(predictions-ground_truth)
+#         right_side = torch.sum(torch.abs(distance_predictions - distance_ground_truths))
+#
+#         if left_side < right_side:
+#             modified_ground_truth_positions[index] = alternative_ground_truth_positions[index]
+#             modified_ground_truth_transformation_matrix[index] = alternative_ground_truth_transformation_matrix[index]
+#
+#     return modified_ground_truth_positions, modified_ground_truth_transformation_matrix
+#
+#
+# for batch_index in range(batch_size):
+#     modified_ground_truth_positions, modified_ground_truth_transformation_matrix = rename_symetric_ground_truth_metrics(
+#         predicted_transformation_matrix=predicted_transformation_matrix[batch_index],
+#         predicted_positions=predicted_positions[batch_index],
+#         ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
+#         ground_truth_positions=ground_truth_positions[batch_index],
+#         alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[batch_index],
+#         alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
+#         sequence_amino_acid_labels=amino_acid_residues[batch_index],
+#     )
 
 # for b in range(batch_size):
 #     for r in range(number_residues):
