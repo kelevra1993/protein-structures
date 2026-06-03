@@ -66,8 +66,9 @@ def compute_local_distance_difference_test(prediction_positions,
                                            ground_truth_positions,
                                            clamp_threshold=15.0,
                                            distance_thresholds=None):
-
     batch_size, number_residues = prediction_positions.shape[:2]
+    device = prediction_positions.device
+    dtype = prediction_positions.dtype
 
     if not distance_thresholds:
         distance_thresholds = [0.5, 1.0, 2.0, 4.0]
@@ -83,13 +84,17 @@ def compute_local_distance_difference_test(prediction_positions,
     prediction_distances = torch.cdist(predictions_ca_positions, predictions_ca_positions)
     ground_truth_distances = torch.cdist(ground_truth_ca_positions, ground_truth_ca_positions)
 
-    # Get a mask for pair distances that are above 0 (avoid self difference) and below the clamp_threshold
-    considered_ca_pairs = torch.bitwise_and(input=(ground_truth_distances > 0),
+    # Boolean identity matrix of shape (number_residues, number_residues) used to avoid diagonals.
+    diagonal_mask = torch.eye(number_residues, dtype=torch.bool, device=ground_truth_distances.device)
+    off_diagonal_mask = ~diagonal_mask
+
+    # Get a mask for pair distances that are not in the diagonal (avoid self difference)
+    # and below the clamp_threshold
+    considered_ca_pairs = torch.bitwise_and(input=off_diagonal_mask,
                                             other=(ground_truth_distances < clamp_threshold))
 
     # Get number of pairs to consider for each residue
     considered_ca_pair_counts = torch.sum(considered_ca_pairs.to(torch.float64), dim=-1)
-
 
     # Difference Distance Predictions and Ground Truth
     # Shape -> (batch_size, number_residues, nmber_residues)
@@ -100,16 +105,15 @@ def compute_local_distance_difference_test(prediction_positions,
 
     # Since we are prediciting the per residue local distance difference test
     # we sum over the residue columns thus the shape (batch_size, number_residues)
-    local_difference_distance_test = torch.zeros((batch_size, number_residues))
+    local_difference_distance_test = torch.zeros((batch_size, number_residues), device=device, dtype=dtype)
 
     # Here be very careful, we set the pairs that should not be considered (~considered) to -1
     difference_prediction_ground_truth_distance[~considered_ca_pairs] = -1
 
     for current_threshold in distance_thresholds:
-
         # Now get indices of distance pairs >0 and under the current threshold value
         current_indices = torch.bitwise_and(
-            input=(difference_prediction_ground_truth_distance > 0),
+            input=(difference_prediction_ground_truth_distance >= 0),
             other=(difference_prediction_ground_truth_distance < current_threshold),
         )
 
@@ -117,16 +121,16 @@ def compute_local_distance_difference_test(prediction_positions,
         number_accurate_distances = torch.sum(current_indices.to(torch.float64), dim=-1)
         local_difference_distance_test += number_accurate_distances
 
-
     # Normalise the local difference distance test
-    local_difference_distance_test /= (L*considered_ca_pair_counts)
+    local_difference_distance_test /= (L * considered_ca_pair_counts)
 
     return local_difference_distance_test
 
-_ = compute_local_distance_difference_test(prediction_positions=prediction_positions,
-                                           ground_truth_positions=ground_truth_positions,
-                                           distance_thresholds=distance_thresholds)
 
+local_difference_distance_test = compute_local_distance_difference_test(prediction_positions=prediction_positions,
+                                                                        ground_truth_positions=ground_truth_positions,
+                                                                        distance_thresholds=distance_thresholds)
+print(local_difference_distance_test)
 # # The position matrices
 # ground_truth_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=False)
 # predicted_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=True)
