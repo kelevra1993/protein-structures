@@ -47,10 +47,16 @@ class RecyclingEmbedder(nn.Module):
 
         # Note : Openfold's implementation.
         # Alphafold's implementation uses closest distance to determine bin position
-        self.bins = torch.linspace(start=self.bin_start, end=self.bin_end, steps=self.bin_count,
-                                   device=self.device, dtype=self.dtype)
-        self.displaced_bins = torch.cat(tensors=(self.bins[1:],
-                                                 torch.tensor([1e8], device=self.device, dtype=self.dtype)), dim=-1)
+        # Registered as buffers to ensure they move with the module but are not trainable.
+        self.register_buffer("bins", torch.linspace(start=self.bin_start, end=self.bin_end, steps=self.bin_count,
+                                                    device=self.device, dtype=self.dtype))
+        self.register_buffer("displaced_bins", torch.cat(tensors=(torch.linspace(start=self.bin_start,
+                                                                                 end=self.bin_end,
+                                                                                 steps=self.bin_count,
+                                                                                 device=self.device,
+                                                                                 dtype=self.dtype)[1:],
+                                                                  torch.tensor([1e8], device=self.device,
+                                                                               dtype=self.dtype)), dim=-1))
 
     def forward(self, previous_msa_representation: torch.Tensor,
                 previous_pair_representation: torch.Tensor,

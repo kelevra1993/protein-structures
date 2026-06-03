@@ -350,15 +350,28 @@ def compute_local_distance_difference_test(prediction_positions,
     return local_difference_distance_test
 
 
-def compute_predicted_lddt_and_associated_loss(ground_truth_lddt,
-                                               predicted_lddt_logits,
-                                               predicted_lddt_probabilities):
-    device = predicted_lddt_probabilities.device
-    dtype = predicted_lddt_probabilities.dtype
+def compute_plddt_loss(ground_truth_lddt: torch.Tensor,
+                       predicted_lddt_logits: torch.Tensor,
+                       lddt_bins: torch.Tensor):
+    """
+    Computes the confidence loss for the lDDT (pLDDT) head.
 
-    # Set the 50 lddt bins : [1, 3, 5,...99]
-    lddt_bins = torch.arange(start=1, end=100, step=2, dtype=dtype, device=device)
+    This function serves as the supervision mechanism for the lDDT (confidence) head. It
+    discretizes the ground truth lDDT scores (calculated from the structure) into 50 
+    bins to compute a cross-entropy loss against the predicted logits.
 
+    Args:
+        ground_truth_lddt: The actual lDDT scores computed from the ground truth structure.
+            Expected shape: (batch_size, number_residues)
+        predicted_lddt_logits: Unnormalized predicted lDDT bin logits from the LddtModule.
+            Expected shape: (batch_size, number_residues, 50)
+        lddt_bins: The discrete lDDT bin centers used for discretization.
+            Expected shape: (50)
+
+    Returns:
+        confidence_loss: The mean cross-entropy loss for the confidence head.
+            Shape: ()
+    """
     # Scale Local Difference Distance Test : (batch_size, number_residues)
     scaled_ground_truth_lddt = 100.0 * ground_truth_lddt
 
@@ -374,6 +387,4 @@ def compute_predicted_lddt_and_associated_loss(ground_truth_lddt,
                                                         target=ground_truth_labels,
                                                         reduction="mean")
 
-    predicted_lddt_per_residue = torch.sum(predicted_lddt_probabilities * lddt_bins, dim=-1)
-
-    return predicted_lddt_per_residue, confidence_loss
+    return confidence_loss

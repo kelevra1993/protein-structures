@@ -49,10 +49,11 @@ class InputEmbedder(nn.Module):
         self.dtype = dtype
 
         # Will Be Used For Relative Position Computation
-        self.neighbouring_bins = torch.arange(start=-self.number_neighbouring_amino_acids,
-                                              end=self.number_neighbouring_amino_acids + 1,
-                                              step=1,
-                                              device=self.device)
+        # Registered as a buffer to ensure it moves with the module but isn't a trainable parameter.
+        self.register_buffer("neighbouring_bins", torch.arange(start=-self.number_neighbouring_amino_acids,
+                                                               end=self.number_neighbouring_amino_acids + 1,
+                                                               step=1,
+                                                               device=self.device))
 
         # These Two Linear Layers Are Used For The Outer Sum Of Input Sequence Feature Creation
         self.input_sequence_pair_rep_embedder_i = nn.Linear(in_features=self.input_sequence_feature_dimension,
