@@ -66,6 +66,7 @@ def compute_local_distance_difference_test(prediction_positions,
                                            ground_truth_positions,
                                            clamp_threshold=15.0,
                                            distance_thresholds=None):
+
     batch_size, number_residues = prediction_positions.shape[:2]
 
     if not distance_thresholds:
@@ -89,12 +90,6 @@ def compute_local_distance_difference_test(prediction_positions,
     # Get number of pairs to consider for each residue
     considered_ca_pair_counts = torch.sum(considered_ca_pairs.to(torch.float64), dim=-1)
 
-    # print(considered_ca_pair_counts)
-    # print(considered_ca_pair_counts.shape)
-
-    # # # For viewing thresholds
-    # print_tensor_list(considered_ca_pairs[0].to(torch.float32))
-    # print_tensor_list(ground_truth_distances[0].to(torch.float32))
 
     # Difference Distance Predictions and Ground Truth
     # Shape -> (batch_size, number_residues, nmber_residues)
@@ -107,14 +102,10 @@ def compute_local_distance_difference_test(prediction_positions,
     # we sum over the residue columns thus the shape (batch_size, number_residues)
     local_difference_distance_test = torch.zeros((batch_size, number_residues))
 
-    print_tensor_list(difference_prediction_ground_truth_distance[0], round=6)
     # Here be very careful, we set the pairs that should not be considered (~considered) to -1
     difference_prediction_ground_truth_distance[~considered_ca_pairs] = -1
 
     for current_threshold in distance_thresholds:
-        print(40 * '--')
-        print(f"{current_threshold=}")
-        print_tensor_list(difference_prediction_ground_truth_distance[0], round=6)
 
         # Now get indices of distance pairs >0 and under the current threshold value
         current_indices = torch.bitwise_and(
@@ -126,14 +117,11 @@ def compute_local_distance_difference_test(prediction_positions,
         number_accurate_distances = torch.sum(current_indices.to(torch.float64), dim=-1)
         local_difference_distance_test += number_accurate_distances
 
-        print(number_accurate_distances.numpy())
-        print(10 * '--')
-        print(local_difference_distance_test.numpy())
 
-    # Normalise everything
-    local_difference_distance_test
+    # Normalise the local difference distance test
+    local_difference_distance_test /= (L*considered_ca_pair_counts)
 
-    return None
+    return local_difference_distance_test
 
 _ = compute_local_distance_difference_test(prediction_positions=prediction_positions,
                                            ground_truth_positions=ground_truth_positions,

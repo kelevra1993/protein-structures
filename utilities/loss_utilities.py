@@ -1,6 +1,6 @@
 import torch
 
-from utilities.constants import ambiguous_position_mask
+from utilities.constants import ambiguous_position_mask, atom_types
 from utilities.geometry_utilities import invert_4x4_transform_matrix, apply_transformation_on_vector
 
 
@@ -248,3 +248,61 @@ def rename_symetric_ground_truth_metrics(predicted_positions: torch.Tensor,
             modified_ground_truth_transformation_matrix[index] = alternative_ground_truth_transformation_matrix[index]
 
     return modified_ground_truth_positions, modified_ground_truth_transformation_matrix
+
+
+def compute_local_distance_difference_test(prediction_positions,
+                                           ground_truth_positions,
+                                           clamp_threshold=15.0,
+                                           distance_thresholds=None):
+    batch_size, number_residues = prediction_positions.shape[:2]
+
+    if not distance_thresholds:
+        distance_thresholds = [0.5, 1.0, 2.0, 4.0]
+
+    # First Extract the carbon alpha postion
+    carbon_alpha_index = atom_types.index("CA")
+
+    # Alpha Carbon Positions
+    predictions_ca_positions = prediction_positions[..., carbon_alpha_index, :]
+    ground_truth_ca_positions = ground_truth_positions[..., carbon_alpha_index, :]
+
+    # Compute distances
+    prediction_distances = torch.cdist(predictions_ca_positions, predictions_ca_positions)
+    ground_truth_distances = torch.cdist(ground_truth_ca_positions, ground_truth_ca_positions)
+
+    # Get a mask for pair distances that are above 0 (avoid self difference) and below the clamp_threshold
+    considered_ca_pairs = torch.bitwise_and(input=(ground_truth_distances > 0),
+                                            other=(ground_truth_distances < clamp_threshold))
+
+    # Get number of pairs to consider for each residue
+    considered_ca_pair_counts = torch.sum(considered_ca_pairs.to(torch.float64), dim=-1)
+
+    # Difference Distance Predictions and Ground Truth
+    # Shape -> (batch_size, number_residues, nmber_residues)
+    difference_prediction_ground_truth_distance = torch.abs(prediction_distances - ground_truth_distances)
+
+    # Used to scale the final lddt matrix
+    L = len(distance_thresholds)
+
+    # Since we are prediciting the per residue local distance difference test
+    # we sum over the residue columns thus the shape (batch_size, number_residues)
+    local_difference_distance_test = torch.zeros((batch_size, number_residues))
+
+    # Here be very careful, we set the pairs that should not be considered (~considered) to -1
+    difference_prediction_ground_truth_distance[~considered_ca_pairs] = -1
+
+    for current_threshold in distance_thresholds:
+        # Now get indices of distance pairs >0 and under the current threshold value
+        current_indices = torch.bitwise_and(
+            input=(difference_prediction_ground_truth_distance > 0),
+            other=(difference_prediction_ground_truth_distance < current_threshold),
+        )
+
+        # Count the number of correct predictions and add them to the lddt matrix
+        number_accurate_distances = torch.sum(current_indices.to(torch.float64), dim=-1)
+        local_difference_distance_test += number_accurate_distances
+
+    # Normalise the local difference distance test
+    local_difference_distance_test /= (L * considered_ca_pair_counts)
+
+    return local_difference_distance_test
