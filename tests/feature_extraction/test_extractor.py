@@ -3,6 +3,7 @@ import unittest
 import os
 from pathlib import Path
 from feature_extraction.extractor import FeatureExtractor
+from utilities.data.msa import load_a3m_file, compute_unique_sequences
 
 current_directory = Path(__file__).parent
 reference_directory = current_directory / "reference_values"
@@ -17,14 +18,28 @@ class TestFeatureExtractorIntegration(unittest.TestCase):
         self.ref_msa_path = reference_directory / "input_msa_feature.pt"
         self.ref_extra_msa_path = reference_directory / "input_extra_msa_feature.pt"
 
-        # Initialize the extractor with fixed parameters and seed for determinism
+        device = torch.device("cpu")
+        dtype = torch.float64
+
+        # 1. Pre-process MSA Data
+        unprocessed_sequences = load_a3m_file(str(self.msa_file_path))
+        target_sequence = unprocessed_sequences[0]
+        global_msa_sequence_tensor, global_msa_deletion_count_tensor = compute_unique_sequences(
+            unprocessed_sequences=unprocessed_sequences,
+            device=device,
+            dtype=dtype
+        )
+
+        # 2. Initialize the extractor with pre-computed globals
         self.extractor = FeatureExtractor(
-            file_path=str(self.msa_file_path),
+            target_sequence=target_sequence,
+            global_msa_sequence_tensor=global_msa_sequence_tensor,
+            global_msa_deletion_count_tensor=global_msa_deletion_count_tensor,
             maximum_cluster_sequences=512,
             maximum_extra_msa_sequences=5120,
             mask_probability=0.15,
-            device=torch.device("cpu"),
-            dtype=torch.float64,
+            device=device,
+            dtype=dtype,
             seed=0
         )
 

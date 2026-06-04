@@ -20,7 +20,7 @@ import torch
 from torch import nn
 from typing import Optional, List, Tuple
 
-from utilities.constants import all_amino_acid_dictionary, gapped_amino_acid_dictionary
+from utilities.data.msa import one_hot_encode_amino_acid_types
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_type, unsqueeze_tensor
 
 
@@ -28,17 +28,27 @@ class FeatureExtractor:
     """
     Handles the extraction and preprocessing of features from protein MSA data.
 
-    This class processes raw .a3m files, performs MSA clustering, sequence masking,
-    and computes evolutionary features such as profiles and deletion counts.
+    This class performs MSA clustering, sequence masking,
+    and computes evolutionary features such as profiles and deletion counts
+    from pre-parsed and pre-cropped MSA sequences and tensors.
     """
 
-    def __init__(self, file_path: str, maximum_cluster_sequences: int, maximum_extra_msa_sequences: int,
-                 mask_probability: float, device: torch.device, dtype: torch.dtype,
+    def __init__(self,
+                 target_sequence: str,
+                 global_msa_sequence_tensor: torch.Tensor,
+                 global_msa_deletion_count_tensor: torch.Tensor,
+                 maximum_cluster_sequences: int,
+                 maximum_extra_msa_sequences: int,
+                 mask_probability: float,
+                 device: torch.device,
+                 dtype: torch.dtype,
                  seed: Optional[int] = None):
         """
         Initializes the FeatureExtractor and executes the feature extraction pipeline.
 
-        :param file_path: Path to the .a3m file.
+        :param target_sequence: The primary target sequence (already cropped).
+        :param global_msa_sequence_tensor: Pre-computed, cropped one-hot MSA tensor.
+        :param global_msa_deletion_count_tensor: Pre-computed, cropped deletion count tensor.
         :param maximum_cluster_sequences: Max number of sequences for the main MSA clusters.
         :param maximum_extra_msa_sequences: Max number of sequences for the extra MSA stack.
         :param mask_probability: Probability of masking residues in MSA clusters.
@@ -47,7 +57,6 @@ class FeatureExtractor:
         :param seed: Random seed for sampling and masking.
         """
 
-        self.file_path = file_path
         self.device = device
         self.dtype = dtype
         self.seed = seed
@@ -55,20 +64,20 @@ class FeatureExtractor:
         self.maximum_cluster_sequences = maximum_cluster_sequences
         self.maximum_extra_msa_sequences = maximum_extra_msa_sequences
 
-        # Fetch all sequences in the msa file List[str]
-        self.unprocessed_sequences = self.load_a3m_file()
-
-        # self.global_msa_sequence_tensor shape: (total_sequences, number_residues, number_gapped_amino_acids)
-        # self.global_msa_deletion_count_tensor shape: (total_sequences, number_residues)
-        self.global_msa_sequence_tensor, self.global_msa_deletion_count_tensor = self.compute_unique_sequences()
+        # Use pre-computed globals
+        self.global_msa_sequence_tensor = global_msa_sequence_tensor
+        self.global_msa_deletion_count_tensor = global_msa_deletion_count_tensor
 
         # The target sequence (str).
-        self.input_sequence = self.unprocessed_sequences[0]
+        self.input_sequence = target_sequence
 
         # shape: (number_residues, number_canonical_amino_acids)
-        self.input_sequence_feature = self.one_hot_encode_amino_acid_types(
+        self.input_sequence_feature = one_hot_encode_amino_acid_types(
             sequence=self.input_sequence,
-            include_gap_token=False)
+            include_gap_token=False,
+            device=self.device,
+            dtype=self.dtype
+        )
 
         # shape: (number_residues,)
         self.input_residue_index_feature = torch.arange(len(self.input_sequence), device=self.device)
@@ -128,93 +137,6 @@ class FeatureExtractor:
             torch.nn.functional.pad(self.input_extra_msa_sequence_tensor, (0, 1), value=0),
             self.input_extra_msa_has_deletion,
             self.input_extra_msa_deletion_value], dim=-1)
-
-    def load_a3m_file(self) -> List[str]:
-        """
-        Parses the .a3m file and extracts protein sequences.
-
-        Lines starting with '>' are treated as headers and ignored. The following line
-        is extracted as a sequence.
-
-        :return: A list of sequence strings extracted from the file.
-        """
-
-        with open(self.file_path, "r") as msa_data:
-            content = msa_data.readlines()
-            sequences = [content[index + 1].strip() for index, line in enumerate(content) if line[0] == ">"]
-
-        return sequences
-
-    def one_hot_encode_amino_acid_types(self, sequence: str, include_gap_token: bool = False) -> torch.Tensor:
-        """
-        Converts a sequence string into a one-hot encoded tensor.
-
-        The dictionary used depends on whether gap tokens are included. This distinction
-        is necessary because the target input sequence feature typically excludes gaps,
-        while MSA sequences include them.
-
-        - If include_gap_token is False:
-          Shape: (number_residues, number_canonical_amino_acids)
-        - If include_gap_token is True:
-          Shape: (number_residues, number_gapped_amino_acids)
-
-        :param sequence: The amino acid sequence string to encode.
-        :param include_gap_token: Whether to include the gap token '-' in the encoding categories.
-        :return: A one-hot encoded tensor of the sequence.
-        """
-
-        amino_acid_dictionary = all_amino_acid_dictionary if not include_gap_token else gapped_amino_acid_dictionary
-
-        sequence_indices = torch.tensor([amino_acid_dictionary[amino_acid_index] for amino_acid_index in sequence],
-                                        device=self.device)
-
-        encoding = torch.nn.functional.one_hot(sequence_indices, num_classes=len(amino_acid_dictionary))
-
-        return encoding.to(self.dtype)
-
-    def compute_unique_sequences(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Processes unprocessed sequences to remove duplicates and track insertions.
-
-        Insertions (represented by lowercase letters in .a3m) are removed to maintain
-        a consistent protein length across the MSA. The number of consecutive insertions
-        to the left of each residue is tracked in a deletion count matrix.
-
-        - unique_sequences_tensor shape: (total_sequences, number_residues, number_gapped_amino_acids)
-        - deletion_count_matrix shape: (total_sequences, number_residues)
-
-        :return: A tuple containing the unique gapped sequence tensor and the deletion count tensor.
-        """
-        deletion_count_matrix = []
-        unique_sequences = []
-
-        for sequence in self.unprocessed_sequences:
-
-            processed_sequence = ""
-            sequence_deletion_list = []
-            temporary_deletion_count = 0
-
-            for amino_acid in sequence:
-                if amino_acid.islower():
-                    temporary_deletion_count += 1
-                    continue
-
-                processed_sequence += amino_acid
-                sequence_deletion_list.append(temporary_deletion_count)
-                temporary_deletion_count = 0
-
-            if processed_sequence not in unique_sequences:
-                unique_sequences.append(processed_sequence)
-                deletion_count_matrix.append(sequence_deletion_list)
-
-        # Turn deletion count matrix into a tensor
-        deletion_count_matrix = torch.tensor(deletion_count_matrix, dtype=self.dtype, device=self.device)
-
-        unique_sequences_matrix = [self.one_hot_encode_amino_acid_types(sequence, include_gap_token=True) for sequence
-                                   in unique_sequences]
-        unique_sequences_tensor = torch.stack(unique_sequences_matrix, dim=0).to(device=self.device, dtype=self.dtype)
-
-        return unique_sequences_tensor, deletion_count_matrix
 
     def select_cluster_centers(self, seed: Optional[int] = None) -> Tuple[
         torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -463,6 +385,7 @@ class FeatureExtractor:
 if __name__ == "__main__":
     from pathlib import Path
     from utilities.tensor_utilities import get_device, print_tensor_shape
+    from utilities.data.msa import load_a3m_file, compute_unique_sequences
 
     # Robust path to the test file
     current_file_path = Path(__file__).resolve()
@@ -473,18 +396,32 @@ if __name__ == "__main__":
         # Fallback for different execution contexts
         msa_file_path = project_root / "test" / "multiple_sequence_alignement.a3m"
 
-    # Initialize the extractor with fixed parameters and seed for determinism
+    device = torch.device("cpu")
+    dtype = torch.float32
+
+    # 1. Pre-process MSA Data
+    unprocessed_sequences = load_a3m_file(str(msa_file_path))
+    target_sequence = unprocessed_sequences[0]
+    global_msa_sequence_tensor, global_msa_deletion_count_tensor = compute_unique_sequences(
+        unprocessed_sequences=unprocessed_sequences,
+        device=device,
+        dtype=dtype
+    )
+
+    # 2. Initialize the extractor with pre-computed globals
     extractor = FeatureExtractor(
-        file_path=str(msa_file_path),
+        target_sequence=target_sequence,
+        global_msa_sequence_tensor=global_msa_sequence_tensor,
+        global_msa_deletion_count_tensor=global_msa_deletion_count_tensor,
         maximum_cluster_sequences=512,
         maximum_extra_msa_sequences=5120,
         mask_probability=0.15,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
+        device=device,
+        dtype=dtype,
         seed=0
     )
 
-    print_tensor_shape(name="Input Sequence Feature",tensor=extractor.input_sequence_feature)
-    print_tensor_shape(name="Input Residue Index Feature",tensor=extractor.input_residue_index_feature)
-    print_tensor_shape(name="Input MSA Feature",tensor=extractor.input_msa_feature)
-    print_tensor_shape(name="Input Extra MSA Feature",tensor=extractor.input_extra_msa_feature)
+    print_tensor_shape(name="Input Sequence Feature", tensor=extractor.input_sequence_feature)
+    print_tensor_shape(name="Input Residue Index Feature", tensor=extractor.input_residue_index_feature)
+    print_tensor_shape(name="Input MSA Feature", tensor=extractor.input_msa_feature)
+    print_tensor_shape(name="Input Extra MSA Feature", tensor=extractor.input_extra_msa_feature)
