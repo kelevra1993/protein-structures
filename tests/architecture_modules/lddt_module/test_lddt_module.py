@@ -16,7 +16,7 @@ def test_lddt_module_parity():
     shape = (number_residues, single_representation_embedding)
 
     # Deterministic input for single_representation
-    test_inputs = {'single_representation': torch.linspace(-3 / 5, 3 / 5, math.prod(shape)).reshape(shape).double()}
+    test_inputs = {'single_representation': torch.linspace(-2.2, 2.2, math.prod(shape)).reshape(shape).double()}
 
     module = LddtModule(single_representation_embedding=single_representation_embedding,
                         intermediate_embedding=intermediate_embedding,
