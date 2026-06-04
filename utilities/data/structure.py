@@ -1,4 +1,6 @@
+from typing import Optional
 import numpy as np
+from utilities.os_utilities import read_json
 
 from dataclasses import dataclass
 from utilities.constants import xxx_to_index
@@ -99,14 +101,19 @@ class Structure:
         atoms (list[Atom]): List of all atoms in the complex.
         residues (list[Residue]): List of all residues in the complex.
         chains (list[Chain]): List of all chains (protein strands, ligands, etc.) in the complex.
+        number_chains (int): Total number of chains (derived from NPZ).
+        number_residues (int): Total number of residues (derived from NPZ).
+        resolution (float, optional): Experimental resolution of the structure, loaded from JSON record.
+        method (str, optional): Experimental method used to determine the structure, loaded from JSON record.
     """
 
-    def __init__(self, npz_path: str):
+    def __init__(self, npz_path: str, record_path: Optional[str] = None):
         """
         Initializes the Structure object by loading and parsing an NPZ file.
 
         Args:
             npz_path (str): Path to the .npz file containing structured protein data.
+            record_path (str, optional): Path to the corresponding JSON record file for metadata.
         """
         data = np.load(npz_path, allow_pickle=True)
 
@@ -114,6 +121,18 @@ class Structure:
         self.atoms = self._get_atoms(data['atoms'])
         self.residues = self._get_residues(raw_residues=data['residues'])
         self.chains = self._get_chains(raw_chains=data['chains'])
+
+        self.number_atoms = len(self.atoms)
+        self.number_chains = len(self.chains)
+        self.number_residues = len(self.residues)
+        self.resolution = None
+        self.method = None
+
+        if record_path is not None:
+            record_data = read_json(record_path)
+            structure_meta = record_data.get("structure", {})
+            self.resolution = structure_meta.get("resolution")
+            self.method = structure_meta.get("method")
 
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
