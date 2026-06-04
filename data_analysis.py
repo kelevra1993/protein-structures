@@ -1,28 +1,37 @@
-a = [{"id": "A0A2D6Q0E0",
-      "structure": {"resolution": 0.0, "method": None, "deposited": "0001-01-01", "released": "0001-01-01",
-                    "revised": "0001-01-01", "num_chains": 1, "num_interfaces": 0},
-      "chains": [{"chain_id": 0, "chain_name": "A", "mol_type": 0, "cluster_id": 0, "msa_id": "A0A2D6Q0E0",
-                  "template_id": "A0A2D6Q0E0", "num_residues": 274, "valid": True}],
-      "interfaces": [],
-      "affinity": None,
-      "md": None},
-     {"id": "A0A087B2V2",
-      "structure": {"resolution": 0.0, "method": None, "deposited": "0001-01-01", "released": "0001-01-01",
-                    "revised": "0001-01-01", "num_chains": 1, "num_interfaces": 0},
-      "chains": [{"chain_id": 0, "chain_name": "A", "mol_type": 0, "cluster_id": 0, "msa_id": "A0A087B2V2",
-                  "template_id": "A0A087B2V2", "num_residues": 291, "valid": True}],
-      "interfaces": [],
-      "affinity": None,
-      "md": None}, {"id": "A0A1W0X9K7",
-                    "structure": {"resolution": 0.0, "method": None, "deposited": "0001-01-01",
-                                  "released": "0001-01-01",
-                                  "revised": "0001-01-01", "num_chains": 1, "num_interfaces": 0}, "chains": [
-            {"chain_id": 0, "chain_name": "A", "mol_type": 0, "cluster_id": 0, "msa_id": "A0A1W0X9K7",
-             "template_id": "A0A1W0X9K7", "num_residues": 296, "valid": True}], "interfaces": [], "affinity": None,
-                    "md": None}, {"id": "A0A1S3H3R0",
-                                  "structure": {"resolution": 0.0, "method": None, "deposited": "0001-01-01",
-                                                "released": "0001-01-01", "revised": "0001-01-01", "num_chains": 1,
-                                                "num_interfaces": 0}, "chains": [
-            {"chain_id": 0, "chain_name": "A", "mol_type": 0, "cluster_id": 0, "msa_id": "A0A1S3H3R0",
-             "template_id": "A0A1S3H3R0", "num_residues": 207, "valid": True}], "interfaces": [], "affinity": None,
-                                  "md": None}]
+from tqdm import tqdm
+from utilities.os_utilities import read_json
+
+
+
+exit()
+# Get manifest data
+manifest_file = "data_examples/openfold/manifest.json"
+# manifest_file = "manifest_example.json"
+manifest_data = read_json(manifest_file)
+print(manifest_data)
+
+for data_information in manifest_data:
+    data_id = data_information["id"]
+    data_structure = data_information["structure"]
+    data_chains = data_information["chains"]
+
+    # The following below are currently unknown
+    data_interfaces = data_information["interfaces"]
+    data_affinity = data_information["affinity"]
+    data_md = data_information["md"]
+
+    # Data Preprocessing steps
+    # Get the resolution
+    resolution = data_structure["resolution"]
+
+    # Get the method by which the structure was obtained ?
+    # cryo-em / nmr / x-ray crystallography ?
+    method = data_structure["method"]
+
+    # Get the number of chains
+    # In our case make life easier by just taking elements that have one chain?
+    number_chains = data_structure["num_chains"]
+
+    # Number interfaces ?
+    number_interfaces = data_structure["num_interfaces"]
+
