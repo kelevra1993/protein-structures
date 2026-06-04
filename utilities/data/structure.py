@@ -6,7 +6,20 @@ from utilities.constants import xxx_to_index
 
 @dataclass(frozen=True)
 class Atom:
-    """Human-readable representation of an atom in the structure data."""
+    """
+    Human-readable representation of an atom in the structure data.
+
+    Attributes:
+        name (str): The string name of the atom (e.g., 'N', 'CA', 'C', 'O', 'CB').
+        element (int): The atomic number of the element (e.g., 6 for Carbon, 7 for Nitrogen).
+        charge (int): The formal charge of the atom.
+        experimental_coordinates (np.ndarray): 3D coordinates [x, y, z] from the experimental structure (e.g., PDB/CIF).
+            Note: Values may be [0, 0, 0] if the atom is not present (see is_present).
+        ideal_coordinates (np.ndarray): 3D coordinates [x, y, z] of the atom in a canonical, local frame.
+            Centering and orientation depend on the residue type and the generation method (e.g., RDKit).
+        is_present (bool): Boolean mask indicating if the atom was experimentally resolved.
+        chirality (int): Integer encoding representing the chirality type of the atom.
+    """
     name: str
     element: int
     charge: int
@@ -18,7 +31,23 @@ class Atom:
 
 @dataclass(frozen=True)
 class Residue:
-    """Human-readable representation of a residue in the structure data."""
+    """
+    Human-readable representation of a residue in the structure data.
+
+    Attributes:
+        name (str): The 3-letter code for the residue (e.g., 'MET', 'ARG', 'MSE').
+        amino_acid_index (int): The integer mapping to the canonical amino acid identity.
+            Based on xxx_to_index. Standardizes variants like MSE to MET (index 12).
+        residue_index (int): The 0-based positional index of this residue within its chain sequence.
+        atom_start_index (int): The starting index of this residue's atoms in the global structure atoms list.
+        atom_count (int): The total number of atoms associated with this residue.
+        center_atom_index (int): The global atom index used to define the origin of the local coordinate frame.
+            Typically points to the C-alpha (CA) atom for proteins.
+        pseudo_carbon_beta_atom_index (int): The global atom index used for distance calculations (distograms).
+            Points to Carbon-beta (CB) for 19 amino acids, and C-alpha (CA) for Glycine.
+        is_standard (bool): True if the residue is one of the 20 canonical amino acids.
+        is_present (bool): True if at least some part of the residue is resolved in the experimental structure.
+    """
     name: str
     amino_acid_index: int
     residue_index: int
@@ -32,7 +61,21 @@ class Residue:
 
 @dataclass(frozen=True)
 class Chain:
-    """Human-readable representation of a chain in the structure data."""
+    """
+    Human-readable representation of a chain (polymer strand or ligand) in the structure data.
+
+    Attributes:
+        name (str): The PDB identifier for the chain (e.g., 'A', 'B', 'H').
+        molecule_type_id (int): Integer category of the molecule (0: Protein, 1: DNA, 2: RNA, 3: Non-Polymer).
+        entity_id (int): Unique identifier for each distinct sequence in the complex.
+            Multiple chains with the same sequence will share the same entity_id.
+        instance_index (int): 0-based index identifying which copy of a unique entity this chain represents.
+        chain_index (int): Absolute sequential index of this chain within the structure's full list of chains.
+        atom_start_index (int): The starting index of this chain's atoms in the global structure atoms list.
+        atom_count (int): The total number of atoms in this chain.
+        residue_start_index (int): The starting index of this chain's residues in the global structure residues list.
+        residue_count (int): The total number of residues in this chain.
+    """
     name: str
     molecule_type_id: int
     entity_id: int
@@ -47,9 +90,24 @@ class Chain:
 class Structure:
     """
     Represents the full structure of a protein complex loaded from an NPZ file.
+
+    This class parses raw structured NumPy arrays into lists of descriptive dataclass instances
+    for atoms, residues, and chains, while applying custom standardization logic.
+
+    Attributes:
+        boltz_filter (np.ndarray): Boolean mask indicating which chains passed quality filters during preprocessing.
+        atoms (list[Atom]): List of all atoms in the complex.
+        residues (list[Residue]): List of all residues in the complex.
+        chains (list[Chain]): List of all chains (protein strands, ligands, etc.) in the complex.
     """
 
     def __init__(self, npz_path: str):
+        """
+        Initializes the Structure object by loading and parsing an NPZ file.
+
+        Args:
+            npz_path (str): Path to the .npz file containing structured protein data.
+        """
         data = np.load(npz_path, allow_pickle=True)
 
         self.boltz_filter = data['mask']
@@ -59,7 +117,12 @@ class Structure:
 
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
-        """Decodes Boltz integer-encoded atom names back to strings."""
+        """
+        Decodes Boltz integer-encoded atom names back to strings.
+
+        Boltz encodes characters by subtracting 32 from their ASCII value.
+        Zeros are treated as padding.
+        """
         chars = [chr(int(c) + 32) for c in encoded_name if c != 0]
         return "".join(chars).strip()
 
@@ -75,7 +138,12 @@ class Structure:
 
     @staticmethod
     def _get_residues(raw_residues: np.ndarray) -> list[Residue]:
-        """Translates all raw residue rows into Residue dataclasses with custom indexing."""
+        """
+        Translates all raw residue rows into Residue dataclasses with custom indexing.
+
+        Standardizes residue names (e.g., MSE -> MET) and performs identity lookups
+        using the project's canonical amino acid dictionary.
+        """
         parsed_residues = []
         for row in raw_residues:
             name = str(row[0])
