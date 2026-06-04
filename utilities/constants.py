@@ -438,3 +438,33 @@ ambiguous_position_mask = torch.abs(alternative_position_mask - torch.arange(num
 #     print(position_alternative_mask[i].numpy())
 #     print(position_alternative_mask[i].numpy()-np.array(list(range(37))))
 #     print(30 * '-')
+
+
+# TODO To be verified : How we get the method for how the data was acquired
+# Methods
+method_types_ids = {
+    "MD": 0,
+    "X-RAY DIFFRACTION": 1,
+    "ELECTRON MICROSCOPY": 2,
+    "SOLUTION NMR": 3,
+    "SOLID-STATE NMR": 4,
+    "NEUTRON DIFFRACTION": 4,
+    "ELECTRON CRYSTALLOGRAPHY": 4,
+    "FIBER DIFFRACTION": 4,
+    "POWDER DIFFRACTION": 4,
+    "INFRARED SPECTROSCOPY": 4,
+    "FLUORESCENCE TRANSFER": 4,
+    "EPR": 4,
+    "THEORETICAL MODEL": 4,
+    "SOLUTION SCATTERING": 4,
+    "OTHER": 4,
+    "AFDB": 5,
+    "BOLTZ-1": 6,
+    "FUTURE1": 7,  # Placeholder for future supervision sources
+    "FUTURE2": 8,
+    "FUTURE3": 9,
+    "FUTURE4": 10,
+    "FUTURE5": 11,
+}
+method_types_ids = {k.lower(): v for k, v in method_types_ids.items()}
+num_method_types = len(set(method_types_ids.values()))
