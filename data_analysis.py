@@ -1,52 +1,21 @@
-import numpy as np
-from tqdm import tqdm
-from dataclasses import asdict
-from utilities.data_utilities import humanize_npz_structure_data, humanize_atom, humanize_residue, humanize_chain
-from utilities.os_utilities import read_json, read_npz_file
+from utilities.data.structure import Structure
+from utilities.os_utilities import read_json
 
-# Understanding Structure Data
+# Load the structure object
 structure_file = "data_examples/openfold/structures/P90561.npz"
-structure_data = read_npz_file(path=structure_file)
-structure_data_keys = list(structure_data.keys())
+structure = Structure(structure_file)
 
-# NPZ Keys: ['atoms', 'bonds', 'residues', 'chains', 'connections', 'interfaces', 'mask', 'coords', 'ensemble']
-# Find the examples below for one of our examples
-# NPZ Key Atoms of shape (2951,)
-# NPZ Key Bonds of shape (0,)
-# NPZ Key Residues of shape (354,)
-# NPZ Key Chains of shape (1,)
-# NPZ Key Connections of shape (0,)
-# NPZ Key Interfaces of shape (0,)
-# NPZ Key Mask of shape (1,)
-# NPZ Key Coords of shape (2951,)
-# NPZ Key Ensemble of shape (1,)
-# print(f"NPZ Keys: {structure_data_keys}")
+# Inspect components
+print(f"--- Loaded Structure: {structure_file} ---")
+print(f"Atoms: {len(structure.atoms)}")
+print(f"Residues: {len(structure.residues)}")
+print(f"Chains: {len(structure.chains)}")
 
-# # Inspect the first 2 atoms
-print("--- ATOMS ---")
-raw_atoms = structure_data['atoms'][:500]
-Atoms = [humanize_atom(row) for row in raw_atoms]
-# for i, raw_atom in enumerate(raw_atoms):
-#     human_atom = humanize_atom(raw_atom)
-#     print(f"Atom {i}: {human_atom}")
-# exit()
+# Example inspect
+print("\n--- Example Residue (with custom amino_acid_index) ---")
+print(structure.residues[0])
 
-# Inspect the first 2 residues
-print("\n--- RESIDUES ---")
-raw_residues = structure_data['residues'][:50]
-Residues = [humanize_residue(row) for row in raw_residues]
-# for i, raw_residue in enumerate(raw_residues):
-#     human_res = humanize_residue(raw_residue)
-#     # print(Atoms[human_res.pseudo_carbon_beta_atom_index])
-#     print(f"Residue {i}: {human_res}")
-# exit()
-
-# Inspect the first chain
-print("\n--- CHAINS ---")
-raw_chains = structure_data['chains']
-for i, raw_chain in enumerate(raw_chains):
-    human_chain = humanize_chain(raw_chain)
-    print(f"Chain {i}: {human_chain}")
+# Note : everything above can be deleted
 
 exit()
 # Get manifest data
