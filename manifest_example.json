@@ -1,0 +1,110 @@
+[
+  {
+    "id": "A0A2D6Q0E0",
+    "structure": {
+      "resolution": 0.0,
+      "method": null,
+      "deposited": "0001-01-01",
+      "released": "0001-01-01",
+      "revised": "0001-01-01",
+      "num_chains": 1,
+      "num_interfaces": 0
+    },
+    "chains": [
+      {
+        "chain_id": 0,
+        "chain_name": "A",
+        "mol_type": 0,
+        "cluster_id": 0,
+        "msa_id": "A0A2D6Q0E0",
+        "template_id": "A0A2D6Q0E0",
+        "num_residues": 274,
+        "valid": true
+      }
+    ],
+    "interfaces": [],
+    "affinity": null,
+    "md": null
+  },
+  {
+    "id": "A0A087B2V2",
+    "structure": {
+      "resolution": 0.0,
+      "method": null,
+      "deposited": "0001-01-01",
+      "released": "0001-01-01",
+      "revised": "0001-01-01",
+      "num_chains": 1,
+      "num_interfaces": 0
+    },
+    "chains": [
+      {
+        "chain_id": 0,
+        "chain_name": "A",
+        "mol_type": 0,
+        "cluster_id": 0,
+        "msa_id": "A0A087B2V2",
+        "template_id": "A0A087B2V2",
+        "num_residues": 291,
+        "valid": true
+      }
+    ],
+    "interfaces": [],
+    "affinity": null,
+    "md": null
+  },
+  {
+    "id": "A0A1W0X9K7",
+    "structure": {
+      "resolution": 0.0,
+      "method": null,
+      "deposited": "0001-01-01",
+      "released": "0001-01-01",
+      "revised": "0001-01-01",
+      "num_chains": 1,
+      "num_interfaces": 0
+    },
+    "chains": [
+      {
+        "chain_id": 0,
+        "chain_name": "A",
+        "mol_type": 0,
+        "cluster_id": 0,
+        "msa_id": "A0A1W0X9K7",
+        "template_id": "A0A1W0X9K7",
+        "num_residues": 296,
+        "valid": true
+      }
+    ],
+    "interfaces": [],
+    "affinity": null,
+    "md": null
+  },
+  {
+    "id": "A0A1S3H3R0",
+    "structure": {
+      "resolution": 0.0,
+      "method": null,
+      "deposited": "0001-01-01",
+      "released": "0001-01-01",
+      "revised": "0001-01-01",
+      "num_chains": 1,
+      "num_interfaces": 0
+    },
+    "chains": [
+      {
+        "chain_id": 0,
+        "chain_name": "A",
+        "mol_type": 0,
+        "cluster_id": 0,
+        "msa_id": "A0A1S3H3R0",
+        "template_id": "A0A1S3H3R0",
+        "num_residues": 207,
+        "valid": true
+      }
+    ],
+    "interfaces": [],
+    "affinity": null,
+    "md": null
+  }
+]
