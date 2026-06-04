@@ -1,6 +1,9 @@
 import random
-from typing import Optional
+import torch
+from typing import Optional, Tuple, List
 from utilities.data.structure import Structure
+from utilities.data.msa import load_a3m_file, compute_unique_sequences
+from utilities.tensor_utilities import get_device
 
 
 class ModelInput:
@@ -20,13 +23,31 @@ class ModelInput:
         # Load the core physical structure
         self.structure = Structure(npz_path=structure_path, record_path=record_path)
 
-        # Training specific parameters (to compute the probability of keeping a sequence)
+        # Training specific parameters
         self.acceptance_slope_start = acceptance_slope_start
         self.acceptance_slope_end = acceptance_slope_end
         self.residue_crop_size = residue_crop_size
 
         # Calculate acceptance probability immediately
         self.acceptance_probability = self._compute_acceptance_probability()
+
+        # MSA Data (Initialized if path is provided)
+        self.msa_path = msa_path
+        self.unprocessed_sequences: List[str] = [""]
+        self.global_msa_sequence_tensor = None
+        self.global_msa_deletion_count_tensor = None
+
+        if self.msa_path:
+            # Use project defaults for device/dtype
+            device = get_device()
+            dtype = torch.float32
+
+            self.unprocessed_sequences = load_a3m_file(self.msa_path)
+            self.global_msa_sequence_tensor, self.global_msa_deletion_count_tensor = compute_unique_sequences(
+                unprocessed_sequences=self.unprocessed_sequences,
+                device=device,
+                dtype=dtype
+            )
 
     def _compute_acceptance_probability(self) -> float:
         """
@@ -75,3 +96,30 @@ class ModelInput:
 
         end_index = start_index + active_crop_size
         return start_index, end_index
+
+    def get_cropped_msa_data(self, start_index: int, end_index: int) -> Tuple[str, torch.Tensor, torch.Tensor]:
+        """
+        Retrieves the MSA data cropped to the specified indices.
+
+        Args:
+            start_index (int): Start of the crop.
+            end_index (int): End of the crop.
+
+        Returns:
+            Tuple[str, torch.Tensor, torch.Tensor]:
+                - The cropped target sequence (str).
+                - The cropped global_msa_sequence_tensor.
+                - The cropped global_msa_deletion_count_tensor.
+        """
+        if self.unprocessed_sequences is None:
+            raise ValueError("MSA data has not been loaded. Initialize ModelInput with an msa_path.")
+
+        # The target sequence is always the first one
+        target_sequence = self.unprocessed_sequences[0]
+        cropped_target_sequence = target_sequence[start_index:end_index]
+
+        # Slice tensors along the residue dimension (dim=1)
+        cropped_sequence_tensor = self.global_msa_sequence_tensor[:, start_index:end_index, :]
+        cropped_deletion_tensor = self.global_msa_deletion_count_tensor[:, start_index:end_index]
+
+        return cropped_target_sequence, cropped_sequence_tensor, cropped_deletion_tensor
