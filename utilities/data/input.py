@@ -25,7 +25,12 @@ class ModelInput:
                  distribution_threshold: int = 80,
                  maximum_cluster_sequences: int = 512,
                  maximum_extra_msa_sequences: int = 5120,
-                 mask_probability: float = 0.15):
+                 mask_probability: float = 0.15,
+                 device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
+
+        # Set simple requirements
+        self.device = device
+        self.dtype = dtype
 
         # Load the core physical structure
         self.structure = Structure(npz_path=structure_path, record_path=record_path)
@@ -47,15 +52,10 @@ class ModelInput:
         self.global_msa_sequence_tensor = None
         self.global_msa_deletion_count_tensor = None
 
-        # Use project defaults for device/dtype
-        device = get_device()
-        dtype = torch.float32
         self.unprocessed_sequences = load_a3m_file(self.msa_path)
         self.global_msa_sequence_tensor, self.global_msa_deletion_count_tensor = compute_unique_sequences(
             unprocessed_sequences=self.unprocessed_sequences,
-            device=device,
-            dtype=dtype
-        )
+            device=self.device, dtype=self.dtype)
 
         # Full amino-acid distribution of the target sequence
         self.amino_acid_distribution = self._compute_amino_acid_distribution()
@@ -81,14 +81,14 @@ class ModelInput:
         Computes the amino acid percentage distribution of the target sequence.
 
         This method analyzes the primary protein sequence (the first entry in the MSA)
-        to determine the relative frequency of each amino acid residue. This distribution 
-        is primarily used to identify and filter out low-complexity sequences or 
-        unusually biased proteins (e.g., highly repetitive regions) during the 
+        to determine the relative frequency of each amino acid residue. This distribution
+        is primarily used to identify and filter out low-complexity sequences or
+        unusually biased proteins (e.g., highly repetitive regions) during the
         data selection process for training.
 
         Returns:
-            Dict[str, float]: A dictionary where keys are 3-letter amino acid codes 
-                (standardized via x_to_xxx) and values are their corresponding 
+            Dict[str, float]: A dictionary where keys are 3-letter amino acid codes
+                (standardized via x_to_xxx) and values are their corresponding
                 percentage frequencies (0.0 to 100.0), rounded to two decimal places.
         """
 

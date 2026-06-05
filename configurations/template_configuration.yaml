@@ -1,3 +1,12 @@
+DataConfiguration:
+  maximum_cluster_sequences: 512
+  maximum_extra_msa_sequences: 5120
+  mask_probability: 0.15
+  acceptance_slope_start: 256
+  acceptance_slope_end: 512
+  residue_crop_size: 256
+  distribution_threshold: 80
+
 GlobalConfiguration:
   msa_embedding: 256
   pair_representation_embedding: 128
