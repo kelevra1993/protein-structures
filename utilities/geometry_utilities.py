@@ -565,9 +565,10 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
     dtype = transformation_matrix.dtype
 
     # (number_residues, 8, 4, 4)
-    global_transforms = compute_global_transform_matrices(transformation_matrix=transformation_matrix,
-                                                          residue_angles=residue_angles,
-                                                          sequence_amino_acid_labels=sequence_amino_acid_labels)
+    global_transformation_matrices = compute_global_transform_matrices(
+        transformation_matrix=transformation_matrix,
+        residue_angles=residue_angles,
+        sequence_amino_acid_labels=sequence_amino_acid_labels)
 
     # (number_residues, 37, 3)
     local_positions = atom_local_positions[sequence_amino_acid_labels].to(device=device, dtype=dtype)
@@ -579,7 +580,7 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
     all_atom_mask = atom_mask[sequence_amino_acid_labels]
 
     # First get the number of missing dimensions in order to properly gather indices
-    dim_diff = global_transforms.ndim - frame_indices.ndim
+    dim_diff = global_transformation_matrices.ndim - frame_indices.ndim
 
     # We need to get frame_indices from (number_residues, 37) to (number_residues, 37, 4, 4)
     # Here we know it is 4x4, but we will use the dimension difference and then broadcast it.
@@ -587,16 +588,16 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
 
     # (number_residues, 37, 4, 4)
     frame_indices = frame_indices.broadcast_to(
-        frame_indices.shape[:-dim_diff] + global_transforms.shape[-dim_diff:])
+        frame_indices.shape[:-dim_diff] + global_transformation_matrices.shape[-dim_diff:])
 
     # (number_residues, 37, 4, 4)
-    global_frames = torch.gather(global_transforms, dim=-3, index=frame_indices)
+    global_frames = torch.gather(global_transformation_matrices, dim=-3, index=frame_indices)
 
     # (number_residues, 37, 3)
     global_positions = apply_transformation_on_vector(transformation_matrix=global_frames,
                                                       vector=local_positions)
 
-    return global_positions, all_atom_mask
+    return global_positions, all_atom_mask, global_transformation_matrices
 
 
 def create_alternative_truth_transformation_matrix(transformation_matrix: torch.Tensor,
