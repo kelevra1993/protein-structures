@@ -386,6 +386,10 @@ index_to_xxx = {value: key for key, value in xxx_to_index.items()}
 x_to_index = {key: index for index, key in enumerate(canonical_amino_acid_residues)}
 index_to_x = {index: key for index, key in enumerate(canonical_amino_acid_residues)}
 
+# Single <-> Three Letter Code Changes
+x_to_xxx = {x: index_to_xxx[index] for x, index in x_to_index.items()}
+xxx_to_x = {xxx: x for x, xxx in x_to_xxx.items()}
+
 # Angles : shape (20, 7, 2)
 alternative_angle_mask = torch.ones((20, 7, 2))
 
@@ -424,7 +428,6 @@ for amino_acid, atoms_to_swap in position_symetry_atoms.items():
 # Variable containing atoms that might have ambiguous positions
 ambiguous_position_mask = torch.abs(alternative_position_mask - torch.arange(number_atom_types)).to(dtype=torch.bool)
 
-
 # # todo to be kept for now for testing then removed later
 # import numpy as np
 # np.set_printoptions(linewidth=200, threshold=np.inf)
@@ -438,33 +441,3 @@ ambiguous_position_mask = torch.abs(alternative_position_mask - torch.arange(num
 #     print(position_alternative_mask[i].numpy())
 #     print(position_alternative_mask[i].numpy()-np.array(list(range(37))))
 #     print(30 * '-')
-
-
-# TODO To be verified : How we get the method for how the data was acquired
-# Methods
-method_types_ids = {
-    "MD": 0,
-    "X-RAY DIFFRACTION": 1,
-    "ELECTRON MICROSCOPY": 2,
-    "SOLUTION NMR": 3,
-    "SOLID-STATE NMR": 4,
-    "NEUTRON DIFFRACTION": 4,
-    "ELECTRON CRYSTALLOGRAPHY": 4,
-    "FIBER DIFFRACTION": 4,
-    "POWDER DIFFRACTION": 4,
-    "INFRARED SPECTROSCOPY": 4,
-    "FLUORESCENCE TRANSFER": 4,
-    "EPR": 4,
-    "THEORETICAL MODEL": 4,
-    "SOLUTION SCATTERING": 4,
-    "OTHER": 4,
-    "AFDB": 5,
-    "BOLTZ-1": 6,
-    "FUTURE1": 7,  # Placeholder for future supervision sources
-    "FUTURE2": 8,
-    "FUTURE3": 9,
-    "FUTURE4": 10,
-    "FUTURE5": 11,
-}
-method_types_ids = {k.lower(): v for k, v in method_types_ids.items()}
-num_method_types = len(set(method_types_ids.values()))
