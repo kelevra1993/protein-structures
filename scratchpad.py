@@ -11,6 +11,38 @@ from utilities.constants import alternative_angle_mask, alternative_position_mas
 from utilities.geometry_utilities import create_alternative_truth_transformation_matrix
 
 
+batch_size = 2
+number_residues = 5
+
+pred_tr_m = torch.eye(4).to(torch.float64).unsqueeze(dim=0).repeat(number_residues, 1, 1)
+gt_tr_m = torch.eye(4).to(torch.float64).unsqueeze(dim=0).repeat(number_residues, 1, 1)
+
+for k in range(number_residues):
+    pred_tr_m[k, :3, -1] += k + 1
+    gt_tr_m[k, :3, -1] += k + 2
+
+pred_tr_m = pred_tr_m.repeat((batch_size, 1, 1, 1))
+gt_tr_m = gt_tr_m.repeat((batch_size, 1, 1, 1))
+
+pred_carbon_alpha_positions = torch.ones(number_residues, 3) * (
+    (torch.arange(1, number_residues + 1, 1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size, 1, 1)
+
+gt_carbon_alpha_positions = torch.ones(number_residues, 3) * (
+    (torch.arange(number_residues + 1, 1, -1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size, 1,1)
+
+print(pred_tr_m.shape)
+print(gt_tr_m.shape)
+exit()
+fape_loss = compute_fape_loss(predicted_transformation_matrix=pred_tr_m,
+                              predicted_positions=pred_carbon_alpha_positions,
+                              ground_truth_transformation_matrix=gt_tr_m,
+                              ground_truth_positions=gt_carbon_alpha_positions,
+                              length_scaler=2,
+                              epsilon=2e-4,
+                              distance_clamp=2.0)
+
+
+exit()
 def create_all_atom_positions(batch_size: int, number_residues: int, flip: bool = False, random=False):
     if random:
         positions = torch.randperm(number_residues * 37 * 3).reshape(number_residues, 37, 3)
