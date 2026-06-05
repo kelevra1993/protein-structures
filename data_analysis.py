@@ -1,107 +1,93 @@
-import time
+import torch
 import numpy as np
+from utilities.data.structure import Structure
+from utilities.visualization_utilities import plot_transformation_frames, plot_transformation_frames_plotly
+from utilities.geometry_utilities import assemble_4x4_transform_matrix, turn_quaternion_to_3x3_matrix, create_quaternion_from_axis_and_angle
 
-np.set_printoptions(linewidth=1000, threshold=np.inf)
-from utilities.tensor_utilities import print_tensor_list
 
-start = time.time()
+# Load the structure object
+structure_file = "data_examples/openfold/structures/P90561.npz"
+structure = Structure(structure_file)
+
+# Inspect components
+print(f"--- Loaded Structure: {structure_file} ---")
+print(f"Atoms: {len(structure.atoms)}")
+print(f"Residues: {len(structure.residues)}")
+print(f"Chains: {len(structure.chains)}")
+
+# Example inspect
+print("\n--- Example Residue (with custom amino_acid_index) ---")
+index =0
+residue = structure.residues[index]
+print(structure.residues[index])
+
+atom_start_index = residue.atom_start_index
+atom_end_index = atom_start_index + residue.atom_count
+
+for atom_index in range(atom_start_index,atom_end_index,1):
+    atom = structure.atoms[atom_index]
+    print(atom)
+
+exit()
+def visualization():
+    """
+    Creates a set of dummy transformation frames (a spiral) to test visualization utilities.
+    """
+    number_frames = 20
+    frames = []
+    
+    for i in range(number_frames):
+        # 1. Translation: Spiral upwards
+        angle = 0.5 * i
+        x = np.cos(angle) * 2.0
+        y = np.sin(angle) * 2.0
+        z = i * 0.5
+        translation = torch.tensor([x, y, z], dtype=torch.float32)
+        
+        # 2. Rotation: Rotate to look "forward" along the spiral path
+        # Rotate around Z-axis
+        phi = torch.tensor(angle, dtype=torch.float32)
+        axis = torch.tensor([x, y, x], dtype=torch.float32)
+        quaternion = create_quaternion_from_axis_and_angle(phi, axis)
+        rotation_matrix = turn_quaternion_to_3x3_matrix(quaternion)
+        
+        # 3. Assemble
+        frame = assemble_4x4_transform_matrix(rotation_matrix, translation)
+        frames.append(frame)
+        
+    frames_tensor = torch.stack(frames)
+    
+    print(f"Generated {number_frames} test frames.")
+    
+    # # Test Matplotlib version (Static)
+    # print("Launching Matplotlib visualization...")
+    # plot_transformation_frames(frames_tensor, center_first=False, scale=0.5, title="Test Spiral - Matplotlib")
+    
+    # Test Plotly version (Interactive) - Note: Might require a browser or notebook environment
+    print("Launching Plotly visualization...")
+    plot_transformation_frames_plotly(frames_tensor, center_first=False, scale=0.5, title="Test Spiral - Plotly")
+
+if __name__ == "__main__":
+    visualization()
+
+exit()
+
 from utilities.os_utilities import read_json
 from utilities.data.structure import Structure
-from utilities.data.input import ModelInput
 from typing import Dict, List, Any
 import math
-
-# Get the model input object
-structure_path = "data_examples/openfold/structures/P90561.npz"
-msa_path = "data_examples/openfold/raw_msa/P90561.a3m"
-record_path = "data_examples/openfold/records/P90561.json"
-print(f"This Took {time.time() - start} seconds")
-start = time.time()
-model_input = ModelInput(
-    structure_path=structure_path,
-    msa_path=msa_path,
-    record_path=record_path,
-    maximum_cluster_sequences=25,
-    maximum_extra_msa_sequences=50,
-)
-print(f"This Took {time.time() - start} seconds")
-print(model_input.keep_input())
-
-training_data = model_input.get_data(number_samples=4,
-                                     random_samples=True,
-                                     crop_size=None,
-                                     seed=None,
-                                     batch_mode=False,
-                                     emphasize_beginning_crops=False)
-
-
-
-
-
-
-
-exit()
-training_data = model_input.get_data(number_samples=4,
-                                     random_samples=True,
-                                     crop_size=None,
-                                     seed=None,
-                                     batch_mode=False,
-                                     emphasize_beginning_crops=False)
-
-for key, value in training_data.items():
-    print(f"{key=}")
-    print(f" - Shape : {list(value.shape)}")
-
-    match key:
-        case 'input_msa_feature':
-            # [batch, msa_sequence, crop_size_number_residues, 49, number_cyles]
-            # Example : [1, 25, 10, 49, 4]
-            print(40 * '-')
-            print_tensor_list(tensor=value[..., 0, 1, :, 0], round=2)
-            print_tensor_list(tensor=value[..., 0, 1, :, 1], round=2)
-            print_tensor_list(tensor=value[..., 0, 1, :, 2], round=2)
-            print(40*'-')
-        case 'input_extra_msa_feature':
-            # [batch, extra_msa_sequence, crop_size_number_residues, 25, number_cyles]
-            # Example : [1, 25, 50, 49, 4]
-            print(40 * '-')
-            print_tensor_list(tensor=value[..., 0, 1, :, 0], round=2)
-            print_tensor_list(tensor=value[..., 0, 1, :, 1], round=2)
-            print_tensor_list(tensor=value[..., 0, 1, :, 2], round=2)
-            print(40 * '-')
-        case 'input_sequence_feature':
-            # [batch, crop_size_number_residues, 21, number_cyles]
-            # Example : [1, 50, 21, 4]
-            print(40 * '-')
-            print_tensor_list(tensor=value[..., 0, :, 0], round=2)
-            print_tensor_list(tensor=value[..., 0, :, 1], round=2)
-            print_tensor_list(tensor=value[..., 0, :, 2], round=2)
-            print_tensor_list(tensor=value[..., 0, :, 3], round=2)
-            print(40 * '-')
-        case 'input_residue_index_feature':
-            # [batch, crop_size_number_residues, 21, number_cyles]
-            # Example : [1, 10, 4]
-            print(40 * '-')
-            print_tensor_list(tensor=value[..., :, 0], round=2)
-            print_tensor_list(tensor=value[..., :, 1], round=2)
-            print_tensor_list(tensor=value[..., :, 2], round=2)
-            print_tensor_list(tensor=value[..., :, 3], round=2)
-            print(40 * '-')
-
-exit()
-
 
 def analyze_manifest(file_path: str):
     """
     Analyzes the manifest JSON file and prints statistics.
-
+    
     Args:
         file_path: Path to the manifest.json file.
     """
     print(f"--- Analyzing Manifest: {file_path} ---")
     data = read_json(file_path)
     total_structures = len(data)
-
+    
     if total_structures == 0:
         print("Empty manifest.")
         return
@@ -112,14 +98,13 @@ def analyze_manifest(file_path: str):
     mol_type_counts = {}
 
     for entry in data:
-
         structure_info = entry.get("structure", {})
-
+        
         # 1. Method statistics
         method = structure_info.get("method")
         method_str = str(method)
         method_counts[method_str] = method_counts.get(method_str, 0) + 1
-
+        
         # 2. Resolution statistics
         res = structure_info.get("resolution")
         if res is not None:
@@ -186,26 +171,8 @@ if __name__ == "__main__":
     # Run analysis on the RCSB manifest
     analyze_manifest("data_examples/rcsb/manifest.json")
 
-    # Run analysis on the OpenFold manifest
-    analyze_manifest("data_examples/openfold/manifest.json")
-
-# Note : everything above can be deleted
 exit()
-# Load the structure object
-structure_file = "data_examples/openfold/structures/P90561.npz"
-structure = Structure(structure_file)
 
-# Inspect components
-print(f"--- Loaded Structure: {structure_file} ---")
-print(f"Atoms: {len(structure.atoms)}")
-print(f"Residues: {len(structure.residues)}")
-print(f"Chains: {len(structure.chains)}")
-
-# Example inspect
-print("\n--- Example Residue (with custom amino_acid_index) ---")
-print(structure.residues[0])
-
-exit()
 # Get manifest data
 manifest_file = "data_examples/openfold/manifest.json"
 # manifest_file = "manifest_example.json"

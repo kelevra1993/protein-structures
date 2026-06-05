@@ -347,6 +347,10 @@ chi_angles_mask = [
     [1.0, 0.0, 0.0, 0.0],  # VAL
 ]
 
+# Non-chi coordinate frames centers (consistent across all residues)
+# 0: backbone, 1: pre-omega, 2: phi, 3: psi
+non_chi_frame_centers = ["CA", "CA", "N", "C"]
+
 # Side chain coordinate frames are constructed
 # by using this order of side-chain atoms as their centers
 chi_angles_frame_centers = {

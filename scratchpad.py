@@ -5,12 +5,107 @@ np.set_printoptions(linewidth=200, threshold=np.inf)
 
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, specialised_one_hot_encoder
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
-    compute_local_distance_difference_test,compute_plddt_loss
+    compute_local_distance_difference_test, compute_plddt_loss
 from utilities.constants import alternative_angle_mask, alternative_position_mask, index_to_xxx, \
-    ambiguous_position_mask, atom_types
-from utilities.geometry_utilities import create_alternative_truth_transformation_matrix
+    ambiguous_position_mask, atom_types, rigid_group_atom_positions, rigid_group_atom_position_map, \
+    chi_angles_frame_centers, chi_angles_mask
+from utilities.geometry_utilities import create_alternative_truth_transformation_matrix, create_4x4_transform_matrix
 
 
+
+# compute backbones based on atom coordinates in structure file
+# Step 1 : Get a structure object with a structure npz file
+# structure_object = xxxxx
+
+# Step 2 : Take the first residue and get it's atom indices
+# residue = structure_object.residue[0]
+
+
+# Step 3 : Create a tensor of zeros of shape (37,3) for positions and torch.eye of shape (8,4,4) for all the frames
+# and tensor of zeros of shape 7,2
+# residue_atom_positions =
+# residue_frames =
+# residue_angles =
+
+# Step 4 : Go through all atoms and set their coordinates
+# To get their index use atom_types in constants.py
+
+
+# Step 5 : Set the coordinates of CA as the coordinates of the backbone translation
+# Could get it from residue.center_atom_index or otherwise ?
+# ex : vector CA->C
+# ey : vector CA->N
+# translation : CA position
+# use these to create these three to create the transformation_backbone_frame using
+# create_4x4_transform_matrix(ex,ey,translation)
+
+# Step 6 : Once this is done express all the atoms in this frame by left multiplying by the backbone inverse
+# First invert the backbone transformation matrix using invert_4x4_transform_matrix
+# Second use apply_transformation_on_vector of each of the positions
+
+# Step 7 : We move on to the phi frame (we will deal with the omega frame at the very end)
+# ex : vector CA->N
+# ey : vector CA->C
+# translation : updated N position
+# use these to create these three to create the transformation_phi_frame using
+# create_4x4_transform_matrix(ex,ey,translation)
+
+# Step 8 : We move on to the psi frame
+# ex : vector CA->C
+# ey : vector N->CA
+# translation : updated C position
+# use these to create these three to create the transformation_psi_frame using
+# create_4x4_transform_matrix(ex,ey,translation)
+
+# Step 9 : We move on to the chi1 frame
+# ex : vector CA->C
+# ey : vector N->CA
+# translation : updated C position
+# use these to create these three to create the transformation_psi_frame using
+# create_4x4_transform_matrix(ex,ey,translation)
+
+# Step x : Iterate over the atoms indices for the given residue
+
+
+# Step x.1 : Identify the
+
+# Last step is where we deal with the omega
+
+
+
+
+def compute_chi_transform_matrices() -> torch.Tensor:
+    chi_transforms = torch.zeros((20, 4, 4, 4))
+    for amino_acid_index, (amino_acid, amino_acid_information) in enumerate(rigid_group_atom_position_map.items()):
+
+        side_chain_centers = chi_angles_frame_centers[amino_acid]
+
+        for i in range(4):
+
+            # No chi angle for this given amino acid residue so just use identity matrix
+            if chi_angles_mask[amino_acid_index][i] == 0:
+                chi_transforms[amino_acid_index, i] = torch.eye(4)
+                continue
+
+            center_atom = side_chain_centers[i]
+            # Side chain matrix to be constructed
+            ex = amino_acid_information[center_atom]
+
+            if i == 0:
+                ey = amino_acid_information["N"] - amino_acid_information["CA"]
+            else:
+                # we are actually always pointing backwards along ex axis from chi2 to chi4 for ey
+                ey = torch.tensor([-1, 0, 0])
+
+            transformation = create_4x4_transform_matrix(ex=ex,
+                                                         ey=ey,
+                                                         translation_vector=ex)
+            chi_transforms[amino_acid_index, i] = transformation
+
+    return chi_transforms
+
+
+exit()
 batch_size = 2
 number_residues = 5
 
@@ -28,7 +123,8 @@ pred_carbon_alpha_positions = torch.ones(number_residues, 3) * (
     (torch.arange(1, number_residues + 1, 1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size, 1, 1)
 
 gt_carbon_alpha_positions = torch.ones(number_residues, 3) * (
-    (torch.arange(number_residues + 1, 1, -1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size, 1,1)
+    (torch.arange(number_residues + 1, 1, -1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size, 1,
+                                                                                                        1)
 
 print(pred_tr_m.shape)
 print(gt_tr_m.shape)
@@ -41,8 +137,9 @@ fape_loss = compute_fape_loss(predicted_transformation_matrix=pred_tr_m,
                               epsilon=2e-4,
                               distance_clamp=2.0)
 
-
 exit()
+
+
 def create_all_atom_positions(batch_size: int, number_residues: int, flip: bool = False, random=False):
     if random:
         positions = torch.randperm(number_residues * 37 * 3).reshape(number_residues, 37, 3)
@@ -96,7 +193,6 @@ lddt_module = LddtModule(single_representation_embedding=embedding_dimension,
                          dtype=torch.float64)
 
 lddt_logits, predicted_lddt_probabilities, plddt = lddt_module(single_representation=single_representation)
-
 
 plddt_loss = compute_plddt_loss(
     ground_truth_lddt=local_difference_distance_test,
