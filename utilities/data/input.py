@@ -196,7 +196,8 @@ class ModelInput:
         return cropped_residues, cropped_atoms
 
     def get_data(self, number_samples: int, random_samples: bool = True, crop_size: Optional[int] = None,
-                 seed: Optional[int] = None, batch_mode: bool = False) -> Dict[str, torch.Tensor]:
+                 seed: Optional[int] = None, batch_mode: bool = False,
+                 emphasize_beginning_crops: bool = True) -> Dict[str, torch.Tensor]:
         """
         Generates a batch input dictionary for the model's forward pass,
         supporting multi-cycle recycling features.
@@ -207,12 +208,15 @@ class ModelInput:
             crop_size (Optional[int]): Override default residue_crop_size.
             seed (Optional[int]): Base random seed for feature extraction.
             batch_mode (bool): If True, unsqueezes tensors to add a batch dimension of 1.
+            emphasize_beginning_crops (bool): If True, biases random cropping towards 
+                the start of the sequence.
         Returns:
             Dict[str, torch.Tensor]: Dictionary containing input features ready for the Model.
         """
         # Determine the residue range (Cropping)
         if random_samples:
-            start_index, end_index = self.get_crop_indices(emphasize_beginning_crops=True, crop_size=crop_size)
+            start_index, end_index = self.get_crop_indices(emphasize_beginning_crops=emphasize_beginning_crops,
+                                                           crop_size=crop_size)
         else:
             start_index, end_index = 0, self.structure.number_residues
 

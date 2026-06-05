@@ -1,7 +1,83 @@
+import time
+import numpy as np
+
+np.set_printoptions(linewidth=1000, threshold=np.inf)
+from utilities.tensor_utilities import print_tensor_list
+
+start = time.time()
 from utilities.os_utilities import read_json
 from utilities.data.structure import Structure
+from utilities.data.input import ModelInput
 from typing import Dict, List, Any
 import math
+
+# Get the model input object
+structure_path = "data_examples/openfold/structures/P90561.npz"
+msa_path = "data_examples/openfold/raw_msa/P90561.a3m"
+record_path = "data_examples/openfold/records/P90561.json"
+print(f"This Took {time.time() - start} seconds")
+start = time.time()
+model_input = ModelInput(
+    structure_path=structure_path,
+    msa_path=msa_path,
+    record_path=record_path,
+    maximum_cluster_sequences=25,
+    maximum_extra_msa_sequences=50,
+)
+print(f"This Took {time.time() - start} seconds")
+print(model_input.keep_input())
+
+training_data = model_input.get_data(number_samples=4,
+                                     random_samples=True,
+                                     crop_size=None,
+                                     seed=None,
+                                     batch_mode=False,
+                                     emphasize_beginning_crops=False)
+
+for key, value in training_data.items():
+    print(f"{key=}")
+    print(f" - Shape : {list(value.shape)}")
+
+    match key:
+        case 'input_msa_feature':
+            # [batch, msa_sequence, crop_size_number_residues, 49, number_cyles]
+            # Example : [1, 25, 10, 49, 4]
+            print(40 * '-')
+            print_tensor_list(tensor=value[..., 0, 1, :, 0], round=2)
+            print_tensor_list(tensor=value[..., 0, 1, :, 1], round=2)
+            print_tensor_list(tensor=value[..., 0, 1, :, 2], round=2)
+            print(40*'-')
+        case 'input_extra_msa_feature':
+            # [batch, extra_msa_sequence, crop_size_number_residues, 25, number_cyles]
+            # Example : [1, 25, 50, 49, 4]
+            print(40 * '-')
+            print_tensor_list(tensor=value[..., 0, 1, :, 0], round=2)
+            print_tensor_list(tensor=value[..., 0, 1, :, 1], round=2)
+            print_tensor_list(tensor=value[..., 0, 1, :, 2], round=2)
+            print(40 * '-')
+        case 'input_sequence_feature':
+            # [batch, crop_size_number_residues, 21, number_cyles]
+            # Example : [1, 50, 21, 4]
+            print(40 * '-')
+            print_tensor_list(tensor=value[..., 0, :, 0], round=2)
+            print_tensor_list(tensor=value[..., 0, :, 1], round=2)
+            print_tensor_list(tensor=value[..., 0, :, 2], round=2)
+            print_tensor_list(tensor=value[..., 0, :, 3], round=2)
+            print(40 * '-')
+        case 'input_residue_index_feature':
+            # [batch, crop_size_number_residues, 21, number_cyles]
+            # Example : [1, 10, 4]
+            print(40 * '-')
+            print_tensor_list(tensor=value[..., :, 0], round=2)
+            print_tensor_list(tensor=value[..., :, 1], round=2)
+            print_tensor_list(tensor=value[..., :, 2], round=2)
+            print_tensor_list(tensor=value[..., :, 3], round=2)
+            print(40 * '-')
+
+
+
+exit()
+
 
 def analyze_manifest(file_path: str):
     """
@@ -90,6 +166,7 @@ def analyze_manifest(file_path: str):
         percentage = (count / total_chains) * 100 if total_chains > 0 else 0
         print(f"Type: {m_type:20} | Count: {count:6} | Percentage: {percentage:6.2f}%")
 
+
 if __name__ == "__main__":
     # Run analysis on the example
     # analyze_manifest("manifest_example.json")
@@ -147,4 +224,3 @@ for data_information in manifest_data:
 
     # Number interfaces ?
     number_interfaces = data_structure["num_interfaces"]
-
