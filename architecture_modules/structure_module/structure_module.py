@@ -8,6 +8,7 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
 
 # Here we will have to design this explicitly
 from utilities.constants import atom_types, canonical_amino_acid_residues
+from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, rename_symetric_ground_truth_metrics
 
 
 class StructureModuleTransition(nn.Module):
@@ -312,9 +313,13 @@ class StructureModule(nn.Module):
                                         number_torsion_angles=self.number_torsion_angles,
                                         device=self.device, dtype=self.dtype)
 
-    def process_outputs(self, transformation_matrix: torch.Tensor, residue_angles: torch.Tensor,
-                        sequence_amino_acid_labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    @staticmethod
+    def process_outputs(
+            transformation_matrix: torch.Tensor,
+            residue_angles: torch.Tensor,
+            sequence_amino_acid_labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
+        todo to be updated since we are returning more things
         Post-processes predicted frames and angles to obtain final 3D coordinates.
 
         Args:
@@ -339,7 +344,8 @@ class StructureModule(nn.Module):
 
         # Final positions : (..., number_residues, 37, 3)
         # Position Masks : (..., number_residues, 37)
-        final_positions, position_mask = compute_all_atom_coordinates(
+        # Global Transformation Matrices : (..., number_residues, 37, 8, 4, 4)
+        final_positions, position_mask, global_transformation_matrices = compute_all_atom_coordinates(
             transformation_matrix=transformation_matrix_clone,
             residue_angles=residue_angles,
             sequence_amino_acid_labels=sequence_amino_acid_labels)
@@ -355,7 +361,7 @@ class StructureModule(nn.Module):
         pseudo_beta_positions[sequence_amino_acid_labels == glycine_index] = alpha_positions[
             sequence_amino_acid_labels == glycine_index]
 
-        return final_positions, position_mask, pseudo_beta_positions
+        return final_positions, position_mask, pseudo_beta_positions, global_transformation_matrices
 
     def forward(self, single_representation: torch.Tensor,
                 pair_representation: torch.Tensor,
@@ -403,14 +409,17 @@ class StructureModule(nn.Module):
         pair_representation = self.pair_representation_layer_normalizer(pair_representation)
         single_representation = self.initial_single_representation_embedder(single_representation)
 
-        # Initial transformation matrix as an identity matrix.
+        # Initial backbone transformation matrix as an identity matrix.
         transformation_matrix = (torch.eye(4, device=device, dtype=dtype).
                                  broadcast_to(batch_dimension + (number_residues, 4, 4)))
+
+        # Losses
+        auxillary_loss = torch.tensor(0.0, dtype=self.dtype, device=self.device)
 
         # TODO NOTE : IT IS IN THIS BLOCK WHERE WE WILL BE INSERTING LOSSES FOR BACKPROPAGATION
         for iteration in range(self.number_iterations):
             # IPA and it's normalizer
-            # TODO It would have been better to normalise the input of the invariant point attention before adding it
+            # TODO It would have been better to normalise the output of the invariant point attention before adding it
             #  it is unusually large compared to the incoming single representation.
             #  Very important when we will start training
             single_representation += self.invariant_point_attention(single_representation=single_representation,
@@ -427,18 +436,68 @@ class StructureModule(nn.Module):
                                                  other=self.backbone_update(single_representation))
 
             # Prediction of residue angles (..., number_residues, 7, 2)
+            # Here they have not yet been normalized
             residue_angles = self.angle_resnet(single_representation=single_representation,
                                                initial_single_representation=initial_single_representation)
+
+            # We Compute Fape Loss With Carbon Alpha Positions and We Compute Torsion Angle Loss
+            # First get backbone frame rotation and translation after transformation update
+            # Note : carbon alpha positions correspond to the translation_matrix since we are dealing with the backbone
+            rotation_matrix = transformation_matrix[..., :3, :3]
+            translation_matrix = transformation_matrix[..., :3, -1]
+
+            # todo to be implemented
+            #  bring the ground truth transformation matrix (only the backbone one)
+            #  Normally no need for the carbon alpha positions ????
+            iteration_fape_loss = compute_fape_loss(
+                predicted_transformation_matrix=transformation_matrix,
+                predicted_positions=translation_matrix,
+                ground_truth_transformation_matrix=transformation_matrix,  # todo this is a huge NO-NO
+                ground_truth_positions=translation_matrix)  # todo this is a huge NO-NO
+
+            # TODO Bring ground truth angles and their alternatives
+            #  DONT FORGET TO RE-CHECK THE ANGLE NORM LOSS SCALER AND ADD IT TO TENSORBOARD
+            # Be careful, ground truth angle should already be normalised in the form (cos(phi), sin(phi))
+            iteration_torsion_angle_loss = compute_torsion_angle_loss(
+                predicted_unnormalised_angles=residue_angles,
+                ground_truth_angles=torch.nn.functional.normalize(residue_angles, dim=-1),  # todo this is a huge NO-NO
+                alternative_ground_truth_angles=residue_angles,  # todo this is a huge NO-NO
+                angle_norm_loss_scaler=0.02)
+
+            # Sum up the losses for this iteration and add them to auxillary loss
+            # We average them over the batch dimensions before adding them to the auxillary loss
+            iteration_auxillary_loss = torch.mean(iteration_fape_loss + iteration_torsion_angle_loss)
+            auxillary_loss += iteration_auxillary_loss
+
+            # No rotation gradients between iterations to stabilize training except for the last iteration
+            # Using .detach() on rotation_matrix
+            if iteration < self.number_iterations - 1:
+                transformation_matrix = assemble_4x4_transform_matrix(rotation_matrix=rotation_matrix.detach(),
+                                                                      translation_vector=translation_matrix)
 
             outputs['angles'].append(residue_angles)
             outputs['frames'].append(transformation_matrix)
 
+        # Average Out The Auxillary Loss
+        # TODO MUST BE PASSED ALONG
+        auxillary_loss = auxillary_loss / self.number_iterations
+
         angles = torch.stack(outputs['angles'], dim=-4)
         frames = torch.stack(outputs['frames'], dim=-4)
 
-        final_positions, position_mask, pseudo_beta_positions = self.process_outputs(
+        final_positions, position_mask, pseudo_beta_positions, global_transformation_matrices = self.process_outputs(
             transformation_matrix=transformation_matrix,
             residue_angles=residue_angles,
             sequence_amino_acid_labels=sequence_amino_acid_labels)
+
+        # # Implementation of the renaming of the symetric ground truth atoms
+        # # TODO To put the right elements here
+        # ground_truth_positions, ground_truth_transformation_matrix = rename_symetric_ground_truth_metrics(
+        #     predicted_positions=None,
+        #     ground_truth_transformation_matrix=None,
+        #     ground_truth_positions=None,
+        #     alternative_ground_truth_transformation_matrix=None,
+        #     alternative_ground_truth_positions=None,
+        #     sequence_amino_acid_labels=None)
 
         return angles, frames, final_positions, position_mask, pseudo_beta_positions
