@@ -7,7 +7,7 @@ from utilities.geometry_utilities import invert_4x4_transform_matrix, apply_tran
 
 def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_positions: torch.Tensor,
                       ground_truth_transformation_matrix: torch.Tensor, ground_truth_positions: torch.Tensor,
-                      length_scaler: int = 10, epsilon: float = 1e-4, distance_clamp: float = 10.0):
+                      length_scaler: int = 10, epsilon: float = 1e-8, distance_clamp: float = 10.0):
     """
     Computes the Frame Aligned Point Error (FAPE) loss between predicted and ground truth structures.
 
