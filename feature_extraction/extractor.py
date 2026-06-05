@@ -408,6 +408,8 @@ if __name__ == "__main__":
         dtype=dtype
     )
 
+    # todo we will have to see if seed set to none yield random values.
+    #  very important.
     # 2. Initialize the extractor with pre-computed globals
     extractor = FeatureExtractor(
         target_sequence=target_sequence,
