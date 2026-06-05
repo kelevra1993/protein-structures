@@ -24,10 +24,7 @@ def analyze_manifest(file_path: str):
     mol_type_counts = {}
 
     for entry in data:
-        for k,v in entry.items():
-            print(f"Key : {k}")
-            print(v)
-        exit()
+
         structure_info = entry.get("structure", {})
 
         # 1. Method statistics
@@ -99,6 +96,9 @@ if __name__ == "__main__":
 
     # Run analysis on the RCSB manifest
     analyze_manifest("data_examples/rcsb/manifest.json")
+
+    # Run analysis on the OpenFold manifest
+    analyze_manifest("data_examples/openfold/manifest.json")
 
 # Note : everything above can be deleted
 exit()

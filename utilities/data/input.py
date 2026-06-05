@@ -14,7 +14,7 @@ class ModelInput:
 
     def __init__(self,
                  structure_path: str,
-                 msa_path: Optional[str] = None,
+                 msa_path: str,
                  record_path: Optional[str] = None,
                  acceptance_slope_start: int = 256,
                  acceptance_slope_end: int = 512,
@@ -31,23 +31,21 @@ class ModelInput:
         # Calculate acceptance probability immediately
         self.acceptance_probability = self._compute_acceptance_probability()
 
-        # MSA Data (Initialized if path is provided)
+        # MSA Data (Mandatory)
         self.msa_path = msa_path
         self.unprocessed_sequences: List[str] = [""]
         self.global_msa_sequence_tensor = None
         self.global_msa_deletion_count_tensor = None
 
-        if self.msa_path:
-            # Use project defaults for device/dtype
-            device = get_device()
-            dtype = torch.float32
-
-            self.unprocessed_sequences = load_a3m_file(self.msa_path)
-            self.global_msa_sequence_tensor, self.global_msa_deletion_count_tensor = compute_unique_sequences(
-                unprocessed_sequences=self.unprocessed_sequences,
-                device=device,
-                dtype=dtype
-            )
+        # Use project defaults for device/dtype
+        device = get_device()
+        dtype = torch.float32
+        self.unprocessed_sequences = load_a3m_file(self.msa_path)
+        self.global_msa_sequence_tensor, self.global_msa_deletion_count_tensor = compute_unique_sequences(
+            unprocessed_sequences=self.unprocessed_sequences,
+            device=device,
+            dtype=dtype
+        )
 
     def _compute_acceptance_probability(self) -> float:
         """
