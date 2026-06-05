@@ -21,23 +21,31 @@ def analyze_folder(folder_path: str, output_file: str = "structure_data_summary.
 
     for file_path in tqdm(npz_files, desc="Analyzing Structures"):
         file_name = file_path.stem  # Gets 'P90561' from 'P90561.npz'
-
+        
         try:
             structure = Structure(npz_path=str(file_path))
-
+            
             # 1. Sequence Length & Chain Count
             number_residues = structure.number_residues
             number_chains = structure.number_chains
 
-            # 2. Missing data percentages and Atom-level checks
+            # 2. Missing data percentages, Atom-level checks, and unique atoms
             total_atoms = len(structure.atoms)
-            missing_atom_count = sum(1 for atom in structure.atoms if not atom.is_present)
+            missing_atom_count = 0
+            unique_present_atoms = set()
+            
+            for atom in structure.atoms:
+                if atom.is_present:
+                    unique_present_atoms.add(atom.name)
+                else:
+                    missing_atom_count += 1
+                    
             missing_atom_percentage = round(100 * missing_atom_count / total_atoms, 2) if total_atoms > 0 else 0
-
+            
             has_missing_atom = missing_atom_count > 0
             has_chirality = any(atom.chirality != 0 for atom in structure.atoms)
             has_charge = any(atom.charge != 0 for atom in structure.atoms)
-
+            
             # Residue-level checks
             missing_residue_count = sum(1 for res in structure.residues if not res.is_present)
             missing_residue_percentage = round(100 * missing_residue_count / number_residues, 2) if number_residues > 0 else 0
@@ -71,6 +79,7 @@ def analyze_folder(folder_path: str, output_file: str = "structure_data_summary.
                 "number_chains": number_chains,
                 "has_missing_atom": has_missing_atom,
                 "missing_atom_percentage": missing_atom_percentage,
+                "unique_present_atoms": sorted(list(unique_present_atoms)),
                 "has_chirality": has_chirality,
                 "has_charge": has_charge,
                 "has_non_standard_residue": has_non_standard_residue,

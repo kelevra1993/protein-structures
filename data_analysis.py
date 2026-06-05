@@ -34,6 +34,20 @@ training_data = model_input.get_data(number_samples=4,
                                      batch_mode=False,
                                      emphasize_beginning_crops=False)
 
+
+
+
+
+
+
+exit()
+training_data = model_input.get_data(number_samples=4,
+                                     random_samples=True,
+                                     crop_size=None,
+                                     seed=None,
+                                     batch_mode=False,
+                                     emphasize_beginning_crops=False)
+
 for key, value in training_data.items():
     print(f"{key=}")
     print(f" - Shape : {list(value.shape)}")
@@ -73,8 +87,6 @@ for key, value in training_data.items():
             print_tensor_list(tensor=value[..., :, 2], round=2)
             print_tensor_list(tensor=value[..., :, 3], round=2)
             print(40 * '-')
-
-
 
 exit()
 
