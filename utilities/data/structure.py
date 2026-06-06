@@ -373,3 +373,106 @@ class Structure:
         omega_transformation_matrix[:3, 3] = local_carbon
 
         return omega_transformation_matrix, omega_angle
+
+    def _compute_phi_frame(self, residue_index: int, atom_dictionary: Dict[str, Dict],
+                           device: torch.device, dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the Phi frame (Frame 2).
+        Details:
+         - ex : vector CA -> N
+         - ey : vector CA -> C
+         - translation : N position (expressed in the current local frame)
+        Args:
+            residue_index (int): Index of the current residue.
+            atom_dictionary (Dict[str, Dict]): Dictionary of the current residue's atoms.
+            device (torch.device): Computation device.
+            dtype (torch.dtype): Computation data type.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The Phi transformation matrix and the (cos, sin) angle.
+        """
+        # Global positions for dihedral calculation
+        nitrogen_global_position = atom_dictionary["N"]["global_position"]
+        carbon_alpha_global_position = atom_dictionary["CA"]["global_position"]
+        carbon_global_position = atom_dictionary["C"]["global_position"]
+
+        # Local positions for basis vector creation
+        nitrogen_local_position = atom_dictionary["N"]["local_position"]
+        carbon_alpha_local_position = atom_dictionary["CA"]["local_position"]
+        carbon_local_position = atom_dictionary["C"]["local_position"]
+
+        # Dihedral angle: C_{i-1}, N_i, CA_i, C_i
+        phi_angle = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+        if residue_index > 0:
+            previous_residue_object = self.residues[residue_index - 1]
+            previous_carbon_global_position = None
+            for i in range(previous_residue_object.atom_count):
+                atom_object = self.atoms[previous_residue_object.atom_start_index + i]
+                if atom_object.name == "C":
+                    previous_carbon_global_position = torch.tensor(atom_object.experimental_coordinates,
+                                                                   device=device, dtype=dtype)
+                    break
+
+            if previous_carbon_global_position is not None:
+                phi_angle = compute_dihedral_angle(point_1=previous_carbon_global_position,
+                                                   point_2=nitrogen_global_position,
+                                                   point_3=carbon_alpha_global_position,
+                                                   point_4=carbon_global_position)
+
+        # Get base vectors
+        ex = nitrogen_local_position - carbon_alpha_local_position
+        ey = carbon_local_position - carbon_alpha_local_position
+
+        phi_base_transformation = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=nitrogen_local_position)
+
+        # Rotate by the phi angle around ex
+        rotation_phi = make_transformation_matrix_around_ex(phi=phi_angle)
+        phi_transformation_matrix = torch.matmul(phi_base_transformation, rotation_phi)
+
+        return phi_transformation_matrix, phi_angle
+
+    @staticmethod
+    def _compute_psi_frame(atom_dictionary: Dict[str, Dict],
+                           device: torch.device, dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the Psi frame (Frame 3).
+        Details:
+         - ex : vector CA -> C
+         - ey : vector CA -> N
+         - translation : C position (expressed in the current local frame)
+        Args:
+            atom_dictionary (Dict[str, Dict]): Dictionary of the current residue's atoms.
+            device (torch.device): Computation device.
+            dtype (torch.dtype): Computation data type.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The Psi transformation matrix and the (cos, sin) angle.
+        """
+        # Global positions for dihedral calculation
+        nitrogen_global_position = atom_dictionary["N"]["global_position"]
+        carbon_alpha_global_position = atom_dictionary["CA"]["global_position"]
+        carbon_global_position = atom_dictionary["C"]["global_position"]
+        oxygen_global_position = atom_dictionary["O"]["global_position"]
+
+        # Local positions for basis vector creation
+        nitrogen_local_position = atom_dictionary["N"]["local_position"]
+        carbon_alpha_local_position = atom_dictionary["CA"]["local_position"]
+        carbon_local_position = atom_dictionary["C"]["local_position"]
+
+        # Actual Psi dihedral angle: N_i, CA_i, C_i, O_i
+        psi_angle = compute_dihedral_angle(point_1=nitrogen_global_position,
+                                           point_2=carbon_alpha_global_position,
+                                           point_3=carbon_global_position,
+                                           point_4=oxygen_global_position)
+
+        # Get base vectors
+        ex = carbon_local_position - carbon_alpha_local_position
+        ey = nitrogen_local_position - carbon_alpha_local_position
+
+        psi_base_transformation = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=carbon_local_position)
+
+        # Rotate by the psi angle around ex
+        rotation_psi = make_transformation_matrix_around_ex(phi=psi_angle)
+        psi_transformation_matrix = torch.matmul(psi_base_transformation, rotation_psi)
+
+        return psi_transformation_matrix, psi_angle
