@@ -381,6 +381,7 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
         ex: CA -> N
         ey: (1, 0, 0) or CA -> C
         t:  N
+    # TODO to be changed for psi group should be CA -> N
     psi_group:
         ex: CA -> C
         ey: N  -> CA
