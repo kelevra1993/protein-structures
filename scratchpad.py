@@ -12,7 +12,6 @@ from utilities.constants import alternative_angle_mask, alternative_position_mas
 from utilities.geometry_utilities import create_alternative_truth_transformation_matrix, create_4x4_transform_matrix
 
 
-
 # compute backbones based on atom coordinates in structure file
 # Step 1 : Get a structure object with a structure npz file
 # structure_object = xxxxx
@@ -29,6 +28,13 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
 
 # Step 4 : Go through all atoms and set their coordinates
 # To get their index use atom_types in constants.py
+# Also create a dictionary called atom_position_dictionary containing for each atom the following
+# key as the atom name
+# value is a dictionary containing
+# - global_coordinates : original x, y, z coordinates
+# - frame : which will be the frame index that it is supposed to be in can be foudn in atom_frame_indices or rigid_group_atom_positions
+# - frame_coordinates : equal to global_coordinates to begin with
+# - current_frame_used : None (used to track how we express coordinates interatively, used for debugging)
 
 
 # Step 5 : Set the coordinates of CA as the coordinates of the backbone translation
@@ -38,71 +44,87 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
 # translation : CA position
 # use these to create these three to create the transformation_backbone_frame using
 # create_4x4_transform_matrix(ex,ey,translation)
+# Test for me just see if global difference vector is equal to inframe vector ?
 
 # Step 6 : Once this is done express all the atoms in this frame by left multiplying by the backbone inverse
 # First invert the backbone transformation matrix using invert_4x4_transform_matrix
 # Second use apply_transformation_on_vector of each of the positions
+# The update is done on the atom_position_dictionary that we created and operates on the value frame_coordinates,
+# so it is dynamically setting them to become their respective frame coordinates.
+# update current_frame_used to 0 since we used the backbone frame
 
 # Step 7 : We move on to the phi frame (we will deal with the omega frame at the very end)
-# ex : vector CA->N
-# ey : vector CA->C
-# translation : updated N position
+# ex : vector CA->N (using those in frame_coordinates)
+# ey : vector CA->C (using those in frame_coordinates)
+# translation : updated N position (using those in frame_coordinates)
 # use these to create these three to create the transformation_phi_frame using
 # create_4x4_transform_matrix(ex,ey,translation)
+# Here the residue angle is just so we set it as well
+# transformation_phi_frame[..., 1, 1] = cos_phi
+# transformation_phi_frame[..., 2, 1] = sin_phi
+# residue_angle[1] = (cos_phi, sin_phi)
+# we are at frame index 2 (0 start indexing) so for the atoms that have the frame index
+# update there frame coordinates using the inverse of the transformation matrix.
+# update current_frame_used accordignly
 
 # Step 8 : We move on to the psi frame
-# ex : vector CA->C
-# ey : vector N->CA
-# translation : updated C position
+# ex : vector CA->C (using those in frame_coordinates)
+# ey : vector N->CA (using those in frame_coordinates)
+# translation : updated C position (using those in frame_coordinates)
 # use these to create these three to create the transformation_psi_frame using
 # create_4x4_transform_matrix(ex,ey,translation)
+# Here the residue angle is just so we set it as well
+# transformation_psi_frame[..., 1, 1] = cos_psi
+# transformation_psi_frame[..., 2, 1] = sin_psi
+# residue_angle[2] = (cos_psi, sin_psi)
+# we are at frame index 3 (0 start indexing) so for the atoms that have the frame index
+# update there frame coordinates using the inverse of the transformation matrix.
+# update current_frame_used accordignly
 
 # Step 9 : We move on to the chi1 frame
-# ex : vector CA->C
-# ey : vector N->CA
-# translation : updated C position
-# use these to create these three to create the transformation_psi_frame using
+# First check chi_angles_mask[amino_acid_index][0] if it is 0 then does not exist then no need to do anything just move on to the next step
+# #SC0 can be found when looking at chi_angles_frame_centers[residue_xxx_name][0] if it does not exist then no need to do anything
+# ex : vector CA->#SC0 (using those in frame_coordinates)
+# ey : vector CA -> N (using those in frame_coordinates)
+# translation : updated #SC0 position
+# use these to create these three to create the transformation_chi1_frame using
 # create_4x4_transform_matrix(ex,ey,translation)
+# Here the residue angle is just so we set it as well
+# transformation_chi1_frame[..., 1, 1] = cos_chi1
+# transformation_chi1_frame[..., 2, 1] = sin_chi1
+# residue_angle[3] = (cos_chi1, sin_chi1)
+# we are at frame index 4 (0 start indexing) so for the atoms that have the frame index
+# update there frame coordinates using the inverse of the transformation matrix.
+# update current_frame_used accordignly
 
-# Step x : Iterate over the atoms indices for the given residue
+# Step 10 : We move on to the chi2 frame and do the same thing
+# ex : #SC0 -> #SC1 (using those in frame_coordinates)
+# ey : #SC0 -> CA (using those in frame_coordinates)
+# translation :  #SC1 (using those in frame_coordinates)
+# update residue_angles, frame_coordinates and current_frame_used accordignly
 
 
-# Step x.1 : Identify the
+# Step 11 : We move on to the chi3 frame and do the same thing
+# ex : #SC1 -> #SC2 (using those in frame_coordinates)
+# ey : #SC1 -> #SC0 (using those in frame_coordinates)
+# translation : #SC2 (using those in frame_coordinates)
+# update residue_angles, frame_coordinates and current_frame_used accordignly
+
+# Step 12 : We move on to the chi4 frame and do the same thing
+# ex : #SC2 -> #SC3 (using those in frame_coordinates)
+# ey : #SC2 -> #SC1 (using those in frame_coordinates)
+# translation : #SC3 (using those in frame_coordinates)
+# update residue_angles, frame_coordinates and current_frame_used accordignly
 
 # Last step is where we deal with the omega
+# ex : C -> N (nitrogen of the next residue if it exist, using those in global coordinates)
+# ey : CA -> C (using those in global coordinates since we will use N of next residue)
+# translation : C (using global coordinates)
+# create_4x4_transform_matrix(ex,ey,translation)
+# if N (next) it does not exist
+# set transformation matrix to identity matrix with translation equals to (C but frame coordinates)
+# set the residue_angle accodingly, if N did not exist just 0 degree angle.
 
-
-
-
-def compute_chi_transform_matrices() -> torch.Tensor:
-    chi_transforms = torch.zeros((20, 4, 4, 4))
-    for amino_acid_index, (amino_acid, amino_acid_information) in enumerate(rigid_group_atom_position_map.items()):
-
-        side_chain_centers = chi_angles_frame_centers[amino_acid]
-
-        for i in range(4):
-
-            # No chi angle for this given amino acid residue so just use identity matrix
-            if chi_angles_mask[amino_acid_index][i] == 0:
-                chi_transforms[amino_acid_index, i] = torch.eye(4)
-                continue
-
-            center_atom = side_chain_centers[i]
-            # Side chain matrix to be constructed
-            ex = amino_acid_information[center_atom]
-
-            if i == 0:
-                ey = amino_acid_information["N"] - amino_acid_information["CA"]
-            else:
-                # we are actually always pointing backwards along ex axis from chi2 to chi4 for ey
-                ey = torch.tensor([-1, 0, 0])
-
-            transformation = create_4x4_transform_matrix(ex=ex,
-                                                         ey=ey,
-                                                         translation_vector=ex)
-            chi_transforms[amino_acid_index, i] = transformation
-
-    return chi_transforms
 
 
 exit()
