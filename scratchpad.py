@@ -10,7 +10,8 @@ from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_lo
 from utilities.constants import alternative_angle_mask, alternative_position_mask, index_to_xxx, \
     ambiguous_position_mask, atom_types, rigid_group_atom_positions, rigid_group_atom_position_map, \
     chi_angles_frame_centers, chi_angles_mask
-from utilities.geometry_utilities import create_alternative_truth_transformation_matrix, create_4x4_transform_matrix
+from utilities.geometry_utilities import create_alternative_truth_transformation_matrix, create_4x4_transform_matrix, \
+    invert_4x4_transform_matrix, apply_transformation_on_vector
 
 from utilities.data.structure import Structure
 from utilities.constants import atom_to_index, atom_frame_indices
@@ -24,13 +25,14 @@ structure_object = Structure(npz_path="data_examples/openfold/structures/P90561.
 
 # Step 2 : Take the first residue and get it's atom indices
 residue = structure_object.residues[0]
-print(f"Residue Name : {residue.name}")
+residue_name = residue.name
+print(f"Residue Name : {residue_name}")
+
 # Step 3 : Create a tensor of zeros of shape (37,3) for positions and torch.eye of shape (8,4,4) for all the frames
 # and tensor of zeros of shape 7,2
 residue_atom_positions = torch.zeros((37, 3), device=device, dtype=dtype)
 residue_frames = torch.eye(4, device=device, dtype=dtype).unsqueeze(0).repeat(8, 1, 1)
 residue_angles = torch.zeros((7, 2), device=device, dtype=dtype)
-
 
 # Step 4 : Go through all atoms and set their coordinates
 # To get their index use atom_types in constants.py
@@ -71,7 +73,6 @@ for i in range(residue.atom_count):
 #     print(v["frame"])
 
 
-
 # Step 5 : Set the coordinates of CA as the coordinates of the backbone translation
 # Could get it from residue.center_atom_index or otherwise ?
 # ex : vector CA->C
@@ -93,14 +94,11 @@ transformation_backbone_frame = create_4x4_transform_matrix(ex=vector_ca_to_c,
 
 # Test: Check if global difference vector is equal to in-frame vector
 inverse_backbone_frame = invert_4x4_transform_matrix(transformation_backbone_frame)
-local_carbon_alpha_coordinates = apply_transformation_on_vector(inverse_backbone_frame, carbon_alpha_coordinates)
-local_carbon_coordinates = apply_transformation_on_vector(inverse_backbone_frame, carbon_coordinates)
-
-# print(f"Local CA: {local_carbon_alpha_coordinates}")
-# print(f"Local C: {local_carbon_coordinates}")
-# print(f"Distance CA-C: {torch.linalg.norm(vector_ca_to_c)}")
-
+# local_carbon_alpha_coordinates = apply_transformation_on_vector(inverse_backbone_frame, carbon_alpha_coordinates)
+# local_carbon_coordinates = apply_transformation_on_vector(inverse_backbone_frame, carbon_coordinates)
+# Set up the frame in residue frames
 residue_frames[0] = transformation_backbone_frame
+# print(residue_frames[0].numpy())
 
 # Step 6 : Once this is done express all the atoms in this frame by left multiplying by the backbone inverse
 # First invert the backbone transformation matrix using invert_4x4_transform_matrix
@@ -108,6 +106,34 @@ residue_frames[0] = transformation_backbone_frame
 # The update is done on the atom_position_dictionary that we created and operates on the value frame_coordinates,
 # so it is dynamically setting them to become their respective frame coordinates.
 # update current_frame_used to 0 since we used the backbone frame
+inverse_backbone_transformation_matrix = invert_4x4_transform_matrix(transformation_backbone_frame)
+
+for atom_name, atom_data in atom_position_dictionary.items():
+    current_global_coordinates = atom_data["frame_coordinates"]
+
+    # Application of inverse of the backbone transform to get coordinates to the local frame of our residue.
+    transformed_coordinates = apply_transformation_on_vector(
+        transformation_matrix=inverse_backbone_transformation_matrix,
+        vector=current_global_coordinates)
+
+    atom_data["frame_coordinates"] = transformed_coordinates
+    atom_data["current_frame_used"] = 0
+
+# # For Testing / Debugging Comparison to constant.py. to see if we will ultimately just set everything to what is in constant.py
+# for atom_name, atom_information in atom_position_dictionary.items():
+#     atom_frame = atom_information["frame"]
+#     current_atom_frame = atom_information["current_frame_used"]
+#
+#     if current_atom_frame == atom_frame:
+#         local_position = atom_information["frame_coordinates"].numpy().round(4)
+#         constant_position = rigid_group_atom_position_map[residue_name][atom_name].numpy().round(4)
+#         difference = local_position - constant_position
+#         if sum(np.abs(difference)) > 0.01:
+#             print(40 * '-')
+#             print(f"Local      {atom_name} : {local_position}")
+#             print(f"Consant.py {atom_name} : {constant_position}")
+#             print(f"Delta      {atom_name} : {difference}")
+#             print(40 * '-')
 
 # Step 7 : We move on to the phi frame (we will deal with the omega frame at the very end)
 # ex : vector CA->N (using those in frame_coordinates)
