@@ -275,3 +275,101 @@ class Structure:
             atom_data["current_frame_used"] = 0
 
         return backbone_transformation_matrix, inverse_backbone_transformation_matrix
+
+    @staticmethod
+    def _apply_hierarchical_transform(atom_dictionary: Dict[str, Dict],
+                                      frame_index: int,
+                                      inverse_transformation_matrix: torch.Tensor) -> None:
+        """
+        Helper function to apply an inverse transformation to all atoms at or downstream of a frame.
+
+        Args:
+            atom_dictionary (Dict[str, Dict]): Dictionary containing residue atom data.
+            frame_index (int): The current frame index being processed.
+            inverse_transformation_matrix (torch.Tensor): The inverse transform to apply.
+        """
+        for atom_data in atom_dictionary.values():
+            # Apply to atoms in this frame or any downstream frames (hierarchical logic)
+            # and ensure the atom is present (global position not zero)
+            if atom_data["frame_index"] >= frame_index and sum(atom_data["global_position"]) != 0.0:
+                atom_data["local_position"] = apply_transformation_on_vector(
+                    transformation_matrix=inverse_transformation_matrix,
+                    vector=atom_data["local_position"])
+
+                atom_data["current_frame_used"] = frame_index
+
+    def _compute_omega_frame(self, residue_index: int, atom_dictionary: Dict[str, Dict],
+                             inverse_backbone_transformation_matrix: torch.Tensor,
+                             device: torch.device, dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the Omega frame (Frame 1) for the peptide bond between residue i and i+1.
+        Details:
+         - ex : vector C_i -> N_{i+1}
+         - ey : vector CA_i -> C_i
+         - translation : C_i position (expressed in the backbone frame)
+        Args:
+            residue_index (int): Index of the current residue.
+            atom_dictionary (Dict[str, Dict]): Dictionary of the current residue's atoms.
+            inverse_backbone_transformation_matrix (torch.Tensor): Inverse of current residue's Frame 0.
+            device (torch.device): Computation device.
+            dtype (torch.dtype): Computation data type.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The Omega transformation matrix and the (cos, sin) angle.
+        """
+        # Current residue global positions for dihedral and local basis
+        carbon_alpha_global_position = atom_dictionary["CA"]["global_position"]
+        carbon_global_position = atom_dictionary["C"]["global_position"]
+
+        # Check for next residue to define peptide bond
+        if residue_index < self.number_residues - 1:
+            next_residue_object = self.residues[residue_index + 1]
+            next_nitrogen_global_position = None
+            next_carbon_alpha_global_position = None
+
+            # Find required atoms in the next residue
+            for i in range(next_residue_object.atom_count):
+                atom_object = self.atoms[next_residue_object.atom_start_index + i]
+                if atom_object.name == "N":
+                    next_nitrogen_global_position = torch.tensor(atom_object.experimental_coordinates,
+                                                                 device=device, dtype=dtype)
+                elif atom_object.name == "CA":
+                    next_carbon_alpha_global_position = torch.tensor(atom_object.experimental_coordinates,
+                                                                     device=device, dtype=dtype)
+
+            if next_nitrogen_global_position is not None and next_carbon_alpha_global_position is not None:
+                # Actual Omega dihedral angle: CA_i, C_i, N_{i+1}, CA_{i+1}
+                omega_angle = compute_dihedral_angle(point_1=carbon_alpha_global_position,
+                                                     point_2=carbon_global_position,
+                                                     point_3=next_nitrogen_global_position,
+                                                     point_4=next_carbon_alpha_global_position)
+
+                # Basis vectors expressed in the Backbone Frame (Frame 0)
+                local_carbon = apply_transformation_on_vector(
+                    transformation_matrix=inverse_backbone_transformation_matrix, vector=carbon_global_position)
+                local_carbon_alpha = apply_transformation_on_vector(
+                    transformation_matrix=inverse_backbone_transformation_matrix, vector=carbon_alpha_global_position)
+                local_next_nitrogen = apply_transformation_on_vector(
+                    transformation_matrix=inverse_backbone_transformation_matrix, vector=next_nitrogen_global_position)
+
+                # Get base vectors
+                ex = local_next_nitrogen - local_carbon
+                ey = local_carbon_alpha - local_carbon
+
+                omega_base_transformation = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=local_carbon)
+
+                # Rotate by the omega angle around ex
+                rotation_omega = make_transformation_matrix_around_ex(phi=omega_angle)
+                omega_transformation_matrix = torch.matmul(omega_base_transformation, rotation_omega)
+
+                return omega_transformation_matrix, omega_angle
+
+        # C-terminus or missing next atoms fallback: identity translation to C
+        omega_angle = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+        local_carbon = apply_transformation_on_vector(transformation_matrix=inverse_backbone_transformation_matrix,
+                                                      vector=carbon_global_position)
+
+        omega_transformation_matrix = torch.eye(4, device=device, dtype=dtype)
+        omega_transformation_matrix[:3, 3] = local_carbon
+
+        return omega_transformation_matrix, omega_angle
