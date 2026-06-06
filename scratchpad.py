@@ -479,7 +479,6 @@ else:
             atom_data["current_frame_used"] = 7
 
 frame_debugger(atom_position_dictionary, residue_name)
-
 # Last step is where we deal with the omega
 # ex : C -> N (nitrogen of the next residue if it exist, using those in global coordinates)
 # ey : CA -> C (using those in global coordinates since we will use N of next residue)
@@ -488,6 +487,61 @@ frame_debugger(atom_position_dictionary, residue_name)
 # if N (next) it does not exist
 # set transformation matrix to identity matrix with translation equals to (C but frame coordinates)
 # set the residue_angle accodingly, if N did not exist just 0 degree angle.
+
+if residue_index < len(structure_object.residues) - 1:
+    next_residue = structure_object.residues[residue_index + 1]
+    next_nitrogen_coordinates = None
+    next_carbon_alpha_coordinates = None
+
+    for i in range(next_residue.atom_count):
+        atom = structure_object.atoms[next_residue.atom_start_index + i]
+        if atom.name == "N":
+            next_nitrogen_coordinates = torch.tensor(atom.experimental_coordinates, device=device, dtype=dtype)
+        elif atom.name == "CA":
+            next_carbon_alpha_coordinates = torch.tensor(atom.experimental_coordinates, device=device, dtype=dtype)
+
+    if next_nitrogen_coordinates is not None and next_carbon_alpha_coordinates is not None:
+        # Points for actual Omega angle: CA_i, C_i, N_{i+1}, CA_{i+1}
+        omega_angle = compute_dihedral_angle(
+            point_1=carbon_alpha_coordinates,
+            point_2=carbon_coordinates,
+            point_3=next_nitrogen_coordinates,
+            point_4=next_carbon_alpha_coordinates)
+
+        # Basis vectors expressed in the Backbone Frame (Frame 0)
+        local_c = apply_transformation_on_vector(inverse_backbone_transformation_matrix, carbon_coordinates)
+        local_ca = apply_transformation_on_vector(inverse_backbone_transformation_matrix, carbon_alpha_coordinates)
+        local_n_next = apply_transformation_on_vector(inverse_backbone_transformation_matrix, next_nitrogen_coordinates)
+
+        ex_omega = local_n_next - local_c
+        ey_omega = local_ca - local_c
+
+        transformation_omega_base_frame = create_4x4_transform_matrix(
+            ex=ex_omega,
+            ey=ey_omega,
+            translation_vector=local_c)
+
+        rotation_matrix_omega = make_transformation_matrix_around_ex(phi=omega_angle)
+        transformation_omega_frame = torch.matmul(transformation_omega_base_frame, rotation_matrix_omega)
+
+        residue_angles[0] = omega_angle
+        residue_frames[1] = transformation_omega_frame
+    else:
+        # Fallback if next atoms are missing despite residue existing
+        residue_angles[0] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+        local_c = apply_transformation_on_vector(inverse_backbone_transformation_matrix, carbon_coordinates)
+        residue_frames[1] = torch.eye(4, device=device, dtype=dtype)
+        residue_frames[1, :3, 3] = local_c
+else:
+    # End of chain (C-terminus)
+    residue_angles[0] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+    local_c = apply_transformation_on_vector(inverse_backbone_transformation_matrix, carbon_coordinates)
+    residue_frames[1] = torch.eye(4, device=device, dtype=dtype)
+    residue_frames[1, :3, 3] = local_c
+
+print(f"Omega Angle (cos, sin): {residue_angles[0].numpy()}")
+# print(f"Omega Frame (Frame 1):\n{residue_frames[1].numpy().round(3)}")
+
 
 
 exit()
