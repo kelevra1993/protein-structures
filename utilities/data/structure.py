@@ -4,7 +4,7 @@ import torch
 from utilities.os_utilities import read_json
 
 from dataclasses import dataclass
-from utilities.constants import (xxx_to_index, atom_to_index, atom_frame_indices,
+from utilities.constants import (xxx_to_index, index_to_xxx, atom_to_index, atom_frame_indices,
                                  rigid_group_atom_position_map, chi_angles_mask,
                                  chi_angles_frame_centers, chi_dihedral_dictionary,
                                  rigid_group_atom_positions)
@@ -279,21 +279,29 @@ class Structure:
         return backbone_transformation_matrix, inverse_backbone_transformation_matrix
 
     @staticmethod
-    def _apply_hierarchical_transform(atom_dictionary: Dict[str, Dict],
-                                      frame_index: int,
-                                      inverse_transformation_matrix: torch.Tensor) -> None:
+    def _apply_transform(atom_dictionary: Dict[str, Dict],
+                         frame_index: int,
+                         inverse_transformation_matrix: torch.Tensor,
+                         apply_hierarchical: bool = True) -> None:
         """
-        Helper function to apply an inverse transformation to all atoms at or downstream of a frame.
+        Helper function to apply an inverse transformation to atoms belonging to a specific frame.
 
         Args:
             atom_dictionary (Dict[str, Dict]): Dictionary containing residue atom data.
             frame_index (int): The current frame index being processed.
             inverse_transformation_matrix (torch.Tensor): The inverse transform to apply.
+            apply_hierarchical (bool): If True, applies to all downstream frames (>= frame_index).
+                                     If False, applies ONLY to the current frame (== frame_index).
         """
         for atom_data in atom_dictionary.values():
-            # Apply to atoms in this frame or any downstream frames (hierarchical logic)
-            # and ensure the atom is present (global position not zero)
-            if atom_data["frame_index"] >= frame_index and sum(atom_data["global_position"]) != 0.0:
+            # Determine which atoms to transform based on the hierarchical flag
+            if apply_hierarchical:
+                should_transform = atom_data["frame_index"] >= frame_index
+            else:
+                should_transform = atom_data["frame_index"] == frame_index
+
+            # Ensure the atom is present (global position not zero)
+            if should_transform and sum(atom_data["global_position"]) != 0.0:
                 atom_data["local_position"] = apply_transformation_on_vector(
                     transformation_matrix=inverse_transformation_matrix,
                     vector=atom_data["local_position"])
@@ -497,6 +505,7 @@ class Structure:
         """
         residue_name = residue_object.name
         amino_acid_index = residue_object.amino_acid_index
+        canonical_residue_name = index_to_xxx[amino_acid_index]
 
         # Iterate through the 4 possible chi angles
         for chi_index in range(4):
@@ -510,8 +519,14 @@ class Structure:
             # Basis vectors and origin depend on whether it's Chi1 or Chi2-4
             if chi_index == 0:
                 # Chi1 (Frame 4)
-                sidechain_0_name = chi_angles_frame_centers[residue_name][0]
-                sidechain_1_name = chi_dihedral_dictionary[residue_name]["atom_1"]
+                sidechain_0_name = chi_angles_frame_centers[canonical_residue_name][0]
+                sidechain_1_name = chi_dihedral_dictionary[canonical_residue_name]["atom_1"]
+
+                # Check if all required atoms for Chi1 are present
+                required_atoms = ["N", "CA", sidechain_0_name, sidechain_1_name]
+                if not all(name in atom_dictionary for name in required_atoms):
+                    residue_angles[chi_index + 3] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+                    continue
 
                 sidechain_0_local_position = atom_dictionary[sidechain_0_name]["local_position"]
                 carbon_alpha_local_position = atom_dictionary["CA"]["local_position"]
@@ -567,9 +582,10 @@ class Structure:
 
             # Absolutely necessary to apply hierarchical update of coordinates
             inverse_chi_transformation_matrix = invert_4x4_transform_matrix(chi_transformation_matrix)
-            self._apply_hierarchical_transform(atom_dictionary=atom_dictionary,
-                                               frame_index=frame_index,
-                                               inverse_transformation_matrix=inverse_chi_transformation_matrix)
+            self._apply_transform(atom_dictionary=atom_dictionary,
+                                  frame_index=frame_index,
+                                  inverse_transformation_matrix=inverse_chi_transformation_matrix,
+                                  apply_hierarchical=True)
 
     def compute_ground_truth_data(self,
                                   device: torch.device,
@@ -632,10 +648,13 @@ class Structure:
             ground_truth_frames[residue_index, 3] = psi_frame
             ground_truth_angles[residue_index, 2] = psi_angle
 
-            # Hierarchical update for Psi (Frame 3)
+            # Hierarchical update for Psi (Frame 3) - Only for atoms of frame 3
+            # (Psi does not lead to any downstream frames in the 37-atom set)
             inverse_psi_frame = invert_4x4_transform_matrix(psi_frame)
-            self._apply_hierarchical_transform(atom_dictionary=atom_dictionary, frame_index=3,
-                                               inverse_transformation_matrix=inverse_psi_frame)
+            self._apply_transform(atom_dictionary=atom_dictionary,
+                                  frame_index=3,
+                                  inverse_transformation_matrix=inverse_psi_frame,
+                                  apply_hierarchical=False)
 
             # 6. Compute Chi Frames (Frames 4-7)
             self._compute_chi_frames(residue_object=residue_object,
