@@ -286,6 +286,52 @@ def invert_4x4_transform_matrix(transformation_matrix: torch.Tensor) -> torch.Te
     return inverted_transformation_matrix
 
 
+def compute_dihedral_angle(point_1: torch.Tensor, point_2: torch.Tensor, point_3: torch.Tensor, point_4: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the dihedral (torsion) angle defined by four points in 3D space.
+
+    The dihedral angle is the angle between the plane defined by (point_1, point_2, point_3)
+    and the plane defined by (point_2, point_3, point_4), rotating around the central axis
+    defined by the vector from point_2 to point_3.
+
+    Args:
+        point_1 (torch.Tensor): The first atomic coordinate.
+            Expected shape: `(..., 3)`.
+        point_2 (torch.Tensor): The second atomic coordinate (start of central axis).
+            Expected shape: `(..., 3)`.
+        point_3 (torch.Tensor): The third atomic coordinate (end of central axis).
+            Expected shape: `(..., 3)`.
+        point_4 (torch.Tensor): The fourth atomic coordinate.
+            Expected shape: `(..., 3)`.
+
+    Returns:
+        torch.Tensor: A tensor containing the [cosine, sine] of the dihedral angle.
+            Shape: `(..., 2)`.
+    """
+    vector_1 = point_2 - point_1
+    vector_2 = point_3 - point_2
+    vector_3 = point_4 - point_3
+
+    # Calculate normal vectors to the two planes
+    normal_to_plane_1 = torch.linalg.cross(vector_1, vector_2)
+    normal_to_plane_2 = torch.linalg.cross(vector_2, vector_3)
+
+    # Normalize the normal vectors
+    normal_to_plane_1 = nn.functional.normalize(normal_to_plane_1, dim=-1)
+    normal_to_plane_2 = nn.functional.normalize(normal_to_plane_2, dim=-1)
+
+    # Cosine is the dot product of the normalized normals
+    cos_angle = torch.sum(normal_to_plane_1 * normal_to_plane_2, dim=-1, keepdim=True)
+
+    # Sine requires determining the direction of rotation.
+    # We take the cross product of the normals and dot it with the normalized central axis.
+    normalized_vector_2 = nn.functional.normalize(vector_2, dim=-1)
+    cross_of_normals = torch.linalg.cross(normal_to_plane_1, normal_to_plane_2)
+    sin_angle = torch.sum(cross_of_normals * normalized_vector_2, dim=-1, keepdim=True)
+
+    return torch.cat([cos_angle, sin_angle], dim=-1)
+
+
 def make_transformation_matrix_around_ex(phi: torch.Tensor) -> torch.Tensor:
     """
     Creates a 4x4 rotation matrix representing a rotation around the x-axis.
