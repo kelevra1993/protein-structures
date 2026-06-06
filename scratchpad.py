@@ -128,12 +128,15 @@ for atom_name, atom_data in atom_position_dictionary.items():
 #         local_position = atom_information["frame_coordinates"].numpy().round(4)
 #         constant_position = rigid_group_atom_position_map[residue_name][atom_name].numpy().round(4)
 #         difference = local_position - constant_position
-#         if sum(np.abs(difference)) > 0.01:
+#         difference_norm = torch.linalg.norm(torch.tensor(difference)).numpy()
+#
+#         if difference_norm > 0.0001:
 #             print(40 * '-')
 #             print(f"Local      {atom_name} : {local_position}")
-#             print(f"Consant.py {atom_name} : {constant_position}")
+#             print(f"Consant    {atom_name} : {constant_position}")
 #             print(f"Delta      {atom_name} : {difference}")
 #             print(40 * '-')
+# exit()
 
 # Step 7 : We move on to the phi frame (we will deal with the omega frame at the very end)
 # ex : vector CA->N (using those in frame_coordinates)
@@ -148,6 +151,41 @@ for atom_name, atom_data in atom_position_dictionary.items():
 # we are at frame index 2 (0 start indexing) so for the atoms that have the frame index
 # update there frame coordinates using the inverse of the transformation matrix.
 # update current_frame_used accordignly
+
+# We use frame coordinates for the following steps
+local_carbon_alpha = atom_position_dictionary["CA"]["frame_coordinates"]
+local_nitrogen = atom_position_dictionary["N"]["frame_coordinates"]
+local_carbon = atom_position_dictionary["C"]["frame_coordinates"]
+
+vector_ca_to_n = local_nitrogen - local_carbon_alpha
+vector_ca_to_c = local_carbon - local_carbon_alpha
+print(vector_ca_to_n)
+print(local_nitrogen)
+exit()
+transformation_phi_frame = create_4x4_transform_matrix(ex=vector_ca_to_n,
+                                                       ey=vector_ca_to_c,
+                                                       translation_vector=local_nitrogen)
+# Set the residue frame for phi
+residue_frames[2] = transformation_phi_frame
+
+# Set the residue angles for phi from the transformation matrix
+cos_phi = transformation_phi_frame[1, 1]
+sin_phi = transformation_phi_frame[2, 1]
+residue_angles[1] = torch.stack([cos_phi, sin_phi])
+print(residue_angles.numpy())
+print(transformation_phi_frame)
+exit()
+inverse_phi_transformation_matrix = invert_4x4_transform_matrix(transformation_phi_frame)
+
+for atom_name, atom_data in atom_position_dictionary.items():
+    if atom_data["frame"] == 2:
+        current_coordinates = atom_data["frame_coordinates"]
+        transformed_coordinates = apply_transformation_on_vector(
+            transformation_matrix=inverse_phi_transformation_matrix, 
+            vector=current_coordinates
+        )
+        atom_data["frame_coordinates"] = transformed_coordinates
+        atom_data["current_frame_used"] = 2
 
 # Step 8 : We move on to the psi frame
 # ex : vector CA->C (using those in frame_coordinates)
