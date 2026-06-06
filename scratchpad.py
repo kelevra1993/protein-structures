@@ -1,7 +1,8 @@
 import torch
 import numpy as np
+from utilities.tensor_utilities import get_device
 
-np.set_printoptions(linewidth=200, threshold=np.inf)
+np.set_printoptions(linewidth=500, threshold=np.inf)
 
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, specialised_one_hot_encoder
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
@@ -11,20 +12,25 @@ from utilities.constants import alternative_angle_mask, alternative_position_mas
     chi_angles_frame_centers, chi_angles_mask
 from utilities.geometry_utilities import create_alternative_truth_transformation_matrix, create_4x4_transform_matrix
 
+from utilities.data.structure import Structure
+from utilities.constants import atom_to_index, atom_frame_indices
 
 # compute backbones based on atom coordinates in structure file
+device = torch.device("cpu")
+dtype = torch.float64
 # Step 1 : Get a structure object with a structure npz file
-# structure_object = xxxxx
+structure_object = Structure(npz_path="data_examples/openfold/structures/P90561.npz",
+                             record_path="data_examples/openfold/records/P90561.json")
 
 # Step 2 : Take the first residue and get it's atom indices
-# residue = structure_object.residue[0]
-
-
+residue = structure_object.residues[0]
+print(f"Residue Name : {residue.name}")
 # Step 3 : Create a tensor of zeros of shape (37,3) for positions and torch.eye of shape (8,4,4) for all the frames
 # and tensor of zeros of shape 7,2
-# residue_atom_positions =
-# residue_frames =
-# residue_angles =
+residue_atom_positions = torch.zeros((37, 3), device=device, dtype=dtype)
+residue_frames = torch.eye(4, device=device, dtype=dtype).unsqueeze(0).repeat(8, 1, 1)
+residue_angles = torch.zeros((7, 2), device=device, dtype=dtype)
+
 
 # Step 4 : Go through all atoms and set their coordinates
 # To get their index use atom_types in constants.py
@@ -35,6 +41,35 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
 # - frame : which will be the frame index that it is supposed to be in can be foudn in atom_frame_indices or rigid_group_atom_positions
 # - frame_coordinates : equal to global_coordinates to begin with
 # - current_frame_used : None (used to track how we express coordinates interatively, used for debugging)
+atom_position_dictionary = {}
+for i in range(residue.atom_count):
+    atom = structure_object.atoms[residue.atom_start_index + i]
+    atom_name = atom.name
+
+    if atom_name in atom_to_index:
+        atom_index = atom_to_index[atom_name]
+        global_coordinates = torch.tensor(atom.experimental_coordinates, device=device, dtype=dtype)
+        residue_atom_positions[atom_index] = global_coordinates
+
+        # Get frame index for the specific amino acid type and atom type
+        amino_acid_index = residue.amino_acid_index
+        frame_index = int(atom_frame_indices[amino_acid_index, atom_index])
+
+        atom_position_dictionary[atom_name] = {
+            "global_coordinates": global_coordinates.clone(),
+            "frame": frame_index,
+            "frame_coordinates": global_coordinates.clone(),
+            "current_frame_used": None
+        }
+
+# # print(residue_atom_positions.numpy())
+# for k in range(residue.atom_count):
+#     print(structure_object.atoms[residue.atom_start_index+k].name)
+#     print(structure_object.atoms[residue.atom_start_index+k].experimental_coordinates)
+# for k, v in atom_position_dictionary.items():
+#     print(f"Key : {k}")
+#     print(v["frame"])
+
 
 
 # Step 5 : Set the coordinates of CA as the coordinates of the backbone translation
@@ -45,6 +80,27 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
 # use these to create these three to create the transformation_backbone_frame using
 # create_4x4_transform_matrix(ex,ey,translation)
 # Test for me just see if global difference vector is equal to inframe vector ?
+carbon_alpha_coordinates = atom_position_dictionary["CA"]["global_coordinates"]
+carbon_coordinates = atom_position_dictionary["C"]["global_coordinates"]
+nitrogen_coordinates = atom_position_dictionary["N"]["global_coordinates"]
+
+vector_ca_to_c = carbon_coordinates - carbon_alpha_coordinates
+vector_ca_to_n = nitrogen_coordinates - carbon_alpha_coordinates
+
+transformation_backbone_frame = create_4x4_transform_matrix(ex=vector_ca_to_c,
+                                                            ey=vector_ca_to_n,
+                                                            translation_vector=carbon_alpha_coordinates)
+
+# Test: Check if global difference vector is equal to in-frame vector
+inverse_backbone_frame = invert_4x4_transform_matrix(transformation_backbone_frame)
+local_carbon_alpha_coordinates = apply_transformation_on_vector(inverse_backbone_frame, carbon_alpha_coordinates)
+local_carbon_coordinates = apply_transformation_on_vector(inverse_backbone_frame, carbon_coordinates)
+
+# print(f"Local CA: {local_carbon_alpha_coordinates}")
+# print(f"Local C: {local_carbon_coordinates}")
+# print(f"Distance CA-C: {torch.linalg.norm(vector_ca_to_c)}")
+
+residue_frames[0] = transformation_backbone_frame
 
 # Step 6 : Once this is done express all the atoms in this frame by left multiplying by the backbone inverse
 # First invert the backbone transformation matrix using invert_4x4_transform_matrix
@@ -124,7 +180,6 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
 # if N (next) it does not exist
 # set transformation matrix to identity matrix with translation equals to (C but frame coordinates)
 # set the residue_angle accodingly, if N did not exist just 0 degree angle.
-
 
 
 exit()
