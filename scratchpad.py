@@ -35,7 +35,7 @@ def frame_debugger(atom_position_dictionary, residue_name, frame_to_consider=Non
             difference = local_position - constant_position
             difference_norm = torch.linalg.norm(torch.tensor(difference)).numpy()
 
-            if difference_norm != 0.0:
+            if difference_norm > 0.002:
                 print(40 * '-')
                 print(f"Local      {atom_name} : {local_position}")
                 print(f"Consant    {atom_name} : {constant_position}")
@@ -342,7 +342,7 @@ else:
     ca_coordinates = atom_position_dictionary["CA"]["frame_coordinates"]
 
     ex = sc1_coordinates
-    ey = torch.tensor([-1.0, 0.0, 0.0],dtype=dtype, device=device)
+    ey = torch.tensor([-1.0, 0.0, 0.0], dtype=dtype, device=device)
 
     transformation_chi2_base_frame = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=ex)
     # print(transformation_chi2_base_frame.numpy().round(2))
@@ -375,18 +375,110 @@ else:
             atom_data["frame_coordinates"] = transformed_coordinates
             atom_data["current_frame_used"] = 5
 
-frame_debugger(atom_position_dictionary, residue_name, frame_to_consider=4)
 # Step 11 : We move on to the chi3 frame and do the same thing
 # ex : #SC1 -> #SC2 (using those in frame_coordinates)
 # ey : #SC1 -> #SC0 (using those in frame_coordinates)
 # translation : #SC2 (using those in frame_coordinates)
 # update residue_angles, frame_coordinates and current_frame_used accordignly
 
+if chi_angles_mask[residue.amino_acid_index][2] == 0:
+    residue_angles[5] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+else:
+    # Frame centers for Chi3: SC1 is origin of parent (frame 5), SC2 is origin of current (frame 6)
+    sc1 = chi_angles_frame_centers[residue_name][1]
+    sc2 = chi_angles_frame_centers[residue_name][2]
+    sc3 = chi_dihedral_dictionary[residue_name]["atom_3"]
+
+    sc2_coordinates = atom_position_dictionary[sc2]["frame_coordinates"]
+
+    # ex is the vector from SC1 to SC2. In frame 5, SC1 is (0,0,0)
+    ex = sc2_coordinates
+    ey = torch.tensor([-1.0, 0.0, 0.0], dtype=dtype, device=device)
+
+    transformation_chi3_base_frame = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=ex)
+
+    # Dihedral atoms for Chi3
+    global_sc0 = atom_position_dictionary[chi_angles_frame_centers[residue_name][0]]["global_coordinates"]
+    global_sc1 = atom_position_dictionary[sc1]["global_coordinates"]
+    global_sc2 = atom_position_dictionary[sc2]["global_coordinates"]
+    global_sc3 = atom_position_dictionary[sc3]["global_coordinates"]
+
+    chi3_dihedral_angle = compute_dihedral_angle(
+        point_1=global_sc0,
+        point_2=global_sc1,
+        point_3=global_sc2,
+        point_4=global_sc3)
+
+    rotation_matrix_chi3 = make_transformation_matrix_around_ex(phi=chi3_dihedral_angle)
+    transformation_chi3_frame = torch.matmul(transformation_chi3_base_frame, rotation_matrix_chi3)
+
+    residue_angles[5] = chi3_dihedral_angle
+    residue_frames[6] = transformation_chi3_frame
+
+    # Necessary
+    inverse_chi3_transformation_matrix = invert_4x4_transform_matrix(transformation_chi3_frame)
+    for atom_name, atom_data in atom_position_dictionary.items():
+        if atom_data["frame"] >= 6 and sum(atom_data["global_coordinates"]) != 0.0:
+            current_coordinates = atom_data["frame_coordinates"]
+            transformed_coordinates = apply_transformation_on_vector(
+                transformation_matrix=inverse_chi3_transformation_matrix, vector=current_coordinates)
+
+            atom_data["frame_coordinates"] = transformed_coordinates
+            atom_data["current_frame_used"] = 6
+
 # Step 12 : We move on to the chi4 frame and do the same thing
 # ex : #SC2 -> #SC3 (using those in frame_coordinates)
 # ey : #SC2 -> #SC1 (using those in frame_coordinates)
 # translation : #SC3 (using those in frame_coordinates)
 # update residue_angles, frame_coordinates and current_frame_used accordignly
+
+if chi_angles_mask[residue.amino_acid_index][3] == 0:
+    residue_angles[6] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+else:
+    # Frame centers for Chi4: SC2 is origin of parent (frame 6), SC3 is origin of current (frame 7)
+    sc1 = chi_angles_frame_centers[residue_name][1]
+    sc2 = chi_angles_frame_centers[residue_name][2]
+    sc3 = chi_angles_frame_centers[residue_name][3]
+    sc4 = chi_dihedral_dictionary[residue_name]["atom_4"]
+
+    sc3_coordinates = atom_position_dictionary[sc3]["frame_coordinates"]
+
+    # ex is the vector from SC2 to SC3. In frame 6, SC2 is (0,0,0)
+    ex = sc3_coordinates
+    ey = torch.tensor([-1.0, 0.0, 0.0], dtype=dtype, device=device)
+
+    transformation_chi4_base_frame = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=ex)
+
+    # Dihedral atoms for Chi4
+    global_sc1 = atom_position_dictionary[sc1]["global_coordinates"]
+    global_sc2 = atom_position_dictionary[sc2]["global_coordinates"]
+    global_sc3 = atom_position_dictionary[sc3]["global_coordinates"]
+    global_sc4 = atom_position_dictionary[sc4]["global_coordinates"]
+
+    chi4_dihedral_angle = compute_dihedral_angle(
+        point_1=global_sc1,
+        point_2=global_sc2,
+        point_3=global_sc3,
+        point_4=global_sc4)
+
+    rotation_matrix_chi4 = make_transformation_matrix_around_ex(phi=chi4_dihedral_angle)
+    transformation_chi4_frame = torch.matmul(transformation_chi4_base_frame, rotation_matrix_chi4)
+
+    residue_angles[6] = chi4_dihedral_angle
+    residue_frames[7] = transformation_chi4_frame
+
+    # Just for testing
+    inverse_chi4_transformation_matrix = invert_4x4_transform_matrix(transformation_chi4_frame)
+    for atom_name, atom_data in atom_position_dictionary.items():
+        if atom_data["frame"] >= 7 and sum(atom_data["global_coordinates"]) != 0.0:
+            current_coordinates = atom_data["frame_coordinates"]
+            transformed_coordinates = apply_transformation_on_vector(
+                transformation_matrix=inverse_chi4_transformation_matrix, vector=current_coordinates)
+
+            atom_data["frame_coordinates"] = transformed_coordinates
+            atom_data["current_frame_used"] = 7
+
+frame_debugger(atom_position_dictionary, residue_name)
 
 # Last step is where we deal with the omega
 # ex : C -> N (nitrogen of the next residue if it exist, using those in global coordinates)

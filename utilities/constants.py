@@ -378,17 +378,17 @@ chi_angles_frame_centers = {
 
 # This dictionary is used to compute the different dihedral/torsion angles of ground truths for chi frames.
 chi_dihedral_dictionary = {
-    "ARG": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD'},
+    "ARG": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD', 'atom_3': 'NE', 'atom_4': 'CZ'},
     "ASN": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'OD1'},
     "ASP": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'OD1'},
     "CYS": {'atom_0': 'CB', 'atom_1': 'SG'},
-    "GLN": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD'},
-    "GLU": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD'},
+    "GLN": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD', 'atom_3': 'OE1'},
+    "GLU": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD', 'atom_3': 'OE1'},
     "HIS": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'ND1'},
     "ILE": {'atom_0': 'CB', 'atom_1': 'CG1', 'atom_2': 'CD1'},
     "LEU": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD1'},
-    "LYS": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD'},
-    "MET": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'SD'},
+    "LYS": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD', 'atom_3': 'CE', 'atom_4': 'NZ'},
+    "MET": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'SD', 'atom_3': 'CE'},
     "PHE": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD1'},
     "PRO": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD'},
     "SER": {'atom_0': 'CB', 'atom_1': 'OG'},
