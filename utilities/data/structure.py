@@ -202,13 +202,13 @@ class Structure:
                       residue_start_index=int(row[7]),
                       residue_count=int(row[8])) for row in raw_chains]
 
-    def _get_residue_atom_dictionary(self, residue: Residue,
+    def _get_residue_atom_dictionary(self, residue_object: Residue,
                                      device: torch.device, dtype: torch.dtype) -> Dict[str, Dict]:
         """
         Maps a residue's atoms to the canonical 37-atom representation and initializes the atom dictionary.
 
         Args:
-            residue (Residue): The residue object to process.
+            residue_object (Residue): The residue object to process.
             device (torch.device): The device to use for tensor creation.
             dtype (torch.dtype): The data type to use for tensors.
 
@@ -218,9 +218,9 @@ class Structure:
         atom_dictionary = {}
 
         # Go through all the atoms of the provided residue
-        for index in range(residue.atom_count):
+        for index in range(residue_object.atom_count):
 
-            atom_object = self.atoms[residue.atom_start_index + index]
+            atom_object = self.atoms[residue_object.atom_start_index + index]
             atom_name = atom_object.name
 
             if atom_name in atom_to_index:
@@ -228,7 +228,7 @@ class Structure:
                 global_position = torch.tensor(atom_object.experimental_coordinates, device=device, dtype=dtype)
 
                 # Get frame index for the specific amino acid type and atom type
-                frame_index = int(atom_frame_indices[residue.amino_acid_index, atom_index])
+                frame_index = int(atom_frame_indices[residue_object.amino_acid_index, atom_index])
 
                 # local_position : for iteratively updating the postion through local frames
                 # frame_index : target frame for the atom
