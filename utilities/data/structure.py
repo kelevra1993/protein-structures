@@ -5,7 +5,8 @@ from utilities.os_utilities import read_json
 
 from dataclasses import dataclass
 from utilities.constants import (xxx_to_index, atom_to_index, atom_frame_indices,
-                                 rigid_group_atom_position_map)
+                                 rigid_group_atom_position_map, chi_angles_mask,
+                                 chi_angles_frame_centers, chi_dihedral_dictionary)
 from utilities.geometry_utilities import (create_4x4_transform_matrix,
                                           invert_4x4_transform_matrix,
                                           apply_transformation_on_vector,
@@ -476,3 +477,95 @@ class Structure:
         psi_transformation_matrix = torch.matmul(psi_base_transformation, rotation_psi)
 
         return psi_transformation_matrix, psi_angle
+
+    def _compute_chi_frames(self, residue_object: Residue, atom_dictionary: Dict[str, Dict],
+                            residue_frames: torch.Tensor, residue_angles: torch.Tensor,
+                            device: torch.device, dtype: torch.dtype) -> None:
+        """
+        Computes the Chi frames (Frames 4-7) for a residue side-chain.
+        Details:
+         - Frame 4 (Chi1): ex=CA->SC0, ey=CA->N, translation=SC0
+         - Frame 5-7 (Chi2-4): ex=previous_origin->current_origin, ey=(-1,0,0), translation=current_origin
+        Args:
+            residue_object (Residue): The residue object.
+            atom_dictionary (Dict[str, Dict]): Dictionary of the residue's atoms.
+            residue_frames (torch.Tensor): Tensor to store computed frames (8, 4, 4).
+            residue_angles (torch.Tensor): Tensor to store computed angles (7, 2).
+            device (torch.device): Computation device.
+            dtype (torch.dtype): Computation data type.
+        """
+        residue_name = residue_object.name
+        amino_acid_index = residue_object.amino_acid_index
+
+        # Iterate through the 4 possible chi angles
+        for chi_index in range(4):
+            # Check if this chi angle exists for the current residue
+            if chi_angles_mask[amino_acid_index][chi_index] == 0:
+                residue_angles[chi_index + 3] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+                continue
+
+            frame_index = chi_index + 4
+
+            # Basis vectors and origin depend on whether it's Chi1 or Chi2-4
+            if chi_index == 0:
+                # Chi1 (Frame 4)
+                sidechain_0_name = chi_angles_frame_centers[residue_name][0]
+                sidechain_1_name = chi_dihedral_dictionary[residue_name]["atom_1"]
+
+                sidechain_0_local_position = atom_dictionary[sidechain_0_name]["local_position"]
+                carbon_alpha_local_position = atom_dictionary["CA"]["local_position"]
+                nitrogen_local_position = atom_dictionary["N"]["local_position"]
+
+                ex = sidechain_0_local_position - carbon_alpha_local_position
+                ey = nitrogen_local_position - carbon_alpha_local_position
+                translation_vector = sidechain_0_local_position
+
+                # Dihedral: N, CA, SC0, SC1
+                point_1 = atom_dictionary["N"]["global_position"]
+                point_2 = atom_dictionary["CA"]["global_position"]
+                point_3 = atom_dictionary[sidechain_0_name]["global_position"]
+                point_4 = atom_dictionary[sidechain_1_name]["global_position"]
+            else:
+                # Chi2, Chi3, Chi4 (Frames 5, 6, 7)
+                previous_sidechain_name = chi_angles_frame_centers[residue_name][chi_index - 1]
+                current_sidechain_name = chi_angles_frame_centers[residue_name][chi_index]
+
+                # Needs to be defined for the dihedral angle computation
+                dihedral_atom_4_name = chi_dihedral_dictionary[residue_name][f"atom_{chi_index + 1}"]
+
+                # Atom 3 or 4 from the dictionary defines point 4 of the dihedral
+                if chi_index == 1:
+                    # Point 1 for Chi2 is CA
+                    point_1 = atom_dictionary["CA"]["global_position"]
+                else:
+                    point_1 = atom_dictionary[chi_angles_frame_centers[residue_name][chi_index - 1]]["global_position"]
+
+                current_sidechain_local_position = atom_dictionary[current_sidechain_name]["local_position"]
+
+                # ex is vector from parent origin to current origin. parent origin is (0,0,0)
+                ex = current_sidechain_local_position
+                ey = torch.tensor([-1.0, 0.0, 0.0], device=device, dtype=dtype)
+                translation_vector = current_sidechain_local_position
+
+                # Dihedral: SC_{n-2}, SC_{n-1}, SC_n, SC_{n+1}
+                point_2 = atom_dictionary[previous_sidechain_name]["global_position"]
+                point_3 = atom_dictionary[current_sidechain_name]["global_position"]
+                point_4 = atom_dictionary[dihedral_atom_4_name]["global_position"]
+
+            # Compute dihedral angle
+            chi_angle = compute_dihedral_angle(point_1=point_1, point_2=point_2, point_3=point_3, point_4=point_4)
+
+            # Build transformation
+            chi_base_transformation = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=translation_vector)
+            rotation_chi = make_transformation_matrix_around_ex(phi=chi_angle)
+            chi_transformation_matrix = torch.matmul(chi_base_transformation, rotation_chi)
+
+            # Store results
+            residue_angles[chi_index + 3] = chi_angle
+            residue_frames[frame_index] = chi_transformation_matrix
+
+            # Absolutely necessary to apply hierarchical update of coordinates
+            inverse_chi_transformation_matrix = invert_4x4_transform_matrix(chi_transformation_matrix)
+            self._apply_hierarchical_transform(atom_dictionary=atom_dictionary,
+                                               frame_index=frame_index,
+                                               inverse_transformation_matrix=inverse_chi_transformation_matrix)
