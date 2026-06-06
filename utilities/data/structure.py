@@ -1,9 +1,16 @@
-from typing import Optional
+from typing import Optional, Tuple, Dict, Any
 import numpy as np
+import torch
 from utilities.os_utilities import read_json
 
 from dataclasses import dataclass
-from utilities.constants import xxx_to_index
+from utilities.constants import (xxx_to_index, atom_to_index, atom_frame_indices,
+                                 rigid_group_atom_position_map)
+from utilities.geometry_utilities import (create_4x4_transform_matrix,
+                                          invert_4x4_transform_matrix,
+                                          apply_transformation_on_vector,
+                                          compute_dihedral_angle,
+                                          make_transformation_matrix_around_ex)
 
 
 @dataclass(frozen=True)
@@ -194,3 +201,77 @@ class Structure:
                       atom_count=int(row[6]),
                       residue_start_index=int(row[7]),
                       residue_count=int(row[8])) for row in raw_chains]
+
+    def _get_residue_atom_dictionary(self, residue: Residue,
+                                     device: torch.device, dtype: torch.dtype) -> Dict[str, Dict]:
+        """
+        Maps a residue's atoms to the canonical 37-atom representation and initializes the atom dictionary.
+
+        Args:
+            residue (Residue): The residue object to process.
+            device (torch.device): The device to use for tensor creation.
+            dtype (torch.dtype): The data type to use for tensors.
+
+        Returns:
+            Dict[str, Dict]: A dictionary containing atom data for iterative frame transformations.
+        """
+        atom_dictionary = {}
+
+        # Go through all the atoms of the provided residue
+        for index in range(residue.atom_count):
+
+            atom_object = self.atoms[residue.atom_start_index + index]
+            atom_name = atom_object.name
+
+            if atom_name in atom_to_index:
+                atom_index = atom_to_index[atom_name]
+                global_position = torch.tensor(atom_object.experimental_coordinates, device=device, dtype=dtype)
+
+                # Get frame index for the specific amino acid type and atom type
+                frame_index = int(atom_frame_indices[residue.amino_acid_index, atom_index])
+
+                # local_position : for iteratively updating the postion through local frames
+                # frame_index : target frame for the atom
+                # current_frame_used : tracking the current local frame
+                # both frame_index and current_frame_used help us debug the code
+                atom_dictionary[atom_name] = {"global_position": global_position,
+                                              "frame_index": frame_index,
+                                              "local_position": global_position.clone(),
+                                              "current_frame_used": None,
+                                              "atom_index": atom_index}
+        return atom_dictionary
+
+    @staticmethod
+    def _compute_backbone_frame(atom_dictionary: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the backbone frame (Frame 0) and transforms all residue atoms into this local frame.
+        Details :
+         - ex : vector CA->C
+         - ey : vector CA->N
+         - translation : CA position
+        Args:
+            atom_dictionary (Dict[str, Any]): Dictionary containing residue atom coordinates.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The backbone transformation matrix and its inverse.
+        """
+        carbon_alpha_global_position = atom_dictionary["CA"]["global_position"]
+        carbon_global_position = atom_dictionary["C"]["global_position"]
+        nitrogen_global_position = atom_dictionary["N"]["global_position"]
+
+        # Get base vectors
+        ex = carbon_global_position - carbon_alpha_global_position
+        ey = nitrogen_global_position - carbon_alpha_global_position
+
+        backbone_transformation_matrix = create_4x4_transform_matrix(
+            ex=ex, ey=ey, translation_vector=carbon_alpha_global_position)
+
+        inverse_backbone_transformation_matrix = invert_4x4_transform_matrix(backbone_transformation_matrix)
+
+        # Express all atoms in the backbone frame (Frame 0)
+        for atom_data in atom_dictionary.values():
+            atom_data["local_position"] = apply_transformation_on_vector(
+                transformation_matrix=inverse_backbone_transformation_matrix, vector=atom_data["local_position"])
+            atom_data["current_frame_used"] = 0
+
+        return backbone_transformation_matrix, inverse_backbone_transformation_matrix
