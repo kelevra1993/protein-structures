@@ -11,7 +11,8 @@ from utilities.constants import alternative_angle_mask, alternative_position_mas
     ambiguous_position_mask, atom_types, rigid_group_atom_positions, rigid_group_atom_position_map, \
     chi_angles_frame_centers, chi_angles_mask
 from utilities.geometry_utilities import create_alternative_truth_transformation_matrix, create_4x4_transform_matrix, \
-    invert_4x4_transform_matrix, apply_transformation_on_vector, compute_dihedral_angle
+    invert_4x4_transform_matrix, apply_transformation_on_vector, compute_dihedral_angle, create_3x3_rotation_matrix, \
+    turn_quaternion_to_3x3_matrix, make_transformation_matrix_around_ex
 
 from utilities.data.structure import Structure
 from utilities.constants import atom_to_index, atom_frame_indices
@@ -29,7 +30,7 @@ def frame_debugger(atom_position_dictionary, residue_name):
             difference = local_position - constant_position
             difference_norm = torch.linalg.norm(torch.tensor(difference)).numpy()
 
-            if difference_norm > 0.00001:
+            if difference_norm > 0.001:
                 print(40 * '-')
                 print(f"Local      {atom_name} : {local_position}")
                 print(f"Consant    {atom_name} : {constant_position}")
@@ -217,12 +218,78 @@ for atom_name, atom_data in atom_position_dictionary.items():
 # translation : updated C position (using those in frame_coordinates)
 # use these to create these three to create the transformation_psi_frame using
 # create_4x4_transform_matrix(ex,ey,translation)
-# Here the residue angle is just so we set it as well
-
+# Then get residue angle from two dihedral planes formed by (Ni,CAi,Ci) and (CAi,Ci,Ni+1)
+# residue_angle[2] = (cos_psi, sin_psi)
 # we are at frame index 3 (0 start indexing) so for the atoms that have the frame index
 # update there frame coordinates using the inverse of the transformation matrix.
 # update current_frame_used accordignly
 
+local_carbon_alpha_psi = atom_position_dictionary["CA"]["frame_coordinates"]
+local_nitrogen_psi = atom_position_dictionary["N"]["frame_coordinates"]
+local_carbon_psi = atom_position_dictionary["C"]["frame_coordinates"]
+
+vector_ca_to_c_psi = local_carbon_psi - local_carbon_alpha_psi
+vector_n_to_ca_psi = local_carbon_alpha_psi - local_nitrogen_psi
+
+transformation_psi_frame = create_4x4_transform_matrix(ex=vector_ca_to_c_psi,
+                                                       ey=vector_n_to_ca_psi,
+                                                       translation_vector=local_carbon_psi)
+
+residue_frames[3] = transformation_psi_frame
+
+if residue.residue_index == structure_object.number_residues - 1:
+    # Last residue will not have a "next nitrogen"
+    residue_angles[2] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+else:
+    next_residue = structure_object.residues[residue.residue_index + 1]
+
+    next_nitrogen_coordinates = None
+    for i in range(next_residue.atom_count):
+        # Get the next nitrogen.
+        atom_in_next = structure_object.atoms[next_residue.atom_start_index + i]
+        if atom_in_next.name == "N":
+            next_nitrogen_coordinates = torch.tensor(atom_in_next.experimental_coordinates, device=device, dtype=dtype)
+            break
+
+    # todo when we will put all of this in function we will set global coordinates better.
+    if next_nitrogen_coordinates is not None:
+        residue_angles[2] = compute_dihedral_angle(
+            point_1=nitrogen_coordinates,  # Global N_i
+            point_2=carbon_alpha_coordinates,  # Global CA_i
+            point_3=carbon_coordinates,  # Global C_i
+            point_4=next_nitrogen_coordinates  # Global N_{i+1}
+        )
+    else:
+        residue_angles[2] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+
+inverse_psi_transformation_matrix = invert_4x4_transform_matrix(transformation_psi_frame)
+
+for atom_name, atom_data in atom_position_dictionary.items():
+    if atom_data["frame"] == 3:
+        current_coordinates = atom_data["frame_coordinates"]
+        transformed_coordinates = apply_transformation_on_vector(
+            transformation_matrix=inverse_psi_transformation_matrix,
+            vector=current_coordinates
+        )
+        atom_data["frame_coordinates"] = transformed_coordinates
+        atom_data["current_frame_used"] = 3
+
+        # Todo needs to be checked
+        # Addtion to take into account rotation
+        # since global = Transform(Rotation(local)) so local = inverseRotation(inverseTransform(global))
+        atom_data["inverted_rotation_matrix"] = invert_4x4_transform_matrix(
+            make_transformation_matrix_around_ex(phi=residue_angles[2]))
+        atom_data["frame_coordinates"] = apply_transformation_on_vector(
+            transformation_matrix=atom_data["inverted_rotation_matrix"],
+            vector=atom_data["frame_coordinates"])
+        # print(atom_data["inverted_rotation_matrix"].numpy())
+        # print(make_transformation_matrix_around_ex(phi=residue_angles[2]).numpy())
+        # print(atom_data["inverted_rotation_matrix"].shape)
+
+# print(residue_angles.numpy())
+# print(transformation_phi_frame.numpy().round(2))
+frame_debugger(atom_position_dictionary, residue_name)
+# exit()
 # Step 9 : We move on to the chi1 frame
 # First check chi_angles_mask[amino_acid_index][0] if it is 0 then does not exist then no need to do anything just move on to the next step
 # #SC0 can be found when looking at chi_angles_frame_centers[residue_xxx_name][0] if it does not exist then no need to do anything
