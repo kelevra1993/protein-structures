@@ -148,11 +148,6 @@ for atom_name, atom_data in atom_position_dictionary.items():
 # ex : vector CA->N (using those in frame_coordinates)
 # ey : vector CA->C (using those in frame_coordinates)
 # translation : updated N position (using those in frame_coordinates)
-# use these to create these three to create the transformation_phi_base_frame using
-# create_4x4_transform_matrix(ex,ey,translation)
-# Then get residue angle from two dihedral planes formed by (Ci-1,Ni,CAi) and (Ni,CAi,Ci) > here C : Carbon of carbonyl
-# residue_angle[1] = (cos_phi, sin_phi)
-# Multiply the base frame by the rotation around the X-axis by the phi angle to get the final transformation_phi_frame.
 # we are at frame index 2 (0 start indexing) so for the atoms that have the frame index
 # update there frame coordinates using the inverse of the transformation matrix.
 # update current_frame_used accordignly
@@ -164,10 +159,6 @@ local_carbon = atom_position_dictionary["C"]["frame_coordinates"]
 
 vector_ca_to_n = local_nitrogen - local_carbon_alpha
 vector_ca_to_c = local_carbon - local_carbon_alpha
-
-transformation_phi_frame = create_4x4_transform_matrix(ex=vector_ca_to_n,
-                                                       ey=vector_ca_to_c,
-                                                       translation_vector=local_nitrogen)
 
 # Compute the actual dihedral angle between C_{i-1}, N_i, CA_i, C_i
 if residue.residue_index == 0:
@@ -194,29 +185,28 @@ else:
         print(f"There is a problem here for residue {residue.residue_index}")
         phi_angle = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
 
-residue_angles[1] = phi_angle
-rotation_phi = make_transformation_matrix_around_ex(phi=residue_angles[1])
+transformation_phi_frame = create_4x4_transform_matrix(ex=vector_ca_to_n,
+                                                       ey=vector_ca_to_c,
+                                                       translation_vector=local_nitrogen)
+
+rotation_phi = make_transformation_matrix_around_ex(phi=phi_angle)
 transformation_phi_frame = torch.matmul(transformation_phi_frame, rotation_phi)
 
-# Set the residue frame for phi
+# Set the residue angle and residue frame for phi
+residue_angles[1] = phi_angle
 residue_frames[2] = transformation_phi_frame
 
+# Just for testing purposes
 inverse_phi_transformation_matrix = invert_4x4_transform_matrix(transformation_phi_frame)
-
 for atom_name, atom_data in atom_position_dictionary.items():
     if atom_data["frame"] == 2:
         current_coordinates = atom_data["frame_coordinates"]
         transformed_coordinates = apply_transformation_on_vector(
             transformation_matrix=inverse_phi_transformation_matrix,
-            vector=current_coordinates
-        )
+            vector=current_coordinates)
+
         atom_data["frame_coordinates"] = transformed_coordinates
         atom_data["current_frame_used"] = 2
-
-# print(residue_angles.numpy())
-# print(transformation_phi_frame.numpy().round(2))
-# frame_debugger(atom_position_dictionary, residue_name)
-# exit()
 
 # Step 8 : We move on to the psi frame
 # ex : vector CA->C (using those in frame_coordinates)
@@ -224,6 +214,7 @@ for atom_name, atom_data in atom_position_dictionary.items():
 # translation : updated C position (using those in frame_coordinates)
 # Then get residue angle from two dihedral planes formed by (Ni,CAi,Ci) and (CAi,Ci,Oi)
 
+# Setup local coordinates : todo to simplify
 local_carbon_alpha_psi = atom_position_dictionary["CA"]["frame_coordinates"]
 local_nitrogen_psi = atom_position_dictionary["N"]["frame_coordinates"]
 local_carbon_psi = atom_position_dictionary["C"]["frame_coordinates"]
@@ -233,20 +224,24 @@ vector_ca_to_n_psi = local_nitrogen_psi - local_carbon_alpha_psi
 
 # Extract global coordinates for the dihedral calculation
 oxygen_coordinates = atom_position_dictionary["O"]["global_coordinates"]
+
 # AF2 explicitly uses N, CA, C, O of the SAME residue to compute the Psi angle
 psi_angle = compute_dihedral_angle(point_1=nitrogen_coordinates, point_2=carbon_alpha_coordinates,
                                    point_3=carbon_coordinates, point_4=oxygen_coordinates)
-residue_angles[2] = psi_angle
+
 rotation_psi = make_transformation_matrix_around_ex(phi=psi_angle)
 
 base_psi_frame = create_4x4_transform_matrix(ex=vector_ca_to_c_psi,
                                              ey=vector_ca_to_n_psi,
                                              translation_vector=local_carbon_psi)
 transformation_psi_frame = torch.matmul(base_psi_frame, rotation_psi)
+
+# Set the residue angle and residue frame for psi
+residue_angles[2] = psi_angle
 residue_frames[3] = transformation_psi_frame
 
+# Just for testing purposes
 inverse_psi_transformation_matrix = invert_4x4_transform_matrix(transformation_psi_frame)
-
 for atom_name, atom_data in atom_position_dictionary.items():
     if atom_data["frame"] == 3:
         current_coordinates = atom_data["frame_coordinates"]
