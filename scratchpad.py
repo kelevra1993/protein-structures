@@ -16,14 +16,18 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
     turn_quaternion_to_3x3_matrix, make_transformation_matrix_around_ex
 
 from utilities.data.structure import Structure
-from utilities.constants import atom_to_index, atom_frame_indices
+from utilities.constants import atom_to_index, atom_frame_indices, chi_dihedral_dictionary
 
 
 # For Testing / Debugging Comparison to constant.py. to see if we will ultimately just set everything to what is in constant.py
-def frame_debugger(atom_position_dictionary, residue_name):
+def frame_debugger(atom_position_dictionary, residue_name, frame_to_consider=None):
     for atom_name, atom_information in atom_position_dictionary.items():
+
         atom_frame = atom_information["frame"]
         current_atom_frame = atom_information["current_frame_used"]
+
+        if frame_to_consider and frame_to_consider != atom_frame:
+            continue
 
         if current_atom_frame == atom_frame:
             local_position = atom_information["frame_coordinates"].numpy().round(4)
@@ -31,12 +35,12 @@ def frame_debugger(atom_position_dictionary, residue_name):
             difference = local_position - constant_position
             difference_norm = torch.linalg.norm(torch.tensor(difference)).numpy()
 
-            if difference_norm > 0.001:
+            if difference_norm != 0.0:
                 print(40 * '-')
                 print(f"Local      {atom_name} : {local_position}")
                 print(f"Consant    {atom_name} : {constant_position}")
                 print(f"Delta      {atom_name} : {difference.round(4)}")
-                print(difference_norm)
+                print(f"Delta Norm {atom_name} : {difference_norm.round(4)}")
                 print(40 * '-')
 
 
@@ -254,24 +258,72 @@ for atom_name, atom_data in atom_position_dictionary.items():
 
 # print(residue_angles.numpy())
 # print(transformation_phi_frame.numpy().round(2))
-frame_debugger(atom_position_dictionary, residue_name)
-# exit()
+# frame_debugger(atom_position_dictionary, residue_name)
+
 # Step 9 : We move on to the chi1 frame
 # First check chi_angles_mask[amino_acid_index][0] if it is 0 then does not exist then no need to do anything just move on to the next step
 # #SC0 can be found when looking at chi_angles_frame_centers[residue_xxx_name][0] if it does not exist then no need to do anything
 # ex : vector CA->#SC0 (using those in frame_coordinates)
 # ey : vector CA -> N (using those in frame_coordinates)
 # translation : updated #SC0 position
-# use these to create these three to create the transformation_chi1_frame using
-# create_4x4_transform_matrix(ex,ey,translation)
-# Here the residue angle is just so we set it as well
-# transformation_chi1_frame[..., 1, 1] = cos_chi1
-# transformation_chi1_frame[..., 2, 1] = sin_chi1
-# residue_angle[3] = (cos_chi1, sin_chi1)
+# Todo we will have to add the #SC1 to a new variable to avoid looping to find it.
+# To get the rotation compute dihedral angle of N -> CA -> #SCO -> #SC1
+
 # we are at frame index 4 (0 start indexing) so for the atoms that have the frame index
 # update there frame coordinates using the inverse of the transformation matrix.
 # update current_frame_used accordignly
 
+if chi_angles_mask[residue.amino_acid_index][0] == 0:
+    residue_angles[3] = torch.tensor([1.0, 0.0], device=device, dtype=dtype)
+    # The frame was initialized as Identity in Step 3, which is correct for missing chi angles.
+else:
+    chi1_center_atom_0 = chi_dihedral_dictionary[residue_name]["atom_0"]
+    chi1_center_atom_1 = chi_dihedral_dictionary[residue_name]["atom_1"]
+
+    local_first_sidechain_atom_coordinates = atom_position_dictionary[chi1_center_atom_0]["frame_coordinates"]
+    local_carbon_alpha_coordinates_for_chi1 = atom_position_dictionary["CA"]["frame_coordinates"]
+    local_nitrogen_coordinates_for_chi1 = atom_position_dictionary["N"]["frame_coordinates"]
+
+    vector_ca_to_first_sidechain = local_first_sidechain_atom_coordinates - local_carbon_alpha_coordinates_for_chi1
+    vector_ca_to_nitrogen_for_chi1 = local_nitrogen_coordinates_for_chi1 - local_carbon_alpha_coordinates_for_chi1
+
+    transformation_chi1_base_frame = create_4x4_transform_matrix(
+        ex=vector_ca_to_first_sidechain,
+        ey=vector_ca_to_nitrogen_for_chi1,
+        translation_vector=local_first_sidechain_atom_coordinates)
+
+    global_nitrogen_coordinates = atom_position_dictionary["N"]["global_coordinates"]
+    global_carbon_alpha_coordinates = atom_position_dictionary["CA"]["global_coordinates"]
+    global_first_sidechain_atom_coordinates = atom_position_dictionary[chi1_center_atom_0]["global_coordinates"]
+    global_second_sidechain_atom_coordinates = atom_position_dictionary[chi1_center_atom_1]["global_coordinates"]
+
+    chi1_dihedral_angle = compute_dihedral_angle(
+        point_1=global_nitrogen_coordinates,
+        point_2=global_carbon_alpha_coordinates,
+        point_3=global_first_sidechain_atom_coordinates,
+        point_4=global_second_sidechain_atom_coordinates)
+
+    rotation_matrix_chi1 = make_transformation_matrix_around_ex(phi=chi1_dihedral_angle)
+    transformation_chi1_frame = torch.matmul(transformation_chi1_base_frame, rotation_matrix_chi1)
+
+    # Set chi1 angle
+    residue_angles[3] = chi1_dihedral_angle
+    residue_frames[4] = transformation_chi1_frame
+
+    # Set the residue angle and residue frame for chi1
+    inverse_chi1_transformation_matrix = invert_4x4_transform_matrix(transformation_chi1_frame)
+
+    # Just for testing purposes
+    for atom_name, atom_data in atom_position_dictionary.items():
+        if atom_data["frame"] == 4:
+            current_coordinates = atom_data["frame_coordinates"]
+            transformed_coordinates = apply_transformation_on_vector(
+                transformation_matrix=inverse_chi1_transformation_matrix, vector=current_coordinates)
+
+            atom_data["frame_coordinates"] = transformed_coordinates
+            atom_data["current_frame_used"] = 4
+
+frame_debugger(atom_position_dictionary, residue_name, frame_to_consider=4)
 # Step 10 : We move on to the chi2 frame and do the same thing
 # ex : #SC0 -> #SC1 (using those in frame_coordinates)
 # ey : #SC0 -> CA (using those in frame_coordinates)

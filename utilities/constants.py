@@ -375,6 +375,28 @@ chi_angles_frame_centers = {
     'TYR': ['CB', 'CG'],
     'VAL': ['CB'],
 }
+
+# This dictionary is used to compute the different dihedral/torsion angles of ground truths for chi frames.
+chi_dihedral_dictionary = {
+    "ARG": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "ASN": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "ASP": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "CYS": {'atom_0': 'CB', 'atom_1': 'SG'},
+    "GLN": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "GLU": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "HIS": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "ILE": {'atom_0': 'CB', 'atom_1': 'CG1'},
+    "LEU": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "LYS": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "MET": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "PHE": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "PRO": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "SER": {'atom_0': 'CB', 'atom_1': 'OG'},
+    "THR": {'atom_0': 'CB', 'atom_1': 'OG1'},
+    "TRP": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "TYR": {'atom_0': 'CB', 'atom_1': 'CG'},
+    "VAL": {'atom_0': 'CB', 'atom_1': 'CG1'},
+}
 #########################################################
 # Management of alternative truths for loss computation #
 #########################################################
