@@ -6,7 +6,8 @@ from utilities.os_utilities import read_json
 from dataclasses import dataclass
 from utilities.constants import (xxx_to_index, atom_to_index, atom_frame_indices,
                                  rigid_group_atom_position_map, chi_angles_mask,
-                                 chi_angles_frame_centers, chi_dihedral_dictionary)
+                                 chi_angles_frame_centers, chi_dihedral_dictionary,
+                                 rigid_group_atom_positions)
 from utilities.geometry_utilities import (create_4x4_transform_matrix,
                                           invert_4x4_transform_matrix,
                                           apply_transformation_on_vector,
@@ -569,3 +570,129 @@ class Structure:
             self._apply_hierarchical_transform(atom_dictionary=atom_dictionary,
                                                frame_index=frame_index,
                                                inverse_transformation_matrix=inverse_chi_transformation_matrix)
+
+    def compute_ground_truth_data(self,
+                                  device: torch.device,
+                                  dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Orchestrates the computation of ground truth positions, frames, and angles for all residues.
+
+        Args:
+        device (torch.device): Computation device.
+        dtype (torch.dtype): Computation data type.
+
+        Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            - ground_truth_local_positions: (number_residues, 37, 3)
+            - ground_truth_global_positions: (number_residues, 37, 3)
+            - ground_truth_frames: (number_residues, 8, 4, 4)
+            - ground_truth_angles: (number_residues, 7, 2)
+        """
+
+        # - ground_truth_positions: (number_residues, 37, 3)
+        ground_truth_local_positions = torch.zeros((self.number_residues, 37, 3), device=device, dtype=dtype)
+        ground_truth_global_positions = torch.zeros((self.number_residues, 37, 3), device=device, dtype=dtype)
+
+        # - ground_truth_frames: (number_residues, 8, 4, 4)
+        ground_truth_frames = torch.eye(4, device=device, dtype=dtype).unsqueeze(0).unsqueeze(0).repeat(
+            self.number_residues, 8, 1, 1)
+
+        # - ground_truth_angles: (number_residues, 7, 2)
+        ground_truth_angles = torch.zeros((self.number_residues, 7, 2), device=device, dtype=dtype)
+
+        for residue_index, residue_object in enumerate(self.residues):
+            # 1. Initialize atom dictionary
+            atom_dictionary = self._get_residue_atom_dictionary(residue_object, device, dtype)
+
+            # 2. Compute Backbone Frame (Frame 0)
+            backbone_frame, inverse_backbone_frame = self._compute_backbone_frame(atom_dictionary)
+            ground_truth_frames[residue_index, 0] = backbone_frame
+
+            # 3. Compute Omega Frame (Frame 1)
+            omega_frame, omega_angle = self._compute_omega_frame(
+                residue_index=residue_index,
+                atom_dictionary=atom_dictionary,
+                inverse_backbone_transformation_matrix=inverse_backbone_frame,
+                device=device, dtype=dtype)
+            ground_truth_frames[residue_index, 1] = omega_frame
+            ground_truth_angles[residue_index, 0] = omega_angle
+
+            # 4. Compute Phi Frame (Frame 2)
+            phi_frame, phi_angle = self._compute_phi_frame(residue_index=residue_index,
+                                                           atom_dictionary=atom_dictionary,
+                                                           device=device, dtype=dtype)
+            ground_truth_frames[residue_index, 2] = phi_frame
+            ground_truth_angles[residue_index, 1] = phi_angle
+
+            # No Hierarchical update for Phi (Frame 2) since no atoms in the 37-set belong to it
+            # Keeping the comment for consistency with other steps and as a note.
+
+            # 5. Compute Psi Frame (Frame 3)
+            psi_frame, psi_angle = self._compute_psi_frame(atom_dictionary=atom_dictionary, device=device, dtype=dtype)
+            ground_truth_frames[residue_index, 3] = psi_frame
+            ground_truth_angles[residue_index, 2] = psi_angle
+
+            # Hierarchical update for Psi (Frame 3)
+            inverse_psi_frame = invert_4x4_transform_matrix(psi_frame)
+            self._apply_hierarchical_transform(atom_dictionary=atom_dictionary, frame_index=3,
+                                               inverse_transformation_matrix=inverse_psi_frame)
+
+            # 6. Compute Chi Frames (Frames 4-7)
+            self._compute_chi_frames(residue_object=residue_object,
+                                     atom_dictionary=atom_dictionary,
+                                     residue_frames=ground_truth_frames[residue_index],
+                                     residue_angles=ground_truth_angles[residue_index],
+                                     device=device, dtype=dtype)
+
+            # 7. Map local positions to ground_truth_positions
+            for atom_data in atom_dictionary.values():
+                atom_index = atom_data["atom_index"]
+                ground_truth_local_positions[residue_index, atom_index] = atom_data["local_position"]
+                ground_truth_global_positions[residue_index, atom_index] = atom_data["global_position"]
+
+        return ground_truth_global_positions, ground_truth_local_positions, ground_truth_frames, ground_truth_angles
+
+    @staticmethod
+    def frame_debugger(atom_dictionary: Dict[str, Dict],
+                       residue_name: str,
+                       frame_to_consider: Optional[int] = None,
+                       threshold: Optional[float] = None) -> None:
+
+        """
+        Debugs the local coordinates of atoms by comparing them to constant reference positions.
+
+        Args:
+        atom_dictionary (Dict[str, Dict]): Dictionary containing residue atom data.
+        residue_name (str): The name of the residue (e.g., 'ARG').
+        frame_to_consider (int, optional): The specific frame index to debug.
+        threshold (float, optional): The norm threshold for reporting deltas. If None, reports non-zero norms.
+        """
+
+        for atom_name, atom_data in atom_dictionary.items():
+            atom_frame_index = atom_data["frame_index"]
+            current_frame_used = atom_data["current_frame_used"]
+
+            if frame_to_consider is not None and frame_to_consider != atom_frame_index:
+                continue
+
+            if current_frame_used == atom_frame_index:
+                local_position = atom_data["local_position"].numpy()
+                constant_position = rigid_group_atom_position_map[residue_name][atom_name].numpy()
+                difference = local_position - constant_position
+                difference_norm = np.linalg.norm(difference)
+
+                # Determine if we should print based on the threshold
+                should_print = False
+                if threshold is None:
+                    if difference_norm != 0.0:
+                        should_print = True
+                elif difference_norm > threshold:
+                    should_print = True
+
+                if should_print:
+                    print(40 * '-')
+                    print(f"Atom: {atom_name} | Frame: {atom_frame_index}")
+                    print(f"Computed Local: {local_position.round(4)}")
+                    print(f"Constant Local: {constant_position.round(4)}")
+                    print(f"Delta: {difference.round(4)} | Norm: {difference_norm.round(4)}")
+                    print(40 * '-')
