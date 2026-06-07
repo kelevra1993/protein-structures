@@ -622,35 +622,44 @@ def compute_global_transform_matrices(transformation_matrix: torch.Tensor, resid
     # Get global initialised frames (20,8,4,4)
     initial_rigid_transformations = compute_initial_rigid_transform_matrices().to(dtype=dtype, device=device)
 
-    # Select the ones that are important for our sequence (number_residues,8,4,4)
-    global_transform_matrices = initial_rigid_transformations[sequence_amino_acid_labels]
+    # Select the ones that are important for our sequence (..., number_residues, 8, 4, 4)
+    initial_sequence_frames = initial_rigid_transformations[sequence_amino_acid_labels]
 
-    # This is just equivalent to multiplying by the identity matrix
-    # Here we just the predicted backbone transformation matrix
-    global_transform_matrices[..., 0, :, :] = transformation_matrix
+    # We will build the global frames list to avoid in-place modifications
+    all_global_frames = []
 
-    for transformation_index, angle in enumerate([omega, phi, psi, chi1], start=1):
-        # Note we already normalised the angles therefore they are in (cos(phi), sin(phi)) format
+    # 1. Backbone Frame (Frame 0)
+    # The first frame is just the predicted backbone transformation
+    backbone_frame = transformation_matrix
+    all_global_frames.append(backbone_frame)
+
+    # 2. Frames 1-4 (omega, phi, psi, chi1)
+    # These are computed relative to the backbone frame (Frame 0)
+    for i, angle in enumerate([omega, phi, psi, chi1], start=1):
         rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
+        
+        # global = backbone * local_initial * rotation
+        frame = torch.matmul(
+            backbone_frame,
+            torch.matmul(initial_sequence_frames[..., i, :, :], rotation_matrix)
+        )
+        all_global_frames.append(frame)
 
-        # Just backbone * rotational matrix.
-        # Note : We actually don't even need it for omega since omega is just junk for the model.
-        global_transform_matrices[..., transformation_index, :, :] = torch.matmul(
-            input=global_transform_matrices[..., 0, :, :],
-            other=torch.matmul(
-                input=global_transform_matrices[..., transformation_index, :, :],
-                other=rotation_matrix
-            ))
-
-    # Here we have to keep track of the previous transformation
-    for transformation_index, angle in enumerate([chi2, chi3, chi4], start=5):
+    # 3. Frames 5-7 (chi2, chi3, chi4)
+    # These are computed hierarchically relative to the previous frame
+    for i, angle in enumerate([chi2, chi3, chi4], start=5):
         rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
-        global_transform_matrices[..., transformation_index, :, :] = torch.matmul(
-            input=global_transform_matrices[..., transformation_index - 1, :, :],
-            other=torch.matmul(
-                input=global_transform_matrices[..., transformation_index, :, :],
-                other=rotation_matrix
-            ))
+        
+        # global = previous_global * local_initial * rotation
+        previous_frame = all_global_frames[i - 1]
+        frame = torch.matmul(
+            previous_frame,
+            torch.matmul(initial_sequence_frames[..., i, :, :], rotation_matrix)
+        )
+        all_global_frames.append(frame)
+
+    # Stack all frames along the rigid group dimension
+    global_transform_matrices = torch.stack(all_global_frames, dim=-3)
 
     return global_transform_matrices
 

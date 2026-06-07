@@ -163,7 +163,7 @@ class MultiHeadAttention(nn.Module):
                                     bias_tensor.shape[-3:])
 
             bias_tensor = bias_tensor.reshape(pre_broad_cast_shape)
-            attention_tensor += bias_tensor
+            attention_tensor = attention_tensor + bias_tensor
 
         # Will Be Useful For When We Will Be Batching Multiple Different Proteins
         if attention_mask_tensor is not None:
@@ -173,7 +173,7 @@ class MultiHeadAttention(nn.Module):
 
             # Hard offset equivalent to minus infinity turning softmax to effectively 0 for these values.
             offset = -1e8 * (attention_mask_tensor == 0).to(torch.float)
-            attention_tensor += offset
+            attention_tensor = attention_tensor + offset
 
         # Softmax For Attention Tensor
         # Scaled by the square root of head_dimension similar to what we did for image classification,
