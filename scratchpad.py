@@ -41,6 +41,12 @@ for npz_file in npz_files:
      ground_truth_frames,
      ground_truth_angles) = structure_object.compute_ground_truth_data(debug=True, device=device, dtype=dtype)
 
+
+    print_tensor_shape(name="ground_truth_global_positions", tensor=ground_truth_global_positions)
+    print_tensor_shape(name="ground_truth_local_positions", tensor=ground_truth_local_positions)
+    print_tensor_shape(name="ground_truth_frames", tensor=ground_truth_frames)
+    print_tensor_shape(name="ground_truth_angles", tensor=ground_truth_angles)
+    exit()
 exit()
 ############################
 # Cluster, and Split Data
@@ -49,10 +55,10 @@ file_stem = "open_fold_sequences"
 
 input_fasta = f"{source_folder}/{file_stem}.fasta"
 output_prefix = "clusters/openfold_clusters"
-
-# Run MMseqs2 clustering
-run_mmseqs_clustering(input_fasta=input_fasta, output_prefix=output_prefix, min_identity=0.4)
-
+exit()
+# # Run MMseqs2 clustering
+# run_mmseqs_clustering(input_fasta=input_fasta, output_prefix=output_prefix, min_identity=0.4)
+exit()
 # Load cluster mapping
 tsv_path = Path(f"{output_prefix}_cluster.tsv")
 if tsv_path.exists():
