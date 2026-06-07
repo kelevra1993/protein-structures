@@ -6,7 +6,7 @@ from utilities.data.structure import Structure, Residue, Atom
 from utilities.data.msa import load_a3m_file, compute_unique_sequences
 from feature_extraction.extractor import FeatureExtractor
 from utilities.tensor_utilities import get_device
-from utilities.constants import x_to_xxx
+from utilities.constants import x_to_xxx, all_amino_acid_dictionary
 
 
 class ModelInput:
@@ -55,7 +55,10 @@ class ModelInput:
         # The target sequence is always the first one
         self.global_target_sequence = self.unprocessed_sequences[0]
 
-        # We will put the global_amino_acid_sequence_labels here
+        # Compute the global amino acid sequence labels
+        sequence_labels_list = [all_amino_acid_dictionary.get(aa, 20) for aa in self.global_target_sequence]
+        self.global_amino_acid_sequence_labels = torch.tensor(sequence_labels_list, device=self.device,
+                                                              dtype=torch.long)
 
         self.global_msa_sequence_tensor, self.global_msa_deletion_count_tensor = compute_unique_sequences(
             unprocessed_sequences=self.unprocessed_sequences,
@@ -145,7 +148,8 @@ class ModelInput:
         end_index = start_index + active_crop_size
         return start_index, end_index
 
-    def get_cropped_msa_data(self, start_index: int, end_index: int) -> Tuple[str, torch.Tensor, torch.Tensor]:
+    def get_cropped_msa_data(self, start_index: int, end_index: int) -> Tuple[
+        str, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Retrieves the MSA data cropped to the specified indices.
 
@@ -154,8 +158,9 @@ class ModelInput:
             end_index (int): End of the crop.
 
         Returns:
-            Tuple[str, torch.Tensor, torch.Tensor]:
+            Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]:
                 - The cropped target sequence (str).
+                - The cropped global_amino_acid_sequence_labels.
                 - The cropped global_msa_sequence_tensor.
                 - The cropped global_msa_deletion_count_tensor.
         """
@@ -164,11 +169,12 @@ class ModelInput:
 
         cropped_target_sequence = self.global_target_sequence[start_index:end_index]
 
-        # Slice tensors along the residue dimension (dim=1)
+        # Slice tensors along the residue dimension
+        cropped_sequence_labels = self.global_amino_acid_sequence_labels[start_index:end_index]
         cropped_sequence_tensor = self.global_msa_sequence_tensor[:, start_index:end_index, :]
         cropped_deletion_tensor = self.global_msa_deletion_count_tensor[:, start_index:end_index]
 
-        return cropped_target_sequence, cropped_sequence_tensor, cropped_deletion_tensor
+        return cropped_target_sequence, cropped_sequence_labels, cropped_sequence_tensor, cropped_deletion_tensor
 
     def get_cropped_structure_data(self, start_index: int, end_index: int) -> Tuple[List[Residue], List[Atom]]:
         """
@@ -246,8 +252,8 @@ class ModelInput:
             start_index, end_index = 0, self.structure.number_residues
 
         # Extract cropped raw MSA data
-        target_sequence, msa_sequence_tensor, msa_deletion_tensor = self.get_cropped_msa_data(start_index=start_index,
-                                                                                              end_index=end_index)
+        target_sequence, sequence_labels, msa_sequence_tensor, msa_deletion_tensor = self.get_cropped_msa_data(
+            start_index=start_index, end_index=end_index)
 
         # Extract cropped ground truth data
         (ground_truth_global_positions,
@@ -259,6 +265,7 @@ class ModelInput:
         # For training we recycle data by shuffling the msa data
         cycle_data = {"input_msa_feature": [], "input_extra_msa_feature": [],
                       "input_sequence_feature": [], "input_residue_index_feature": [],
+                      "sequence_labels": [],
                       "ground_truth_global_positions": [], "ground_truth_local_positions": [],
                       "ground_truth_frames": [], "ground_truth_angles": []}
 
@@ -289,17 +296,18 @@ class ModelInput:
                 cycle_data["input_sequence_feature"].append(extractor.input_sequence_feature)
                 cycle_data["input_residue_index_feature"].append(absolute_residue_indices)
 
-                # Ground truth data is identical across cycles, but we duplicate it to match the recycle dimension
+                # Ground truth data and labels are identical across cycles, duplicate to match recycle dimension
+                cycle_data["sequence_labels"].append(sequence_labels)
                 cycle_data["ground_truth_global_positions"].append(ground_truth_global_positions)
                 cycle_data["ground_truth_local_positions"].append(ground_truth_local_positions)
                 cycle_data["ground_truth_frames"].append(ground_truth_frames)
                 cycle_data["ground_truth_angles"].append(ground_truth_angles)
 
         # Stack along the last dimension (cycle dimension)
-        batch_input_dict = {key: torch.stack(values, dim=-1) for key, values in cycle_data.items()}
+        batch_input_dictionary = {key: torch.stack(values, dim=-1) for key, values in cycle_data.items()}
 
         # Optional Batch Unsqueeze (for testing/single-sample inference)
         if batch_mode:
-            batch_input_dict = {key: value.unsqueeze(0) for key, value in batch_input_dict.items()}
+            batch_input_dictionary = {key: value.unsqueeze(0) for key, value in batch_input_dictionary.items()}
 
-        return batch_input_dict
+        return batch_input_dictionary
