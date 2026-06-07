@@ -749,6 +749,46 @@ def create_alternative_truth_positions(ground_truth_positions: torch.Tensor,
     alternative_indices_expanded = alternative_indices.unsqueeze(dim=-1).repeat(1, 1, 1, 3)
 
     # Gather to swap the coordinates in the atom dimension (dim=-2)
-    alternative_ground_truth_positions = torch.gather(input=ground_truth_positions,
-                                                      dim=-2, index=alternative_indices_expanded)
+    alternative_ground_truth_positions = torch.gather(
+        input=ground_truth_positions,
+        dim=-2,
+        index=alternative_indices_expanded
+    )
+
     return alternative_ground_truth_positions
+
+
+def create_alternative_truth_angles(ground_truth_angles: torch.Tensor,
+                                    sequence_amino_acid_labels: torch.Tensor) -> torch.Tensor:
+    """
+    Creates alternative ground truth torsion angles by applying a 180-degree 
+    rotation to symmetric side-chain angles.
+
+    For specific symmetric amino acids (e.g., Aspartate, Glutamate, Phenylalanine, 
+    Tyrosine), rotating a specific chi angle by 180 degrees (pi radians) results 
+    in an identical structure. Since the angles are stored as (cos, sin) pairs, 
+    a 180-degree rotation is equivalent to negating both values.
+
+    This function utilizes `alternative_angle_mask`, which maps non-symmetric 
+    angles to [1, 1] and symmetric angles to [-1, -1].
+
+    Args:
+        ground_truth_angles (torch.Tensor): The original ground truth torsion angles 
+            as (cos, sin) pairs.
+            Expected shape: `(..., number_residues, 7, 2)`.
+        sequence_amino_acid_labels (torch.Tensor): The amino acid types encoded as indices (0-19).
+            Expected shape: `(..., number_residues)`.
+
+    Returns:
+        torch.Tensor: The alternative torsion angles.
+            Shape: `(..., number_residues, 7, 2)`.
+    """
+
+    # Retrieve the scaler mask using the sequence labels
+    # Shape becomes: (..., number_residues, 7, 2)
+    alternative_angle_scaler = alternative_angle_mask[sequence_amino_acid_labels].to(ground_truth_angles.device)
+
+    # Apply the scaler to the ground truth angles
+    alternative_ground_truth_angles = ground_truth_angles * alternative_angle_scaler
+
+    return alternative_ground_truth_angles
