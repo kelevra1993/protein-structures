@@ -34,19 +34,30 @@ structures_dir = Path("data_examples/openfold/structures/")
 npz_files = sorted(list(structures_dir.glob("*.npz")))
 
 for npz_file in npz_files:
-    structure_object = Structure(npz_path=str(npz_file))
-    # Run orchestrator
-    (ground_truth_global_positions,
-     ground_truth_local_positions,
-     ground_truth_frames,
-     ground_truth_angles) = structure_object.compute_ground_truth_data(debug=True, device=device, dtype=dtype)
+    #############
+    # put the call for the input data here so that we can test it
+    ##############
+    from utilities.data.input import ModelInput
+    record_file = str(npz_file).replace("structures", "records").replace(".npz", ".json")
+    msa_file = str(npz_file).replace("structures", "raw_msa").replace(".npz", ".a3m")
 
+    # Initialize ModelInput (this should automatically compute the ground truth tensors)
+    model_input = ModelInput(structure_path=str(npz_file), record_path=record_file, msa_path=msa_file)
+    
+    # Get batch data (with crop_size = 50 for testing slicing, and 2 recycle steps)
+    batch_data = model_input.get_data(number_samples=2, random_samples=True, crop_size=50, seed=42, batch_mode=True)
 
-    print_tensor_shape(name="ground_truth_global_positions", tensor=ground_truth_global_positions)
-    print_tensor_shape(name="ground_truth_local_positions", tensor=ground_truth_local_positions)
-    print_tensor_shape(name="ground_truth_frames", tensor=ground_truth_frames)
-    print_tensor_shape(name="ground_truth_angles", tensor=ground_truth_angles)
-    exit()
+    print(f"File: {npz_file.name}")
+    print(f"  Input Sequence Feature Shape: {batch_data['input_sequence_feature'].shape}")
+    print(f"  Input MSA Feature Shape: {batch_data['input_msa_feature'].shape}")
+    print(f"  Input Extra MSA Feature Shape: {batch_data['input_extra_msa_feature'].shape}")
+    print(f"  Input Residue Index Feature Shape: {batch_data['input_residue_index_feature'].shape}")
+    print(f"  Ground Truth Global Positions Shape: {batch_data['ground_truth_global_positions'].shape}")
+    print(f"  Ground Truth Local Positions Shape: {batch_data['ground_truth_local_positions'].shape}")
+    print(f"  Ground Truth Frames Shape: {batch_data['ground_truth_frames'].shape}")
+    print(f"  Ground Truth Angles Shape: {batch_data['ground_truth_angles'].shape}")
+    break # Just test the first one
+
 exit()
 ############################
 # Cluster, and Split Data
