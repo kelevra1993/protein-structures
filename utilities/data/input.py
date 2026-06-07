@@ -49,11 +49,14 @@ class ModelInput:
 
         # MSA Data (Mandatory)
         self.msa_path = msa_path
-        self.unprocessed_sequences: List[str] = [""]
-        self.global_msa_sequence_tensor = None
-        self.global_msa_deletion_count_tensor = None
 
         self.unprocessed_sequences = load_a3m_file(self.msa_path)
+
+        # The target sequence is always the first one
+        self.global_target_sequence = self.unprocessed_sequences[0]
+
+        # We will put the global_amino_acid_sequence_labels here
+
         self.global_msa_sequence_tensor, self.global_msa_deletion_count_tensor = compute_unique_sequences(
             unprocessed_sequences=self.unprocessed_sequences,
             device=self.device, dtype=self.dtype)
@@ -93,10 +96,8 @@ class ModelInput:
                 percentage frequencies (0.0 to 100.0), rounded to two decimal places.
         """
 
-        target_sequence = self.unprocessed_sequences[0]
-
-        distribution_counter = Counter(target_sequence)
-        distribution = {x_to_xxx[x]: round(100 * count / len(target_sequence), 2) for x, count in
+        distribution_counter = Counter(self.global_target_sequence)
+        distribution = {x_to_xxx[x]: round(100 * count / len(self.global_target_sequence), 2) for x, count in
                         distribution_counter.items()}
 
         return distribution
@@ -161,9 +162,7 @@ class ModelInput:
         if self.unprocessed_sequences is None:
             raise ValueError("MSA data has not been loaded. Initialize ModelInput with an msa_path.")
 
-        # The target sequence is always the first one
-        target_sequence = self.unprocessed_sequences[0]
-        cropped_target_sequence = target_sequence[start_index:end_index]
+        cropped_target_sequence = self.global_target_sequence[start_index:end_index]
 
         # Slice tensors along the residue dimension (dim=1)
         cropped_sequence_tensor = self.global_msa_sequence_tensor[:, start_index:end_index, :]
