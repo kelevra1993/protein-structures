@@ -1,3 +1,5 @@
+import os.path
+
 import torch
 import numpy as np
 from utilities.tensor_utilities import get_device
@@ -24,7 +26,10 @@ from pathlib import Path
 
 ############################
 # Cluster, and Split Data
-input_fasta = "sample_open_fold_mmseqs_input.fasta"
+source_folder ="data_examples"
+file_stem = "sample"
+
+input_fasta = f"{source_folder}/{file_stem}.fasta"
 output_prefix = "clusters/openfold_clusters"
 
 # Run MMseqs2 clustering
@@ -36,7 +41,9 @@ if tsv_path.exists():
     cluster_mapping = load_cluster_mapping(tsv_path=str(tsv_path))
 
     # 4. Split data into train and validation sets
-    train_ids, val_ids = split_data_by_clusters(cluster_mapping=cluster_mapping, train_ratio=0.8)
+    train_ids, val_ids = split_data_by_clusters(cluster_mapping=cluster_mapping,
+                                                output_folder="dataset_splits",
+                                                train_ratio=0.8)
 
     print(f"Sample Train IDs: {train_ids[:5]}")
     print(f"Sample Val IDs: {val_ids[:5]}")
