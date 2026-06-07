@@ -7,6 +7,9 @@ from utilities.data.msa import load_a3m_file, compute_unique_sequences
 from feature_extraction.extractor import FeatureExtractor
 from utilities.tensor_utilities import get_device
 from utilities.constants import x_to_xxx, all_amino_acid_dictionary
+from utilities.geometry_utilities import (create_alternative_truth_positions, 
+                                          create_alternative_truth_angles, 
+                                          create_alternative_truth_transformation_matrix)
 
 
 class ModelInput:
@@ -262,12 +265,35 @@ class ModelInput:
          ground_truth_angles) = self.get_cropped_ground_truth_data(start_index=start_index,
                                                                    end_index=end_index)
 
+        # Compute alternative ground truths by adding a temporary batch dimension
+        batched_labels = sequence_labels.unsqueeze(0)
+        
+        alternative_ground_truth_global_positions = create_alternative_truth_positions(
+            ground_truth_positions=ground_truth_global_positions.unsqueeze(0),
+            sequence_amino_acid_labels=batched_labels).squeeze(0)
+        
+        alternative_ground_truth_local_positions = create_alternative_truth_positions(
+            ground_truth_positions=ground_truth_local_positions.unsqueeze(0),
+            sequence_amino_acid_labels=batched_labels).squeeze(0)
+        
+        alternative_ground_truth_frames = create_alternative_truth_transformation_matrix(
+            transformation_matrix=ground_truth_frames.unsqueeze(0),
+            sequence_amino_acid_labels=batched_labels).squeeze(0)
+        
+        alternative_ground_truth_angles = create_alternative_truth_angles(
+            ground_truth_angles=ground_truth_angles.unsqueeze(0),
+            sequence_amino_acid_labels=batched_labels).squeeze(0)
+
         # For training we recycle data by shuffling the msa data
         cycle_data = {"input_msa_feature": [], "input_extra_msa_feature": [],
                       "input_sequence_feature": [], "input_residue_index_feature": [],
                       "sequence_labels": [],
                       "ground_truth_global_positions": [], "ground_truth_local_positions": [],
-                      "ground_truth_frames": [], "ground_truth_angles": []}
+                      "ground_truth_frames": [], "ground_truth_angles": [],
+                      "alternative_ground_truth_global_positions": [],
+                      "alternative_ground_truth_local_positions": [],
+                      "alternative_ground_truth_frames": [],
+                      "alternative_ground_truth_angles": []}
 
         # Generate features for each cycle (number_samples)
         # We wrap this in no_grad to prevent accidental gradient tracking during data prep
@@ -285,8 +311,7 @@ class ModelInput:
                     mask_probability=self.mask_probability,
                     device=msa_sequence_tensor.device,
                     dtype=msa_sequence_tensor.dtype,
-                    seed=current_seed
-                )
+                    seed=current_seed)
 
                 # Offset residue indices to be absolute (protein-relative)
                 absolute_residue_indices = extractor.input_residue_index_feature + start_index
@@ -302,6 +327,11 @@ class ModelInput:
                 cycle_data["ground_truth_local_positions"].append(ground_truth_local_positions)
                 cycle_data["ground_truth_frames"].append(ground_truth_frames)
                 cycle_data["ground_truth_angles"].append(ground_truth_angles)
+                
+                cycle_data["alternative_ground_truth_global_positions"].append(alternative_ground_truth_global_positions)
+                cycle_data["alternative_ground_truth_local_positions"].append(alternative_ground_truth_local_positions)
+                cycle_data["alternative_ground_truth_frames"].append(alternative_ground_truth_frames)
+                cycle_data["alternative_ground_truth_angles"].append(alternative_ground_truth_angles)
 
         # Stack along the last dimension (cycle dimension)
         batch_input_dictionary = {key: torch.stack(values, dim=-1) for key, values in cycle_data.items()}

@@ -13,12 +13,12 @@ from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_lo
     compute_local_distance_difference_test, compute_plddt_loss
 from utilities.constants import alternative_angle_mask, alternative_position_mask, index_to_xxx, \
     ambiguous_position_mask, atom_types, rigid_group_atom_positions, rigid_group_atom_position_map, \
-    chi_angles_frame_centers, chi_angles_mask
+    chi_angles_frame_centers, chi_angles_mask, x_to_xxx
 from utilities.geometry_utilities import create_alternative_truth_transformation_matrix, create_4x4_transform_matrix, \
     invert_4x4_transform_matrix, apply_transformation_on_vector, compute_dihedral_angle, \
     make_transformation_matrix_around_ex, create_3x3_rotation_matrix, \
     turn_quaternion_to_3x3_matrix, make_transformation_matrix_around_ex
-from utilities.geometry_utilities import create_alternative_truth_positions
+from utilities.geometry_utilities import create_alternative_truth_positions, create_alternative_truth_angles
 from utilities.constants import xxx_to_index
 from utilities.data.structure import Structure
 from utilities.constants import atom_to_index, atom_frame_indices, chi_dihedral_dictionary
@@ -57,6 +57,7 @@ for npz_file in npz_files:
 
     print(f"File: {npz_file.name}")
     print(f"  Input Sequence Feature Shape: {batch_data['input_sequence_feature'].shape}")
+    print(f"  Sequence Labels Shape: {batch_data['sequence_labels'].shape}")
     print(f"  Input MSA Feature Shape: {batch_data['input_msa_feature'].shape}")
     print(f"  Input Extra MSA Feature Shape: {batch_data['input_extra_msa_feature'].shape}")
     print(f"  Input Residue Index Feature Shape: {batch_data['input_residue_index_feature'].shape}")
@@ -67,28 +68,32 @@ for npz_file in npz_files:
 
     # We slice out the first recycle step (index 0 on the last dimension) for testing
     ground_truth_global_positions = batch_data['ground_truth_global_positions'][..., 0]
-    sequence_labels = batch_data['input_sequence_feature'][..., 0].argmax(dim=-1)  # Convert from one-hot to index
+    ground_truth_angles = batch_data['ground_truth_angles'][..., 0]
+    sequence_labels = batch_data['sequence_labels'][..., 0]
 
-    alternative_ground_truth_global_positions = create_alternative_truth_positions(
-        ground_truth_positions=ground_truth_global_positions,
-        sequence_amino_acid_labels=sequence_labels
-    )
+    alternative_ground_truth_global_positions = batch_data['alternative_ground_truth_global_positions'][..., 0]
+    alternative_ground_truth_angles = batch_data['alternative_ground_truth_angles'][..., 0]
 
-    print(f"  Alternative Ground Truth Global Positions Shape: {alternative_ground_truth_global_positions.shape}")
+    print(f"  Alternative Ground Truth Global Positions Shape: {batch_data['alternative_ground_truth_global_positions'].shape}")
+    print(f"  Alternative Ground Truth Local Positions Shape: {batch_data['alternative_ground_truth_local_positions'].shape}")
+    print(f"  Alternative Ground Truth Frames Shape: {batch_data['alternative_ground_truth_frames'].shape}")
+    print(f"  Alternative Ground Truth Angles Shape: {batch_data['alternative_ground_truth_angles'].shape}")
 
     # Find a symmetric residue in the sequence to verify swap
     sequence_one_dimensional = sequence_labels[0, :]
 
-    # Map amino acid names to their symmetric atom indices (atom 1, atom 2)
+    # Map amino acid names to their symmetric atom indices (atom 1, atom 2) and the specific chi angle index
+    # Angle indices: 0=omega, 1=phi, 2=psi, 3=chi1, 4=chi2, 5=chi3, 6=chi4
+    # ASP: chi2 (4), GLU: chi3 (5), PHE: chi2 (4), TYR: chi2 (4)
     symmetric_atoms = {
-        "ASP": (atom_to_index["OD1"], atom_to_index["OD2"]),
-        "GLU": (atom_to_index["OE1"], atom_to_index["OE2"]),
-        "PHE": (atom_to_index["CD1"], atom_to_index["CD2"]),
-        "TYR": (atom_to_index["CD1"], atom_to_index["CD2"])
+        "ASP": (atom_to_index["OD1"], atom_to_index["OD2"], 4),
+        "GLU": (atom_to_index["OE1"], atom_to_index["OE2"], 5),
+        "PHE": (atom_to_index["CD1"], atom_to_index["CD2"], 4),
+        "TYR": (atom_to_index["CD1"], atom_to_index["CD2"], 4)
     }
 
     found_valid = False
-    for aa_name, (idx1, idx2) in symmetric_atoms.items():
+    for aa_name, (idx1, idx2, chi_idx) in symmetric_atoms.items():
         if found_valid: break
 
         aa_index = xxx_to_index.get(aa_name, -1)
@@ -97,21 +102,29 @@ for npz_file in npz_files:
         for position_index in positions:
             position_index = position_index.item()
             ground_truth_atom_1 = ground_truth_global_positions[0, position_index, idx1, :]
-
+            
             # Check if it's resolved (not all zeros)
             if torch.sum(torch.abs(ground_truth_atom_1)) > 0:
-                print(f"\n  Found resolved {aa_name} at sequence index {position_index}. Verifying swap...")
+                print(f"\n  Found resolved {aa_name} at sequence index {position_index}. Verifying alternatives...")
+                
                 ground_truth_atom_2 = ground_truth_global_positions[0, position_index, idx2, :]
-
                 alternative_atom_1 = alternative_ground_truth_global_positions[0, position_index, idx1, :]
                 alternative_atom_2 = alternative_ground_truth_global_positions[0, position_index, idx2, :]
-
-                print(f"    Ground Truth Atom 1: {ground_truth_atom_1.round(decimals=3).tolist()}")
-                print(
-                    f"    Alternative  Atom 1: {alternative_atom_1.round(decimals=3).tolist()} (Should match Ground Truth Atom 2)")
-                print(f"    Ground Truth Atom 2: {ground_truth_atom_2.round(decimals=3).tolist()}")
-                print(
-                    f"    Alternative  Atom 2: {alternative_atom_2.round(decimals=3).tolist()} (Should match Ground Truth Atom 1)")
+                
+                print(f"    [Positions]")
+                print(f"    Ground Truth Atom 1: {ground_truth_atom_1.numpy()}")
+                print(f"    Alternative  Atom 1: {alternative_atom_1.numpy()} (Should match Ground Truth Atom 2)")
+                print(f"    Ground Truth Atom 2: {ground_truth_atom_2.numpy()}")
+                print(f"    Alternative  Atom 2: {alternative_atom_2.numpy()} (Should match Ground Truth Atom 1)")
+                
+                # Check Angles
+                ground_truth_angle = ground_truth_angles[0, position_index, chi_idx, :]
+                alternative_angle = alternative_ground_truth_angles[0, position_index, chi_idx, :]
+                
+                print(f"\n    [Angles (chi{chi_idx - 2})]") # chi_idx 4 corresponds to chi2, etc.
+                print(f"    Ground Truth Angle: {ground_truth_angle.numpy()}")
+                print(f"    Alternative  Angle: {alternative_angle.numpy()} (Should be negative of Ground Truth)")
+                
                 found_valid = True
                 break
 
