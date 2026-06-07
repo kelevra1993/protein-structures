@@ -18,7 +18,8 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
     invert_4x4_transform_matrix, apply_transformation_on_vector, compute_dihedral_angle, \
     make_transformation_matrix_around_ex, create_3x3_rotation_matrix, \
     turn_quaternion_to_3x3_matrix, make_transformation_matrix_around_ex
-
+from utilities.geometry_utilities import create_alternative_truth_positions
+from utilities.constants import xxx_to_index
 from utilities.data.structure import Structure
 from utilities.constants import atom_to_index, atom_frame_indices, chi_dihedral_dictionary
 from utilities.analysis_utilities import prepare_mmseqs_input, run_mmseqs_clustering, load_cluster_mapping, \
@@ -63,6 +64,60 @@ for npz_file in npz_files:
     print(f"  Ground Truth Local Positions Shape: {batch_data['ground_truth_local_positions'].shape}")
     print(f"  Ground Truth Frames Shape: {batch_data['ground_truth_frames'].shape}")
     print(f"  Ground Truth Angles Shape: {batch_data['ground_truth_angles'].shape}")
+
+    # We slice out the first recycle step (index 0 on the last dimension) for testing
+    ground_truth_global_positions = batch_data['ground_truth_global_positions'][..., 0]
+    sequence_labels = batch_data['input_sequence_feature'][..., 0].argmax(dim=-1)  # Convert from one-hot to index
+
+    alternative_ground_truth_global_positions = create_alternative_truth_positions(
+        ground_truth_positions=ground_truth_global_positions,
+        sequence_amino_acid_labels=sequence_labels
+    )
+
+    print(f"  Alternative Ground Truth Global Positions Shape: {alternative_ground_truth_global_positions.shape}")
+
+    # Find a symmetric residue in the sequence to verify swap
+    sequence_one_dimensional = sequence_labels[0, :]
+
+    # Map amino acid names to their symmetric atom indices (atom 1, atom 2)
+    symmetric_atoms = {
+        "ASP": (atom_to_index["OD1"], atom_to_index["OD2"]),
+        "GLU": (atom_to_index["OE1"], atom_to_index["OE2"]),
+        "PHE": (atom_to_index["CD1"], atom_to_index["CD2"]),
+        "TYR": (atom_to_index["CD1"], atom_to_index["CD2"])
+    }
+
+    found_valid = False
+    for aa_name, (idx1, idx2) in symmetric_atoms.items():
+        if found_valid: break
+
+        aa_index = xxx_to_index.get(aa_name, -1)
+        positions = (sequence_one_dimensional == aa_index).nonzero(as_tuple=True)[0]
+
+        for position_index in positions:
+            position_index = position_index.item()
+            ground_truth_atom_1 = ground_truth_global_positions[0, position_index, idx1, :]
+
+            # Check if it's resolved (not all zeros)
+            if torch.sum(torch.abs(ground_truth_atom_1)) > 0:
+                print(f"\n  Found resolved {aa_name} at sequence index {position_index}. Verifying swap...")
+                ground_truth_atom_2 = ground_truth_global_positions[0, position_index, idx2, :]
+
+                alternative_atom_1 = alternative_ground_truth_global_positions[0, position_index, idx1, :]
+                alternative_atom_2 = alternative_ground_truth_global_positions[0, position_index, idx2, :]
+
+                print(f"    Ground Truth Atom 1: {ground_truth_atom_1.round(decimals=3).tolist()}")
+                print(
+                    f"    Alternative  Atom 1: {alternative_atom_1.round(decimals=3).tolist()} (Should match Ground Truth Atom 2)")
+                print(f"    Ground Truth Atom 2: {ground_truth_atom_2.round(decimals=3).tolist()}")
+                print(
+                    f"    Alternative  Atom 2: {alternative_atom_2.round(decimals=3).tolist()} (Should match Ground Truth Atom 1)")
+                found_valid = True
+                break
+
+    if not found_valid:
+        print("\n  Could not find any resolved symmetric residues (ASP, GLU, PHE, TYR) in this sequence crop.")
+
     break  # Just test the first one
 
 exit()
