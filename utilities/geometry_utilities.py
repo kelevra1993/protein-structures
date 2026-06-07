@@ -8,7 +8,8 @@ File containing geometry utilities
 import torch
 from torch import nn
 from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame_centers, chi_angles_mask,
-                                 atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask)
+                                 atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask,
+                                 alternative_position_mask)
 from utilities.tensor_utilities import unsqueeze_tensor
 
 
@@ -286,7 +287,8 @@ def invert_4x4_transform_matrix(transformation_matrix: torch.Tensor) -> torch.Te
     return inverted_transformation_matrix
 
 
-def compute_dihedral_angle(point_1: torch.Tensor, point_2: torch.Tensor, point_3: torch.Tensor, point_4: torch.Tensor) -> torch.Tensor:
+def compute_dihedral_angle(point_1: torch.Tensor, point_2: torch.Tensor, point_3: torch.Tensor,
+                           point_4: torch.Tensor) -> torch.Tensor:
     """
     Computes the dihedral (torsion) angle defined by four points in 3D space.
 
@@ -707,3 +709,46 @@ def create_alternative_truth_transformation_matrix(transformation_matrix: torch.
         )
 
     return alternative_transformation_matrix
+
+
+def create_alternative_truth_positions(ground_truth_positions: torch.Tensor,
+                                       sequence_amino_acid_labels: torch.Tensor) -> torch.Tensor:
+    """
+    Creates alternative ground truth atom positions by swapping the coordinates 
+    of symmetric atoms.
+
+    Certain amino acids have symmetric side-chains where a 180-degree rotation 
+    results in a chemically identical structure. To prevent the model from being 
+    penalized for predicting the alternative valid configuration, we generate 
+    an alternative truth where these specific symmetric atoms are swapped:
+    
+    - Aspartate (ASP): Swaps OD1 <-> OD2
+    - Glutamate (GLU): Swaps OE1 <-> OE2
+    - Phenylalanine (PHE): Swaps CD1 <-> CD2 and CE1 <-> CE2
+    - Tyrosine (TYR): Swaps CD1 <-> CD2 and CE1 <-> CE2
+    
+    This function uses `alternative_position_mask` which maps non-symmetric 
+    atoms to themselves, and symmetric atoms to their mirrored counterpart.
+
+    Args:
+        ground_truth_positions (torch.Tensor): The original ground truth Cartesian coordinates.
+            Expected shape: `(..., number_residues, 37, 3)`.
+        sequence_amino_acid_labels (torch.Tensor): The amino acid types encoded as indices (0-19).
+            Expected shape: `(..., number_residues)`.
+
+    Returns:
+        torch.Tensor: The alternative global positions with symmetric atoms swapped.
+            Shape: `(..., number_residues, 37, 3)`.
+    """
+
+    # Shape becomes: (..., number_residues, 37)
+    alternative_indices = alternative_position_mask[sequence_amino_acid_labels].to(ground_truth_positions.device)
+
+    # Expand the indices to cover the spatial dimension (x, y, z)
+    # Shape becomes: (..., number_residues, 37, 3)
+    alternative_indices_expanded = alternative_indices.unsqueeze(dim=-1).repeat(1, 1, 1, 3)
+
+    # Gather to swap the coordinates in the atom dimension (dim=-2)
+    alternative_ground_truth_positions = torch.gather(input=ground_truth_positions,
+                                                      dim=-2, index=alternative_indices_expanded)
+    return alternative_ground_truth_positions
