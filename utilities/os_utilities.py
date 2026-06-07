@@ -11,10 +11,35 @@ from typing import Dict, Any
 
 
 def read_npz_file(path: str):
+    """
+    Reads an NPZ file from the specified path.
+
+    This utility function is used to load data stored in NumPy's NPZ format,
+    typically pre-processed Multiple Sequence Alignment (MSA) features or
+    predicted protein structures.
+
+    Args:
+        path (str): The file path to the .npz file.
+
+    Returns:
+        np.lib.npyio.NpzFile: A dictionary-like object containing the loaded data.
+    """
     return np.load(path, allow_pickle=True)
 
 
 def read_json(path: str):
+    """
+    Reads and parses a JSON file.
+
+    This function is used throughout the project to load records, manifests,
+    and other metadata stored in JSON format.
+
+    Args:
+        path (str): The file path to the .json file.
+
+    Returns:
+        Dict[str, Any] | List[Any]: The parsed JSON data.
+    """
     with open(path, "r") as file:
         json_data = json.loads(file.read())
 
@@ -49,6 +74,25 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
 
 
 def to_modelcif(atom_positions, atom_mask, sequence):
+    """
+    Converts predicted atom positions to ModelCIF format.
+
+    ModelCIF is an extension of the PDBx/mmCIF format used for macromolecular
+    structural models. This function prepares the predicted structure for
+    export and visualization.
+
+    Args:
+        atom_positions (torch.Tensor): Tensor containing the 3D coordinates
+            for all atoms in the protein.
+            Shape: (number_residues, number_atom_types, 3)
+        atom_mask (torch.Tensor): Binary mask indicating which atoms are
+            present/valid.
+            Shape: (number_residues, number_atom_types)
+        sequence (str | List[str]): The amino acid sequence of the protein.
+
+    Returns:
+        str: A string containing the ModelCIF data in mmCIF format.
+    """
     atom_positions = atom_positions.to('cpu').numpy()
     atom_mask = atom_mask.to('cpu').numpy()
     n = atom_positions.shape[0]
