@@ -167,29 +167,26 @@ class Structure:
     @staticmethod
     def _get_residues(raw_residues: np.ndarray) -> list[Residue]:
         """
-        Translates all raw residue rows into Residue dataclasses with custom indexing.
+        Translates raw residue data from the NPZ file into a list of Residue dataclasses.
 
-        Standardizes residue names (e.g., MSE -> MET) and performs identity lookups
-        using the project's canonical amino acid dictionary.
+        This method performs identity lookups for canonical amino acids using the
+        project's global residue dictionary to assign standard indices.
+
+        Args:
+            raw_residues (np.ndarray): Structured NumPy array containing residue metadata.
+
+        Returns:
+            list[Residue]: A list of populated Residue objects.
         """
-        parsed_residues = []
-        for row in raw_residues:
-            name = str(row[0])
-            # TODO Try to see if we have this in our database (MSE)
-            # Mapping logic: MSE -> MET, everything else non-standard -> 20 (UNK)
-            parsed_name = "MET" if name == "MSE" else name
-            amino_acid_index = xxx_to_index.get(parsed_name, 20)
-
-            parsed_residues.append(Residue(name=name,
-                                           amino_acid_index=amino_acid_index,
-                                           residue_index=int(row[2]),
-                                           atom_start_index=int(row[3]),
-                                           atom_count=int(row[4]),
-                                           center_atom_index=int(row[5]),
-                                           pseudo_carbon_beta_atom_index=int(row[6]),
-                                           is_standard=bool(row[7]),
-                                           is_present=bool(row[8])))
-        return parsed_residues
+        return [Residue(name=str(row[0]),
+                        amino_acid_index=xxx_to_index.get(str(row[0])),
+                        residue_index=int(row[2]),
+                        atom_start_index=int(row[3]),
+                        atom_count=int(row[4]),
+                        center_atom_index=int(row[5]),
+                        pseudo_carbon_beta_atom_index=int(row[6]),
+                        is_standard=bool(row[7]),
+                        is_present=bool(row[8])) for row in raw_residues]
 
     @staticmethod
     def _get_chains(raw_chains: np.ndarray) -> list[Chain]:
