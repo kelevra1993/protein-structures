@@ -375,9 +375,9 @@ def approximate_next_nitrogen(carbon_alpha: torch.Tensor, carbon: torch.Tensor, 
     based on the idealized planar geometry of the peptide bond.
 
     Since the peptide bond is trigonal planar, CA_i, C_i, O_i, and N_{i+1} lie
-    in the same plane. This function defines a temporary local coordinate system
-    centered at C_i, calculates the position of N_{i+1} using standard bond
-    lengths and angles, and projects it back to the global coordinate system.
+    in the same plane. This function calculates the local position of N_{i+1} 
+    in the standard coordinate space of the input atoms without converting them 
+    to a temporary global plane.
 
     Idealized parameters used:
     - C-N bond length: ~1.329 Angstroms
@@ -389,32 +389,38 @@ def approximate_next_nitrogen(carbon_alpha: torch.Tensor, carbon: torch.Tensor, 
         oxygen (torch.Tensor): Coordinates of O_i.
 
     Returns:
-        torch.Tensor: Approximated coordinates of N_{i+1}.
+        torch.Tensor: Approximated local coordinates of N_{i+1}.
     """
     device = carbon.device
     dtype = carbon.dtype
 
-    # Define a temporary planar frame centered at C_i
-    ex_vector = carbon_alpha - carbon
-    ey_vector = oxygen - carbon
+    # Create a local coordinate system at C_i
+    # ex points towards CA_i
+    # ey points roughly towards O_i (in the CA-C-O plane)
+    ex = nn.functional.normalize(carbon_alpha - carbon, dim=-1)
 
-    planar_transformation = create_4x4_transform_matrix(ex=ex_vector, ey=ey_vector, translation_vector=carbon)
+    # ey is constructed to be orthogonal to ex, lying in the CA-C-O plane
+    # pointing in the direction of oxygen
+    vector_carbon_to_oxygen = oxygen - carbon
+    ey = vector_carbon_to_oxygen - ex * torch.sum(ex * vector_carbon_to_oxygen, dim=-1, keepdim=True)
+    ey = nn.functional.normalize(ey, dim=-1)
 
-    # Calculate local N_{i+1}
-    # Angle CA-C-N is ~116.2 degrees. In this frame, CA is on the +X axis, O is in +Y.
-    # N is on the opposite side of O, so the angle is negative.
+    # In this local plane, we want to place N_{i+1}.
+    # N_{i+1} sits at a distance of 1.329 from C.
+    # The angle CA-C-N is 116.2 degrees. Because O is on the +Y side and the geometry 
+    # is trigonal planar (~120 deg apart), N must be on the -Y side.
+    # Angle relative to ex (which points to CA) is -116.2 degrees.
     angle_offset = torch.deg2rad(torch.tensor(-116.2, device=device, dtype=dtype))
     bond_length = 1.329
 
-    nitrogen_next_local = torch.tensor([
-        bond_length * torch.cos(angle_offset),
-        bond_length * torch.sin(angle_offset),
-        0.0], device=device, dtype=dtype)
+    # Calculate the vector from C to N_{i+1}
+    vector_carbon_to_next_nitrogen = bond_length * ((torch.cos(angle_offset) * ex) + (torch.sin(angle_offset) * ey))
 
-    # Project back to global
-    nitrogen_next_global = apply_transformation_on_vector(transformation_matrix=planar_transformation,
-                                                          vector=nitrogen_next_local)
-    return nitrogen_next_global
+    # Absolute position of approximated N_{i+1}
+    nitrogen_next = carbon + vector_carbon_to_next_nitrogen
+
+    return nitrogen_next
+
 
 
 def compute_non_chi_transform_matrices() -> torch.Tensor:
