@@ -369,6 +369,54 @@ def make_transformation_matrix_around_ex(phi: torch.Tensor) -> torch.Tensor:
     return rotation_around_ex_transformation_matrix
 
 
+def approximate_next_nitrogen(carbon_alpha: torch.Tensor, carbon: torch.Tensor, oxygen: torch.Tensor) -> torch.Tensor:
+    """
+    Approximates the position of the nitrogen atom of the next residue (N_{i+1})
+    based on the idealized planar geometry of the peptide bond.
+
+    Since the peptide bond is trigonal planar, CA_i, C_i, O_i, and N_{i+1} lie
+    in the same plane. This function defines a temporary local coordinate system
+    centered at C_i, calculates the position of N_{i+1} using standard bond
+    lengths and angles, and projects it back to the global coordinate system.
+
+    Idealized parameters used:
+    - C-N bond length: ~1.329 Angstroms
+    - CA-C-N angle: ~116.2 degrees
+
+    Args:
+        carbon_alpha (torch.Tensor): Coordinates of CA_i.
+        carbon (torch.Tensor): Coordinates of C_i.
+        oxygen (torch.Tensor): Coordinates of O_i.
+
+    Returns:
+        torch.Tensor: Approximated coordinates of N_{i+1}.
+    """
+    device = carbon.device
+    dtype = carbon.dtype
+
+    # Define a temporary planar frame centered at C_i
+    ex_vector = carbon_alpha - carbon
+    ey_vector = oxygen - carbon
+
+    planar_transformation = create_4x4_transform_matrix(ex=ex_vector, ey=ey_vector, translation_vector=carbon)
+
+    # Calculate local N_{i+1}
+    # Angle CA-C-N is ~116.2 degrees. In this frame, CA is on the +X axis, O is in +Y.
+    # N is on the opposite side of O, so the angle is negative.
+    angle_offset = torch.deg2rad(torch.tensor(-116.2, device=device, dtype=dtype))
+    bond_length = 1.329
+
+    nitrogen_next_local = torch.tensor([
+        bond_length * torch.cos(angle_offset),
+        bond_length * torch.sin(angle_offset),
+        0.0], device=device, dtype=dtype)
+
+    # Project back to global
+    nitrogen_next_global = apply_transformation_on_vector(transformation_matrix=planar_transformation,
+                                                          vector=nitrogen_next_local)
+    return nitrogen_next_global
+
+
 def compute_non_chi_transform_matrices() -> torch.Tensor:
     """
     Calculates the non-chi local frame transformations for all 20 canonical amino acids.
@@ -378,15 +426,17 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
     angles are applied. 
 
     backbone_group: Identity
-    pre_omega_group: Identity
+    pre_omega_group:
+        ex: approximated N_{i+1} -> C
+        ey: CA -> C
+        t:  C
     phi_group:
         ex: CA -> N
-        ey: (1, 0, 0) or CA -> C
+        ey: CA -> C
         t:  N
-    # TODO to be changed for psi group should be CA -> N
     psi_group:
         ex: CA -> C
-        ey: N  -> CA
+        ey: CA -> N
         t:  C
 
     Returns:
@@ -400,8 +450,23 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
     for amino_acid, amino_acid_information in rigid_group_atom_position_map.items():
         backbone_transformation = torch.eye(4)
 
-        # Todo Not really used, we could just consider removing it later
-        pre_omega_transformation = torch.eye(4)
+        # Approximate N_{i+1} for the pre-omega frame
+        approximated_next_nitrogen = approximate_next_nitrogen(
+            carbon_alpha=amino_acid_information["CA"],
+            carbon=amino_acid_information["C"],
+            oxygen=amino_acid_information["O"]
+        )
+
+        pre_omega_ex = approximated_next_nitrogen - amino_acid_information["C"]
+        pre_omega_ey = amino_acid_information["CA"] - amino_acid_information["C"]
+
+        pre_omega_translation = amino_acid_information["C"]
+        
+        pre_omega_transformation = create_4x4_transform_matrix(
+            ex=pre_omega_ex,
+            ey=pre_omega_ey,
+            translation_vector=pre_omega_translation
+        )
 
         phi_group_ex = amino_acid_information["N"] - amino_acid_information["CA"]
         # or even phi_group_ey = torch.tensor([1, 0, 0])
@@ -414,7 +479,8 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
             translation_vector=phi_group_translation)
 
         psi_group_ex = amino_acid_information["C"] - amino_acid_information["CA"]
-        psi_group_ey = amino_acid_information["CA"] - amino_acid_information["N"]
+        psi_group_ey = amino_acid_information["N"] - amino_acid_information["CA"]
+
         psi_group_translation = amino_acid_information["C"]
         psi_group_transformation = create_4x4_transform_matrix(
             ex=psi_group_ex,

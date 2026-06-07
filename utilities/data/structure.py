@@ -408,7 +408,7 @@ class Structure:
         Computes the Omega frame (Frame 1) for the peptide bond between residue i and i+1.
         Details:
          - ex : vector C_i -> N_{i+1}
-         - ey : vector CA_i -> C_i
+         - ey : vector C_i -> CA_i
          - translation : C_i position (expressed in the backbone frame)
         Args:
             residue_index (int): Index of the current residue.
