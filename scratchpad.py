@@ -38,14 +38,21 @@ for npz_file in npz_files:
     # put the call for the input data here so that we can test it
     ##############
     from utilities.data.input import ModelInput
+
     record_file = str(npz_file).replace("structures", "records").replace(".npz", ".json")
     msa_file = str(npz_file).replace("structures", "raw_msa").replace(".npz", ".a3m")
 
     # Initialize ModelInput (this should automatically compute the ground truth tensors)
-    model_input = ModelInput(structure_path=str(npz_file), record_path=record_file, msa_path=msa_file)
-    
+    model_input = ModelInput(structure_path=str(npz_file), record_path=record_file, msa_path=msa_file,
+                             acceptance_slope_start=256,
+                             acceptance_slope_end=512,
+                             residue_crop_size=128,
+                             distribution_threshold=90,
+                             maximum_cluster_sequences=50,
+                             maximum_extra_msa_sequences=100)
+
     # Get batch data (with crop_size = 50 for testing slicing, and 2 recycle steps)
-    batch_data = model_input.get_data(number_samples=2, random_samples=True, crop_size=50, seed=42, batch_mode=True)
+    batch_data = model_input.get_data(number_samples=2, random_samples=False, seed=42, batch_mode=True)
 
     print(f"File: {npz_file.name}")
     print(f"  Input Sequence Feature Shape: {batch_data['input_sequence_feature'].shape}")
@@ -56,7 +63,7 @@ for npz_file in npz_files:
     print(f"  Ground Truth Local Positions Shape: {batch_data['ground_truth_local_positions'].shape}")
     print(f"  Ground Truth Frames Shape: {batch_data['ground_truth_frames'].shape}")
     print(f"  Ground Truth Angles Shape: {batch_data['ground_truth_angles'].shape}")
-    break # Just test the first one
+    break  # Just test the first one
 
 exit()
 ############################
