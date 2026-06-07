@@ -241,7 +241,92 @@ class Structure:
                                               "local_position": global_position.clone(),
                                               "current_frame_used": None,
                                               "atom_index": atom_index}
+
+        # Special Case: Some datasets (like OpenFold NPZs) systematically miss the OD1 atom for ASN.
+        # If it is missing but we have ND2, we can geometrically reconstruct it.
+        if residue_object.name == "ASN":
+            self._repair_asn_residue(atom_dictionary, device, dtype)
+
         return atom_dictionary
+
+    @staticmethod
+    def _repair_asn_residue(atom_dictionary: Dict[str, Dict],
+                            device: torch.device, dtype: torch.dtype) -> None:
+        """
+        Reconstructs the missing OD1 atom for an ASN residue using the verified Planar Projection method.
+
+        Asparagine amide groups are trigonal planar. We can use the coordinates of
+        CB, CG, and ND2 to find the plane and the correct position for OD1.
+
+        Our Assumptions :
+        * The distance from the center (CG) to OD1 is fixed (the bond length).
+        * The angle between the CG-ND2 bond and the CG-OD1 bond is fixed (~122.6 degrees).
+
+        Args:
+            atom_dictionary (Dict[str, Dict]): The residue's atom dictionary.
+            device (torch.device): Computation device.
+            dtype (torch.dtype): Computation data type.
+        """
+        # If OD1 is already present or required atoms are missing, do nothing
+        if "OD1" in atom_dictionary:
+            return
+
+        expected_atoms = ["CB", "CG", "ND2"]
+        if not all(name in atom_dictionary for name in expected_atoms):
+            print(f"Impossible To Repair Asparagine : ")
+            print(f" - Found {list(set(list(atom_dictionary.keys())).intersection(set(expected_atoms)))}")
+            print(f" - Expecting {expected_atoms}")
+            exit()
+
+        carbon_beta_global_position = atom_dictionary["CB"]["global_position"]
+        carbon_gamma_global_position = atom_dictionary["CG"]["global_position"]
+        nitrogen_amide_global_position = atom_dictionary["ND2"]["global_position"]
+
+        # 1. Define a temporary planar frame centered at CG
+        # ex: vector from CB to CG
+        # ey: vector from CG to ND2 (defines the amide plane)
+        ex_vector = carbon_gamma_global_position - carbon_beta_global_position
+        ey_vector = nitrogen_amide_global_position - carbon_gamma_global_position
+
+        # Create the transform. This puts ND2 in the XY plane with y > 0.
+        planar_transformation = create_4x4_transform_matrix(ex=ex_vector, ey=ey_vector,
+                                                            translation_vector=carbon_gamma_global_position)
+
+        inverse_planar_transformation = invert_4x4_transform_matrix(planar_transformation)
+
+        # 2. Determine the orientation of ND2 in this local plane
+        nitrogen_amide_local_position = apply_transformation_on_vector(
+            transformation_matrix=inverse_planar_transformation,
+            vector=nitrogen_amide_global_position)
+
+        angle_nitrogen_amide = torch.atan2(input=nitrogen_amide_local_position[1],
+                                           other=nitrogen_amide_local_position[0])
+
+        # 3. Calculate OD1 position using ideal trigonal planar geometry
+        # Verified offset: Angle_OD1 = Angle_ND2 - 122.6 degrees
+        angle_offset = torch.deg2rad(torch.tensor(122.6, device=device, dtype=dtype))
+        angle_oxygen_amide = angle_nitrogen_amide - angle_offset
+
+        # Ideal CG-OD1 bond length is ~1.2338 Angstroms
+        # In reality we couldn't have directly used
+        # "OD1" ideal position (0.633, 1.059, 0.000) since there could be a sign problem
+        oxygen_amide_local_position = torch.tensor(data=[
+            1.2338 * torch.cos(angle_oxygen_amide),  # x coordinate
+            1.2338 * torch.sin(angle_oxygen_amide),  # y coordinate
+            0.0],  # z coordinate
+            device=device, dtype=dtype)
+
+        # 4. Project the reconstructed OD1 back to the global coordinate system
+        oxygen_amide_global_position = apply_transformation_on_vector(transformation_matrix=planar_transformation,
+                                                                      vector=oxygen_amide_local_position)
+
+        # 5. Inject the reconstructed atom into the dictionary
+        atom_dictionary["OD1"] = {
+            "global_position": oxygen_amide_global_position,
+            "frame_index": 5,  # ASN OD1 is in Chi2 (Frame 5)
+            "local_position": oxygen_amide_global_position.clone(),
+            "current_frame_used": None,
+            "atom_index": atom_to_index["OD1"]}
 
     @staticmethod
     def _compute_backbone_frame(atom_dictionary: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -543,19 +628,18 @@ class Structure:
                 point_4 = atom_dictionary[sidechain_1_name]["global_position"]
             else:
                 # Chi2, Chi3, Chi4 (Frames 5, 6, 7)
-                previous_sidechain_name = chi_angles_frame_centers[residue_name][chi_index - 1]
-                current_sidechain_name = chi_angles_frame_centers[residue_name][chi_index]
+                previous_sidechain_name = chi_angles_frame_centers[canonical_residue_name][chi_index - 1]
+                current_sidechain_name = chi_angles_frame_centers[canonical_residue_name][chi_index]
+                dihedral_atom_4_name = chi_dihedral_dictionary[canonical_residue_name][f"atom_{chi_index + 1}"]
 
-                # Needs to be defined for the dihedral angle computation
-                dihedral_atom_4_name = chi_dihedral_dictionary[residue_name][f"atom_{chi_index + 1}"]
-
-                # Atom 3 or 4 from the dictionary defines point 4 of the dihedral
+                # Determine point_1 based on chi level
                 if chi_index == 1:
-                    # Point 1 for Chi2 is CA
-                    point_1 = atom_dictionary["CA"]["global_position"]
+                    point_1_name = "CA"
                 else:
-                    point_1 = atom_dictionary[chi_angles_frame_centers[residue_name][chi_index - 1]]["global_position"]
+                    # For Chi3 (idx 2) -> SC0; For Chi4 (idx 3) -> SC1
+                    point_1_name = chi_angles_frame_centers[canonical_residue_name][chi_index - 2]
 
+                point_1 = atom_dictionary[point_1_name]["global_position"]
                 current_sidechain_local_position = atom_dictionary[current_sidechain_name]["local_position"]
 
                 # ex is vector from parent origin to current origin. parent origin is (0,0,0)
