@@ -6,6 +6,49 @@ from typing import Dict, List, Any, Set
 
 from utilities.data.structure import Structure
 from utilities.constants import xxx_to_index, atom_types
+from utilities.data.msa import load_a3m_file
+
+
+# todo script will have to be renamed
+
+
+def prepare_mmseqs_input(folder_path: str, output_fasta: str):
+    """
+    Iterates through all .a3m files in the specified folder, extracts the first
+    sequence (query sequence) from each, and saves them into a single FASTA file.
+    This FASTA file can be used as input for MMseqs2 clustering.
+
+    :param folder_path: Path to the folder containing .a3m files.
+    :param output_fasta: Path to the output FASTA file.
+    """
+    directory = Path(folder_path)
+    a3m_files = list(directory.glob("*.a3m"))
+
+    if not a3m_files:
+        print(f"No .a3m files found in {folder_path}")
+        return
+
+    print(f"Found {len(a3m_files)} .a3m files. Extracting sequences...")
+
+    with open(output_fasta, "w") as f_out:
+        for a3m_file in tqdm(a3m_files, desc="Processing A3M files"):
+            try:
+                sequences = load_a3m_file(str(a3m_file))
+                if sequences:
+                    # The first sequence is the query sequence
+                    query_sequence = sequences[0]
+
+                    # Remove gaps and insertions (lowercase) to get the clean query sequence
+                    query_sequence = query_sequence.replace("-", "").replace(".", "")
+                    query_sequence = "".join([c for c in query_sequence if not c.islower()])
+
+                    f_out.write(f">{a3m_file.stem}\n")
+                    f_out.write(f"{query_sequence}\n")
+            except Exception as e:
+                print(f"Error processing {a3m_file.name}: {e}")
+
+    print(f"MMseqs2 input FASTA created at: {output_fasta}")
+
 
 def analyze_folder(folder_path: str, output_file: str = "structure_data_summary.json") -> Dict[str, Any]:
     """
@@ -24,29 +67,30 @@ def analyze_folder(folder_path: str, output_file: str = "structure_data_summary.
         file_name = file_path.stem
         try:
             structure = Structure(npz_path=str(file_path))
-            
+
             number_residues = structure.number_residues
             number_chains = structure.number_chains
 
             total_atoms = len(structure.atoms)
             missing_atom_count = 0
             unique_present_atoms = set()
-            
+
             for atom in structure.atoms:
                 if atom.is_present:
                     unique_present_atoms.add(atom.name)
                 else:
                     missing_atom_count += 1
-                    
+
             missing_atom_percentage = round(100 * missing_atom_count / total_atoms, 2) if total_atoms > 0 else 0
-            
+
             has_missing_atom = missing_atom_count > 0
             has_chirality = any(atom.chirality != 0 for atom in structure.atoms)
             has_charge = any(atom.charge != 0 for atom in structure.atoms)
-            
+
             # Residue-level checks
             missing_residue_count = sum(1 for res in structure.residues if not res.is_present)
-            missing_residue_percentage = round(100 * missing_residue_count / number_residues, 2) if number_residues > 0 else 0
+            missing_residue_percentage = round(100 * missing_residue_count / number_residues,
+                                               2) if number_residues > 0 else 0
 
             non_standard_residues = sorted(list(set(res.name for res in structure.residues if not res.is_standard)))
             has_non_standard_residue = len(non_standard_residues) > 0
@@ -59,14 +103,14 @@ def analyze_folder(folder_path: str, output_file: str = "structure_data_summary.
                 end = start + chain.residue_count
                 chain_residues = structure.residues[start:end]
                 for i in range(1, len(chain_residues)):
-                    if chain_residues[i].residue_index - chain_residues[i-1].residue_index > 1:
+                    if chain_residues[i].residue_index - chain_residues[i - 1].residue_index > 1:
                         structural_gaps += 1
 
             # Residue distribution
             if number_residues > 0:
                 residue_counts = Counter(res.name for res in structure.residues)
                 residue_distribution = {
-                    res_name: round(100 * count / number_residues, 2) 
+                    res_name: round(100 * count / number_residues, 2)
                     for res_name, count in residue_counts.items()
                 }
             else:
@@ -82,7 +126,7 @@ def analyze_folder(folder_path: str, output_file: str = "structure_data_summary.
                 "has_chirality": has_chirality,
                 "has_charge": has_charge,
                 "has_non_standard_residue": has_non_standard_residue,
-                "non_standard_residue_names": non_standard_residues, # Added suggestion
+                "non_standard_residue_names": non_standard_residues,  # Added suggestion
                 "has_non_present_residue": has_non_present_residue,
                 "missing_residue_percentage": missing_residue_percentage,
                 "structural_gaps": structural_gaps,
@@ -97,6 +141,7 @@ def analyze_folder(folder_path: str, output_file: str = "structure_data_summary.
 
     return summary_dictionary
 
+
 def analyze_summary_json(json_path: str, threshold: float = 20.0):
     """
     Reads the summary JSON and computes all requested statistics without reading NPZ files.
@@ -108,22 +153,22 @@ def analyze_summary_json(json_path: str, threshold: float = 20.0):
     all_observed_atoms = set()
     high_dist_count = 0
     total_structures = len(data)
-    
+
     all_non_standard_found = set()
 
     for struct_id, info in data.items():
         # Collect residues from distribution keys
         dist = info.get("residue_distribution", {})
         all_observed_residues.update(dist.keys())
-        
+
         # Check high distribution threshold
         if any(pct > threshold for pct in dist.values()):
             high_dist_count += 1
-            
+
         # Collect atoms
         atoms = info.get("unique_present_atoms", [])
         all_observed_atoms.update(atoms)
-        
+
         # Track non-standard residue names if available
         non_std = info.get("non_standard_residue_names", [])
         all_non_standard_found.update(non_std)
@@ -131,30 +176,30 @@ def analyze_summary_json(json_path: str, threshold: float = 20.0):
     # Vocabulary checks
     supported_residues = set(xxx_to_index.keys())
     supported_atoms = set(atom_types)
-    
+
     missing_residues = sorted(list(all_observed_residues - supported_residues))
     missing_atoms = sorted(list(all_observed_atoms - supported_atoms))
-    
+
     high_dist_pct = round(100 * high_dist_count / total_structures, 2) if total_structures > 0 else 0
 
     # Print Report
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"JSON SUMMARY ANALYSIS: {json_path}")
-    print("="*50)
+    print("=" * 50)
     print(f"Total Structures in JSON: {total_structures}")
-    
+
     print("\n--- Vocabulary Coverage (Missing from constants.py) ---")
     print(f"Missing Residues: {missing_residues if missing_residues else 'None'}")
     print(f"Missing Atoms:    {missing_atoms if missing_atoms else 'None'}")
-    
+
     print("\n--- Distribution Statistics ---")
     print(f"Structures with any residue >{threshold}%: {high_dist_pct}%")
-    
+
     if all_non_standard_found:
         print("\n--- Non-Standard Residues Identified ---")
         print(f"Names: {sorted(list(all_non_standard_found))}")
-    
-    print("="*50 + "\n")
+
+    print("=" * 50 + "\n")
 
     return {
         "missing_residues": missing_residues,
