@@ -147,8 +147,8 @@ def load_cluster_mapping(tsv_path: str) -> Dict[str, List[str]]:
     return cluster_mapping
 
 
-def split_data_by_clusters(cluster_mapping: Dict[str, List[str]], train_ratio: float = 0.8,
-                           seed: int = 42) -> Tuple[List[str], List[str]]:
+def split_data_by_clusters(cluster_mapping: Dict[str, List[str]], output_folder: str,
+                           train_ratio: float = 0.8, seed: int = 42) -> Tuple[List[str], List[str]]:
     """
     Splits sequences into training and validation sets while keeping clusters intact.
 
@@ -156,6 +156,7 @@ def split_data_by_clusters(cluster_mapping: Dict[str, List[str]], train_ratio: f
     do not leak across the train/validation split.
 
     :param cluster_mapping: Dictionary mapping cluster representatives to member lists.
+    :param output_folder: Folder where Train.json and Validation.json will be saved.
     :param train_ratio: Proportion of clusters to assign to the training set.
     :param seed: Random seed for reproducibility.
     :return: A tuple containing (train_sequence_ids, validation_sequence_ids).
@@ -167,6 +168,19 @@ def split_data_by_clusters(cluster_mapping: Dict[str, List[str]], train_ratio: f
     split_index = int(len(representatives) * train_ratio)
     train_representatives = representatives[:split_index]
     validation_representatives = representatives[split_index:]
+
+    train_clusters = {rep: cluster_mapping[rep] for rep in train_representatives}
+    validation_clusters = {rep: cluster_mapping[rep] for rep in validation_representatives}
+
+    # Save to JSON files
+    output_path = Path(output_folder)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path / "Train.json", "w") as f:
+        json.dump(train_clusters, f, indent=4)
+
+    with open(output_path / "Validation.json", "w") as f:
+        json.dump(validation_clusters, f, indent=4)
 
     train_indices = []
     for representative in train_representatives:
