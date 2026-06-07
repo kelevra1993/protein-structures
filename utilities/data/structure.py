@@ -116,13 +116,16 @@ class Structure:
         method (str, optional): Experimental method used to determine the structure, loaded from JSON record.
     """
 
-    def __init__(self, npz_path: str, record_path: Optional[str] = None):
+    def __init__(self, npz_path: str, record_path: Optional[str] = None,
+                 device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
         Initializes the Structure object by loading and parsing an NPZ file.
 
         Args:
             npz_path (str): Path to the .npz file containing structured protein data.
             record_path (str, optional): Path to the corresponding JSON record file for metadata.
+            device (torch.device, optional): The target device.
+            dtype (torch.dtype, optional): The target data type.
         """
         data = np.load(npz_path, allow_pickle=True)
 
@@ -136,12 +139,20 @@ class Structure:
         self.number_residues = len(self.residues)
         self.resolution = None
         self.method = None
+        self.device = device
+        self.dtype = dtype
 
         if record_path is not None:
             record_data = read_json(record_path)
             structure_meta = record_data.get("structure", {})
             self.resolution = structure_meta.get("resolution")
             self.method = structure_meta.get("method")
+
+        # Compute ground truth tensors once
+        (self.ground_truth_global_positions,
+         self.ground_truth_local_positions,
+         self.ground_truth_frames, self.ground_truth_angles) = self.compute_ground_truth_data(
+            device=self.device, dtype=self.dtype)
 
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
