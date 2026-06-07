@@ -33,7 +33,8 @@ class ModelInput:
         self.dtype = dtype
 
         # Load the core physical structure
-        self.structure = Structure(npz_path=structure_path, record_path=record_path)
+        self.structure = Structure(npz_path=structure_path, record_path=record_path,
+                                   device=self.device, dtype=self.dtype)
 
         # Training specific parameters
         self.acceptance_slope_start = acceptance_slope_start
@@ -195,6 +196,31 @@ class ModelInput:
 
         return cropped_residues, cropped_atoms
 
+    def get_cropped_ground_truth_data(self, start_index: int, end_index: int) -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Retrieves the ground truth tensors cropped to the specified indices.
+
+        Args:
+            start_index (int): Start of the crop.
+            end_index (int): End of the crop.
+
+        Returns:
+            Tuple[torch.Tensor, ...]: The cropped global positions, local positions, frames, and angles.
+        """
+        # Slice tensors along the residue dimension (dim=0)
+        cropped_global_positions = (
+            self.structure.ground_truth_global_positions[start_index:end_index].to(self.device, dtype=self.dtype))
+
+        cropped_local_positions = (
+            self.structure.ground_truth_local_positions[start_index:end_index].to(self.device, dtype=self.dtype))
+
+        cropped_frames = self.structure.ground_truth_frames[start_index:end_index].to(self.device, dtype=self.dtype)
+
+        cropped_angles = self.structure.ground_truth_angles[start_index:end_index].to(self.device, dtype=self.dtype)
+
+        return cropped_global_positions, cropped_local_positions, cropped_frames, cropped_angles
+
     def get_data(self, number_samples: int, random_samples: bool = True, crop_size: Optional[int] = None,
                  seed: Optional[int] = None, batch_mode: bool = False,
                  emphasize_beginning_crops: bool = True) -> Dict[str, torch.Tensor]:
@@ -223,9 +249,19 @@ class ModelInput:
         # Extract cropped raw MSA data
         target_sequence, msa_sequence_tensor, msa_deletion_tensor = self.get_cropped_msa_data(start_index=start_index,
                                                                                               end_index=end_index)
+
+        # Extract cropped ground truth data
+        (ground_truth_global_positions,
+         ground_truth_local_positions,
+         ground_truth_frames,
+         ground_truth_angles) = self.get_cropped_ground_truth_data(start_index=start_index,
+                                                                   end_index=end_index)
+
         # For training we recycle data by shuffling the msa data
         cycle_data = {"input_msa_feature": [], "input_extra_msa_feature": [],
-                      "input_sequence_feature": [], "input_residue_index_feature": []}
+                      "input_sequence_feature": [], "input_residue_index_feature": [],
+                      "ground_truth_global_positions": [], "ground_truth_local_positions": [],
+                      "ground_truth_frames": [], "ground_truth_angles": []}
 
         # Generate features for each cycle (number_samples)
         # We wrap this in no_grad to prevent accidental gradient tracking during data prep
@@ -253,6 +289,12 @@ class ModelInput:
                 cycle_data["input_extra_msa_feature"].append(extractor.input_extra_msa_feature)
                 cycle_data["input_sequence_feature"].append(extractor.input_sequence_feature)
                 cycle_data["input_residue_index_feature"].append(absolute_residue_indices)
+
+                # Ground truth data is identical across cycles, but we duplicate it to match the recycle dimension
+                cycle_data["ground_truth_global_positions"].append(ground_truth_global_positions)
+                cycle_data["ground_truth_local_positions"].append(ground_truth_local_positions)
+                cycle_data["ground_truth_frames"].append(ground_truth_frames)
+                cycle_data["ground_truth_angles"].append(ground_truth_angles)
 
         # Stack along the last dimension (cycle dimension)
         batch_input_dict = {key: torch.stack(values, dim=-1) for key, values in cycle_data.items()}
