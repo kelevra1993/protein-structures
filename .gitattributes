@@ -1,2 +1,3 @@
 data_examples/openfold/manifest.json filter=lfs diff=lfs merge=lfs -text
 data_examples/rcsb/manifest.json filter=lfs diff=lfs merge=lfs -text
+data_examples/open_fold_sequences.fasta filter=lfs diff=lfs merge=lfs -text
