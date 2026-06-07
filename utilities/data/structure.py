@@ -672,8 +672,8 @@ class Structure:
                                   apply_hierarchical=True)
 
     def compute_ground_truth_data(self,
-                                  device: torch.device,
-                                  dtype: torch.dtype) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                                  device: torch.device, dtype: torch.dtype,
+                                  debug: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Orchestrates the computation of ground truth positions, frames, and angles for all residues.
 
@@ -753,6 +753,11 @@ class Structure:
                 ground_truth_local_positions[residue_index, atom_index] = atom_data["local_position"]
                 ground_truth_global_positions[residue_index, atom_index] = atom_data["global_position"]
 
+            # Last Step For Debugging Frames
+            if debug:
+                self.frame_debugger(atom_dictionary=atom_dictionary, residue_name=residue_object.name,
+                                    frame_to_consider=None, threshold=0.01)
+
         return ground_truth_global_positions, ground_truth_local_positions, ground_truth_frames, ground_truth_angles
 
     @staticmethod
@@ -794,7 +799,7 @@ class Structure:
 
                 if should_print:
                     print(40 * '-')
-                    print(f"Atom: {atom_name} | Frame: {atom_frame_index}")
+                    print(f"Residue: {residue_name} | Atom: {atom_name} | Frame: {atom_frame_index}")
                     print(f"Computed Local: {local_position.round(4)}")
                     print(f"Constant Local: {constant_position.round(4)}")
                     print(f"Delta: {difference.round(4)} | Norm: {difference_norm.round(4)}")

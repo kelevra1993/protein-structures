@@ -2,6 +2,8 @@ import os.path
 
 import torch
 import numpy as np
+from sympy import residue
+
 from utilities.tensor_utilities import get_device
 
 np.set_printoptions(linewidth=500, threshold=np.inf)
@@ -23,10 +25,26 @@ from utilities.analysis_utilities import prepare_mmseqs_input, run_mmseqs_cluste
     split_data_by_clusters
 from pathlib import Path
 
+device = torch.device("cpu")
+dtype = torch.float64
 
+#########################
+# Final ASN Repair Verification
+structures_dir = Path("data_examples/openfold/structures/")
+npz_files = sorted(list(structures_dir.glob("*.npz")))
+
+for npz_file in npz_files:
+    structure_object = Structure(npz_path=str(npz_file))
+    # Run orchestrator
+    (ground_truth_global_positions,
+     ground_truth_local_positions,
+     ground_truth_frames,
+     ground_truth_angles) = structure_object.compute_ground_truth_data(debug=True, device=device, dtype=dtype)
+
+exit()
 ############################
 # Cluster, and Split Data
-source_folder ="data_examples"
+source_folder = "data_examples"
 file_stem = "open_fold_sequences"
 
 input_fasta = f"{source_folder}/{file_stem}.fasta"
@@ -44,7 +62,6 @@ if tsv_path.exists():
     train_ids, val_ids = split_data_by_clusters(cluster_mapping=cluster_mapping,
                                                 output_folder="dataset_splits",
                                                 train_ratio=0.90)
-
 ###########################
 
 
