@@ -27,7 +27,7 @@ from pathlib import Path
 ############################
 # Cluster, and Split Data
 source_folder ="data_examples"
-file_stem = "sample"
+file_stem = "open_fold_sequences"
 
 input_fasta = f"{source_folder}/{file_stem}.fasta"
 output_prefix = "clusters/openfold_clusters"
@@ -43,10 +43,8 @@ if tsv_path.exists():
     # 4. Split data into train and validation sets
     train_ids, val_ids = split_data_by_clusters(cluster_mapping=cluster_mapping,
                                                 output_folder="dataset_splits",
-                                                train_ratio=0.8)
+                                                train_ratio=0.90)
 
-    print(f"Sample Train IDs: {train_ids[:5]}")
-    print(f"Sample Val IDs: {val_ids[:5]}")
 ###########################
 
 
