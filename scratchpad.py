@@ -18,17 +18,45 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
     invert_4x4_transform_matrix, apply_transformation_on_vector, compute_dihedral_angle, \
     make_transformation_matrix_around_ex, create_3x3_rotation_matrix, \
     turn_quaternion_to_3x3_matrix, make_transformation_matrix_around_ex
-from utilities.geometry_utilities import create_alternative_truth_positions, create_alternative_truth_angles
-from utilities.constants import xxx_to_index
-from utilities.data.structure import Structure
-from utilities.constants import atom_to_index, atom_frame_indices, chi_dihedral_dictionary
-from utilities.analysis_utilities import prepare_mmseqs_input, run_mmseqs_clustering, load_cluster_mapping, \
-    split_data_by_clusters
-from pathlib import Path
+from utilities.geometry_utilities import approximate_next_nitrogen
 
-device = torch.device("cpu")
-dtype = torch.float64
 
+
+exit()
+#########################
+# Test of approximated next nitrogen
+#########################
+print("--- Verifying Approximated Next Nitrogen (pre_omega frame) ---")
+
+for aa_name, aa_info in rigid_group_atom_position_map.items():
+    c_pos = aa_info["C"]
+    ca_pos = aa_info["CA"]
+    o_pos = aa_info["O"]
+    
+    # Directly calculate the approximated N_{i+1}
+    n_next_pos = approximate_next_nitrogen(carbon_alpha=ca_pos, carbon=c_pos, oxygen=o_pos)
+    
+    # 1. Check distance C -> N_next (should be 1.329)
+    dist_c_n = torch.linalg.norm(n_next_pos - c_pos).item()
+
+    # 2. Check angle CA -> C -> N_next (should be ~116.2 degrees / 2.028 radians)
+    v_ca_c = ca_pos - c_pos
+    v_n_c = n_next_pos - c_pos
+
+    cos_theta = torch.sum(v_ca_c * v_n_c) / (torch.linalg.norm(v_ca_c) * torch.linalg.norm(v_n_c))
+    angle_rad = torch.acos(cos_theta).item()
+    angle_deg = np.rad2deg(angle_rad)
+
+    # 3. Check planarity (CA, C, O, N_next should be coplanar)
+    # The dot product of (N_next - C) with the normal of (CA, C, O) should be 0
+    v_o_c = o_pos - c_pos
+    normal = torch.linalg.cross(v_ca_c, v_o_c)
+    planarity = torch.sum(v_n_c * normal).item()
+
+    print(f"{aa_name:3s} | C-N dist: {dist_c_n:.4f} Å (ideal 1.329) | CA-C-N angle: {angle_deg:.2f}° (ideal 116.2) | Out-of-plane: {planarity:.4f}")
+
+print("-" * 60)
+exit()
 #########################
 # Final ASN Repair Verification
 structures_dir = Path("data_examples/openfold/structures/")
