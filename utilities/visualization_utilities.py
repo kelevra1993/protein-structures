@@ -12,7 +12,24 @@ from utilities.geometry_utilities import invert_4x4_transform_matrix
 
 
 def _prepare_frames(frames: torch.Tensor, center_first: bool) -> np.ndarray:
-    """Helper to center and convert frames to numpy."""
+    """
+    Helper function to center and convert transformation frames to NumPy.
+
+    This utility ensures that tensors are moved to the CPU and detached from
+    the computation graph before visualization. It also optionally centers all
+    frames relative to the first one to simplify spatial analysis.
+
+    Args:
+        frames (torch.Tensor): Transformation matrices representing local
+            coordinate systems (e.g., backbone or side-chain frames).
+            Shape: (number_frames, 4, 4)
+        center_first (bool): If True, multiplies all frames by the inverse
+            of the first frame to center the sequence at the origin.
+
+    Returns:
+        np.ndarray: The processed frames as a NumPy array.
+            Shape: (number_frames, 4, 4)
+    """
     frames = frames.detach().cpu()
     if center_first:
         first_frame = frames[0]
@@ -29,12 +46,19 @@ def plot_transformation_frames(frames: torch.Tensor,
     """
     Plots a set of transformation frames in 3D using Matplotlib.
 
+    This function is used to visualize the predicted local coordinate systems
+    of protein residues (backbone frames) or side-chain groups. It helps in
+    analyzing the relative orientations and spatial distribution of these frames.
+
     Standard color coding:
-    - Red: X-axis, Green: Y-axis, Blue: Z-axis
-    - Gray Dashed Line: Trace connecting frame origins
+    - Red: X-axis (direction of the peptide bond/rotation axis)
+    - Green: Y-axis
+    - Blue: Z-axis
+    - Gray Dashed Line: Trace connecting frame origins (representing the protein backbone)
 
     Args:
-        frames (torch.Tensor): Transformation matrices. Shape: `(number_frames, 4, 4)`.
+        frames (torch.Tensor): Transformation matrices to plot.
+            Shape: (number_frames, 4, 4)
         center_first (bool): If True, all frames are relative to the first frame.
         scale (float): Scaling factor for the axis vectors.
         show_trace (bool): If True, draws a line connecting the origins of the frames.
@@ -95,6 +119,18 @@ def plot_transformation_frames_plotly(frames: torch.Tensor,
                                       title: str = "Interactive Transformation Frames"):
     """
     Plots a set of transformation frames in 3D using Plotly for interactivity.
+
+    Similar to the Matplotlib version, this function visualizes local
+    coordinate frames (backbone or side-chain) but provides interactive
+    rotation, zoom, and tooltips for more detailed structural analysis.
+
+    Args:
+        frames (torch.Tensor): Transformation matrices to plot.
+            Shape: (number_frames, 4, 4)
+        center_first (bool): If True, all frames are relative to the first frame.
+        scale (float): Scaling factor for the axis vectors.
+        show_trace (bool): If True, draws a line connecting the origins of the frames.
+        title (str): Title for the plot.
     """
     if go is None:
         print("Error: Plotly is not installed.")
