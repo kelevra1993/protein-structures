@@ -1,6 +1,7 @@
 import json
 import subprocess
 import random
+import shutil
 from pathlib import Path
 from collections import Counter
 from tqdm import tqdm
@@ -33,7 +34,7 @@ def prepare_mmseqs_input(folder_path: str, output_fasta: str):
     print(f"Found {len(a3m_files)} .a3m files. Extracting sequences...")
 
     with open(output_fasta, "w") as f_out:
-        for a3m_file in tqdm(a3m_files, desc="Processing A3M files"):
+        for a3m_file in tqdm(a3m_files[:5000], desc="Processing A3M files"):
             try:
                 sequences = load_a3m_file(str(a3m_file))
                 if sequences:
@@ -74,8 +75,13 @@ def run_mmseqs_clustering(input_fasta: str, output_prefix: str, min_identity: fl
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_dir = output_path.parent / "tmp_mmseqs"
 
+    mmseqs_path = shutil.which("mmseqs")
+    if mmseqs_path is None:
+        raise FileNotFoundError("The 'mmseqs' binary was not found in the system PATH "
+                                    "Please install MMseqs2 or provide the binary in the project root.")
+
     command = [
-        "mmseqs", "easy-cluster",
+        mmseqs_path, "easy-cluster",
         input_fasta,
         str(output_path),
         str(tmp_dir),

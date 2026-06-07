@@ -17,6 +17,33 @@ from utilities.geometry_utilities import create_alternative_truth_transformation
 
 from utilities.data.structure import Structure
 from utilities.constants import atom_to_index, atom_frame_indices, chi_dihedral_dictionary
+from utilities.analysis_utilities import prepare_mmseqs_input, run_mmseqs_clustering, load_cluster_mapping, \
+    split_data_by_clusters
+from pathlib import Path
+
+
+############################
+# Cluster, and Split Data
+input_fasta = "sample_open_fold_mmseqs_input.fasta"
+output_prefix = "clusters/openfold_clusters"
+
+# Run MMseqs2 clustering
+run_mmseqs_clustering(input_fasta=input_fasta, output_prefix=output_prefix, min_identity=0.4)
+
+# Load cluster mapping
+tsv_path = Path(f"{output_prefix}_cluster.tsv")
+if tsv_path.exists():
+    cluster_mapping = load_cluster_mapping(tsv_path=str(tsv_path))
+
+    # 4. Split data into train and validation sets
+    train_ids, val_ids = split_data_by_clusters(cluster_mapping=cluster_mapping, train_ratio=0.8)
+
+    print(f"Sample Train IDs: {train_ids[:5]}")
+    print(f"Sample Val IDs: {val_ids[:5]}")
+###########################
+
+
+exit()
 
 
 # For Testing / Debugging Comparison to constant.py. to see if we will ultimately just set everything to what is in constant.py
@@ -53,7 +80,8 @@ structure_object = Structure(npz_path="data_examples/openfold/structures/P90561.
 
 # put the test here
 #########################
-global_positions, local_positions, frames, angles = structure_object.compute_ground_truth_data(device=device, dtype=dtype)
+global_positions, local_positions, frames, angles = structure_object.compute_ground_truth_data(device=device,
+                                                                                               dtype=dtype)
 
 print(f"Global Positions Shape: {global_positions.shape}")
 print(f"Local Positions Shape: {local_positions.shape}")
@@ -64,14 +92,14 @@ print(f"Angles Shape: {angles.shape}")
 for residue_index, residue_object in enumerate(structure_object.residues):
     # To use frame_debugger, we need the atom_dictionary for the residue
     atom_dictionary = structure_object._get_residue_atom_dictionary(residue_object, device, dtype)
-    
+
     # We need to populate current_frame_used and local_position in atom_dictionary for the debugger
     # Since compute_ground_truth_data doesn't return the dictionary, we'll run a quick loop to check
     # Or better yet, we can modify the test to just call the debugger logic if we want to be surgical.
     # But for a high-level test, let's just use the returned tensors.
-    
+
     # Re-running the internal steps for the first residue to verify debugger works
-    if residue_index == 1: # Let's check residue 1 like in the previous steps
+    if residue_index == 1:  # Let's check residue 1 like in the previous steps
         print(f"\nDebugging Residue {residue_index} ({residue_object.name}):")
         # To use the static method frame_debugger, we need an atom_dictionary that matches what it expects
         # The compute_ground_truth_data already does the work, so let's just reuse the dictionary from _get_residue_atom_dictionary
@@ -80,11 +108,10 @@ for residue_index, residue_object in enumerate(structure_object.residues):
             atom_idx = atom_data["atom_index"]
             atom_data["local_position"] = local_positions[residue_index, atom_idx]
             atom_data["current_frame_used"] = atom_data["frame_index"]
-        
+
         structure_object.frame_debugger(atom_dictionary, residue_object.name, threshold=0.001)
 
 #########################
-
 
 
 exit()

@@ -232,7 +232,7 @@ class Model(nn.Module):
 if __name__ == "__main__":
     import os
     from pathlib import Path
-    from utilities.configuration_utilities import load_configuration
+    from utilities.os_utilities import load_configuration
     from utilities.tensor_utilities import get_device
 
     project_folder = Path(os.getcwd()).parent

@@ -4,18 +4,9 @@ File containing visualization utilities for protein structures and transformatio
 
 import torch
 import numpy as np
-
-try:
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    from matplotlib.lines import Line2D
-except ImportError:
-    plt = None
-
-try:
-    import plotly.graph_objects as go
-except ImportError:
-    go = None
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+import plotly.graph_objects as go
 
 from utilities.geometry_utilities import invert_4x4_transform_matrix
 

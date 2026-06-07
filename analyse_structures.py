@@ -2,7 +2,7 @@ import os
 from utilities.analysis_utilities import analyze_folder, analyze_summary_json
 
 def main():
-    json_file = "/home/robert_kelevra/Projects/protein-structures/data_examples/openfold/full_structure_data_summary.json"
+    json_file = "/home/robert_kelevra/Data/protein_data/openfold_processed_targets/open_fold_structure_data_summary.json"
     folder_to_analyze ="/home/robert_kelevra/Data/protein_data/openfold_processed_targets/structures"
     # 1. Check if summary JSON exists to avoid hours of processing
     if os.path.exists(json_file):
