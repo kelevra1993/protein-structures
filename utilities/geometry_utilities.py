@@ -684,11 +684,13 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
             Expected shape: `(..., number_residues)`.
 
     Returns:
-        tuple: A tuple containing two torch.Tensor objects:
+        tuple: A tuple containing three torch.Tensor objects:
             - global_positions: The global Cartesian coordinates for all 37 atoms.
                 Shape: `(..., number_residues, 37, 3)`.
             - all_atom_mask: A boolean mask indicating the presence of each atom.
                 Shape: `(..., number_residues, 37)`.
+            - global_transformation_matrices: The intermediate global frame for every rigid group in every residue.
+                Shape: `(..., number_residues, 37, 4, 4)`.
     """
 
     device = transformation_matrix.device
