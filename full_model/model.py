@@ -41,9 +41,7 @@ class Model(nn.Module):
         self.input_embedder = InputEmbedder(
             input_sequence_feature_dimension=global_configuration.get('input_sequence_feature_dimension'),
             input_msa_feature_dimension=global_configuration.get('input_msa_feature_dimension'),
-            input_extra_msa_feature_dimension=global_configuration.get('input_extra_msa_feature_dimension'),
             msa_embedding=global_configuration.get('msa_embedding'),
-            extra_msa_embedding=global_configuration.get('extra_msa_embedding'),
             pair_representation_embedding=global_configuration.get('pair_representation_embedding'),
             number_neighbouring_amino_acids=input_embedder_configuration.get('number_neighbouring_amino_acids'),
             device=self.device,
