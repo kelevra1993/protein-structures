@@ -162,16 +162,13 @@ class Model(nn.Module):
         previous_pseudo_carbon_beta_positions = torch.zeros(position_shape, dtype=self.dtype, device=self.device)
 
         for cycle in range(number_cycles):
-            print(f'Iteration Cycle {cycle}')
-
             # Extract Current Input Features For This Cycle
             current_cycle_input_batch = {key: value[..., cycle] for key, value in batch_input_dictionary.items()}
 
             # Get embeddings for msa and pair representation
-            msa_representation_tensor, pair_representation_tensor, _ = self.input_embedder(
+            msa_representation_tensor, pair_representation_tensor = self.input_embedder(
                 input_sequence_feature=current_cycle_input_batch['input_sequence_feature'],
                 input_msa_feature=current_cycle_input_batch['input_msa_feature'],
-                input_extra_msa_feature=current_cycle_input_batch['input_extra_msa_feature'],
                 input_residue_index_feature=current_cycle_input_batch['input_residue_index_feature'])
 
             # Run the model through the recycling embedder
