@@ -29,7 +29,6 @@ class ProteinDataset(Dataset):
                  device: torch.device = torch.device("cpu"),
                  dtype: torch.dtype = torch.float32):
         """
-        # todo to be updated
         Initializes the ProteinDataset.
 
         :param data_folder: Path to the root data folder containing 'structures', 'records', and 'raw_msa'.
@@ -174,54 +173,50 @@ def protein_collate_fn(batch: list[dict]) -> dict:
     return collated_batch
 
 
-def get_protein_dataloaders(data_folder: str,
-                            train_split_path: str,
-                            validation_split_path: str,
-                            train_crop_size: int | None = 256,
-                            train_batch_size: int = 1,
-                            validation_batch_size: int = 1,
-                            num_workers: int = 0,
-                            shuffle: bool = False,
-                            acceptance_slope_start: int = 256,
-                            acceptance_slope_end: int = 512,
-                            distribution_threshold: int = 80,
-                            maximum_cluster_sequences: int = 512,
-                            maximum_extra_msa_sequences: int = 5120,
-                            mask_probability: float = 0.15,
-                            number_recycle_cycles: int = 1,
-                            use_single_representative: bool = False,
-                            device: torch.device = torch.device("cpu"),
-                            dtype: torch.dtype = torch.float32) -> tuple[DataLoader, DataLoader]:
+def get_protein_dataloader(data_folder: str,
+                           split_file_path: str,
+                           residue_crop_size: int | None = 256,
+                           batch_size: int = 1,
+                           num_workers: int = 0,
+                           shuffle: bool = False,
+                           mask_probability: float = 0.15,
+                           acceptance_slope_start: int = 256,
+                           acceptance_slope_end: int = 512,
+                           distribution_threshold: int = 80,
+                           maximum_cluster_sequences: int = 512,
+                           maximum_extra_msa_sequences: int = 5120,
+                           number_recycle_cycles: int = 1,
+                           use_single_representative: bool = False,
+                           device: torch.device = torch.device("cpu"),
+                           dtype: torch.dtype = torch.float32) -> DataLoader:
     """
-    todo to be updated
-    Creates and returns the training and validation PyTorch DataLoaders.
+    Creates and returns a single PyTorch DataLoader for protein data.
 
     :param data_folder: Path to the root data folder.
-    :param train_split_path: Path to the JSON file for the training split.
-    :param validation_split_path: Path to the JSON file for the validation split.
-    :param train_crop_size: The number of residues to crop from each training sequence.
-
+    :param split_file_path: Path to the JSON file defining the dataset split.
+    :param residue_crop_size: The number of residues to crop from each sequence.
+    :param batch_size: Number of samples per batch.
     :param num_workers: Number of worker threads for data loading.
     :param shuffle: Whether to shuffle the data in the DataLoader.
+    :param mask_probability: Probability of masking residues in MSA clusters.
     :param acceptance_slope_start: Threshold for input filtering probability calculation.
     :param acceptance_slope_end: Upper threshold for input filtering probability calculation.
     :param distribution_threshold: Threshold to filter out sequences with biased distributions.
     :param maximum_cluster_sequences: Max number of sequences for the main MSA clusters.
     :param maximum_extra_msa_sequences: Max number of sequences for the extra MSA stack.
-    :param mask_probability: Probability of masking residues in MSA clusters.
     :param number_recycle_cycles: Number of recycling iterations to simulate in the batch.
     :param use_single_representative: If True, each cluster contributes only one random representative.
     :param device: The target torch.device.
     :param dtype: The target torch.dtype.
-    :return: A tuple containing (train_dataloader, validation_dataloader).
+    :return: A PyTorch DataLoader configured for the specified dataset.
     """
 
-    train_dataset = ProteinDataset(
+    dataset = ProteinDataset(
         data_folder=data_folder,
-        split_file_path=train_split_path,
+        split_file_path=split_file_path,
         acceptance_slope_start=acceptance_slope_start,
         acceptance_slope_end=acceptance_slope_end,
-        residue_crop_size=train_crop_size,
+        residue_crop_size=residue_crop_size,
         distribution_threshold=distribution_threshold,
         maximum_cluster_sequences=maximum_cluster_sequences,
         maximum_extra_msa_sequences=maximum_extra_msa_sequences,
@@ -231,36 +226,12 @@ def get_protein_dataloaders(data_folder: str,
         device=device,
         dtype=dtype)
 
-    validation_dataset = ProteinDataset(
-        data_folder=data_folder,
-        split_file_path=validation_split_path,
-        acceptance_slope_start=acceptance_slope_start,
-        acceptance_slope_end=acceptance_slope_end,
-        residue_crop_size=None,  # No Cropping For Validation
-        distribution_threshold=distribution_threshold,
-        maximum_cluster_sequences=maximum_cluster_sequences,
-        maximum_extra_msa_sequences=maximum_extra_msa_sequences,
-        mask_probability=0.0,  # No Masking for validation
-        number_recycle_cycles=number_recycle_cycles,
-        use_single_representative=use_single_representative,
-        device=device,
-        dtype=dtype)
-
-
-    train_dataloader = DataLoader(
-        dataset=train_dataset,
-        batch_size=train_batch_size,
+    dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=protein_collate_fn,
         drop_last=False)
 
-    validation_dataloader = DataLoader(
-        dataset=validation_dataset,
-        batch_size=validation_batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        collate_fn=protein_collate_fn,
-        drop_last=False)
-
-    return train_dataloader, validation_dataloader
+    return dataloader
