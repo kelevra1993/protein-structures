@@ -6,7 +6,6 @@ DataConfiguration:
   acceptance_slope_end: 512
   residue_crop_size: 256
   distribution_threshold: 80
-  random_samples: true
   batch_mode: false
   emphasize_beginning_crops: true
   debug: false

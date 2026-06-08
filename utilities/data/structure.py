@@ -690,9 +690,9 @@ class Structure:
         dtype (torch.dtype): Computation data type.
 
         Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-            - ground_truth_local_positions: (number_residues, 37, 3)
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
             - ground_truth_global_positions: (number_residues, 37, 3)
+            - ground_truth_local_positions: (number_residues, 37, 3)
             - ground_truth_frames: (number_residues, 8, 4, 4)
             - ground_truth_angles: (number_residues, 7, 2)
         """

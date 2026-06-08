@@ -30,7 +30,30 @@ class ModelInput:
                  maximum_extra_msa_sequences: int = 5120,
                  mask_probability: float = 0.15,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
-        """ TODO To be documented once we have moved everything to the configuration file"""
+        """
+        Initializes a ModelInput object, representing a single protein complex for training or inference.
+
+        This class serves as the primary data container, integrating structural information from NPZ files
+        with multiple sequence alignment (MSA) data. It handles sequence cropping, acceptance probability
+        calculations for data balancing, and feature extraction preparation.
+
+        Args:
+            structure_path (str): File path to the .npz file containing the protein's physical structure.
+            msa_path (str): File path to the .a3m file containing the multiple sequence alignment.
+            record_path (str, optional): File path to the JSON record containing structure metadata
+                (e.g., resolution, method).
+            acceptance_slope_start (int): Minimum protein length for the acceptance probability ramp.
+            acceptance_slope_end (int): Maximum protein length for the acceptance probability ramp.
+            residue_crop_size (int | None): The number of residues to include in a crop. If None,
+                no cropping is performed.
+            distribution_threshold (int): Percentage threshold for filtering out sequences with
+                unusually high concentrations of a single amino acid.
+            maximum_cluster_sequences (int): Maximum number of unique sequences to retain for MSA clustering.
+            maximum_extra_msa_sequences (int): Maximum number of sequences to retain for the extra MSA stack.
+            mask_probability (float): Probability of masking a residue during MSA feature extraction.
+            device (torch.device): The target device for tensor computations.
+            dtype (torch.dtype): The target data type for floating-point tensors.
+        """
         # Set simple requirements
         self.device = device
         self.dtype = dtype
@@ -120,14 +143,17 @@ class ModelInput:
 
     def get_crop_indices(self, emphasize_beginning_crops: bool) -> tuple[int, int]:
         """
-        # TODO Docstring to be updated, this function is actually only called if self.residue_crop_size is not None
-        Generates a start and end index used to crop the sequence and structure.
+        Generates random start and end indices for cropping the sequence and structure.
+
+        This method is invoked only when `residue_crop_size` is specified. It provides
+        the indices necessary to slice MSA and structural tensors into a fixed-size window.
 
         Args:
-            emphasize_beginning_crops (bool): If True, biases the start_index towards the beginning.
+            emphasize_beginning_crops (bool): If True, applies a stochastic bias to sample
+                crops closer to the N-terminus of the protein.
 
         Returns:
-            tuple[int, int]: The start_index and end_index for cropping.
+            tuple[int, int]: A pair of (start_index, end_index) for slicing.
         """
         num_residues = self.structure.number_residues
 
@@ -232,18 +258,34 @@ class ModelInput:
                  seed: Optional[int] = None, batch_mode: bool = False,
                  emphasize_beginning_crops: bool = True) -> Dict[str, torch.Tensor]:
         """
-        # todo to be updated
-        Generates a batch input dictionary for the model's forward pass,
-        supporting multi-cycle recycling features.
+        Constructs a comprehensive input dictionary for the model, supporting recycling cycles.
+
+        This method orchestrates cropping (if enabled), feature extraction for each recycling
+        cycle, and the duplication of ground truth data to match the recycle dimension.
+        All features are stacked along a final 'cycle' dimension.
 
         Args:
-            number_samples (int): Number of recycling cycles (iterations).
-            seed (Optional[int]): Base random seed for feature extraction.
-            batch_mode (bool): If True, unsqueezes tensors to add a batch dimension of 1.
-            emphasize_beginning_crops (bool): If True, biases random cropping towards 
-                the start of the sequence.
+            number_samples (int): The number of recycling cycles (iterations) to generate data for.
+            seed (Optional[int]): Base random seed for reproducible stochastic features (e.g., masking).
+            batch_mode (bool): If True, prepends a batch dimension of size 1 to all tensors.
+            emphasize_beginning_crops (bool): If True, biases random cropping towards the N-terminus.
+
         Returns:
-            Dict[str, torch.Tensor]: Dictionary containing input features ready for the Model.
+            Dict[str, torch.Tensor]: A dictionary of stacked features. All tensors follow the
+                (..., number_samples) shape, or (1, ..., number_samples) if batch_mode is True.
+                - input_msa_feature: (number_clusters, number_residues, msa_feature_dimension, number_samples)
+                - input_extra_msa_feature: (number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_samples)
+                - input_sequence_feature: (number_residues, input_sequence_feature_dimension, number_samples)
+                - input_residue_index_feature: (number_residues, number_samples)
+                - sequence_labels: (number_residues, number_samples)
+                - ground_truth_global_positions: (number_residues, 37, 3, number_samples)
+                - ground_truth_local_positions: (number_residues, 37, 3, number_samples)
+                - ground_truth_frames: (number_residues, 8, 4, 4, number_samples)
+                - ground_truth_angles: (number_residues, 7, 2, number_samples)
+                - alternative_ground_truth_global_positions: (number_residues, 37, 3, number_samples)
+                - alternative_ground_truth_local_positions: (number_residues, 37, 3, number_samples)
+                - alternative_ground_truth_frames: (number_residues, 8, 4, 4, number_samples)
+                - alternative_ground_truth_angles: (number_residues, 7, 2, number_samples)
         """
 
         # Determine the residue range (Cropping)
