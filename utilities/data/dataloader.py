@@ -140,6 +140,10 @@ def protein_collate_fn(batch: list[dict]) -> dict:
     if not batch:
         return {}
 
+    # Fast path for batch size 1 to avoid padding overhead
+    if len(batch) == 1:
+        return {key: value.unsqueeze(0) for key, value in batch[0].items()}
+
     collated_batch = {}
     keys = batch[0].keys()
 
