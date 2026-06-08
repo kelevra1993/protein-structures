@@ -7,14 +7,14 @@ from utilities.data.msa import load_a3m_file, compute_unique_sequences
 from feature_extraction.extractor import FeatureExtractor
 from utilities.tensor_utilities import get_device
 from utilities.constants import x_to_xxx, all_amino_acid_dictionary
-from utilities.geometry_utilities import (create_alternative_truth_positions, 
-                                          create_alternative_truth_angles, 
+from utilities.geometry_utilities import (create_alternative_truth_positions,
+                                          create_alternative_truth_angles,
                                           create_alternative_truth_transformation_matrix)
 
 
 class ModelInput:
     """
-    Represents a single training or inference example, containing both the 
+    Represents a single training or inference example, containing both the
     physical structure and associated MSA data, alongside training-specific metadata.
     """
 
@@ -24,13 +24,13 @@ class ModelInput:
                  record_path: Optional[str] = None,
                  acceptance_slope_start: int = 256,
                  acceptance_slope_end: int = 512,
-                 residue_crop_size: int = 256,
+                 residue_crop_size: int | None = 256,
                  distribution_threshold: int = 80,
                  maximum_cluster_sequences: int = 512,
                  maximum_extra_msa_sequences: int = 5120,
                  mask_probability: float = 0.15,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
-
+        """ TODO To be documented once we have moved everything to the configuration file"""
         # Set simple requirements
         self.device = device
         self.dtype = dtype
@@ -118,37 +118,36 @@ class ModelInput:
         """
         return random.random() < self.acceptance_probability
 
-    def get_crop_indices(self, emphasize_beginning_crops: bool, crop_size: Optional[int] = None) -> tuple[int, int]:
+    def get_crop_indices(self, emphasize_beginning_crops: bool) -> tuple[int, int]:
         """
+        # TODO Docstring to be updated, this function is actually only called if self.residue_crop_size is not None
         Generates a start and end index used to crop the sequence and structure.
 
         Args:
             emphasize_beginning_crops (bool): If True, biases the start_index towards the beginning.
-            crop_size (Optional[int]): Override the default residue_crop_size.
 
         Returns:
             tuple[int, int]: The start_index and end_index for cropping.
         """
-        active_crop_size = crop_size if crop_size is not None else self.residue_crop_size
         num_residues = self.structure.number_residues
 
         # If the protein is smaller than the crop size, return the whole thing
-        if num_residues <= active_crop_size:
+        if num_residues <= self.residue_crop_size:
             return 0, num_residues
 
         # Maximum possible start index to ensure we don't go out of bounds
-        max_start_index = num_residues - active_crop_size
+        max_start_index = num_residues - self.residue_crop_size
 
         if not emphasize_beginning_crops:
             # Uniform sampling
             start_index = random.randint(0, max_start_index)
         else:
             # Bias sampling towards the beginning
-            start_emphasis = random.randint(0, active_crop_size)
+            start_emphasis = random.randint(0, self.residue_crop_size)
             max_start_emp = max(0, max_start_index - start_emphasis)
             start_index = random.randint(0, max_start_emp)
 
-        end_index = start_index + active_crop_size
+        end_index = start_index + self.residue_crop_size
         return start_index, end_index
 
     def get_cropped_msa_data(self, start_index: int, end_index: int) -> Tuple[
@@ -229,17 +228,16 @@ class ModelInput:
 
         return cropped_global_positions, cropped_local_positions, cropped_frames, cropped_angles
 
-    def get_data(self, number_samples: int, random_samples: bool = True, crop_size: Optional[int] = None,
+    def get_data(self, number_samples: int,
                  seed: Optional[int] = None, batch_mode: bool = False,
                  emphasize_beginning_crops: bool = True) -> Dict[str, torch.Tensor]:
         """
+        # todo to be updated
         Generates a batch input dictionary for the model's forward pass,
         supporting multi-cycle recycling features.
 
         Args:
             number_samples (int): Number of recycling cycles (iterations).
-            random_samples (bool): If True, applies random cropping.
-            crop_size (Optional[int]): Override default residue_crop_size.
             seed (Optional[int]): Base random seed for feature extraction.
             batch_mode (bool): If True, unsqueezes tensors to add a batch dimension of 1.
             emphasize_beginning_crops (bool): If True, biases random cropping towards 
@@ -247,10 +245,10 @@ class ModelInput:
         Returns:
             Dict[str, torch.Tensor]: Dictionary containing input features ready for the Model.
         """
+
         # Determine the residue range (Cropping)
-        if random_samples:
-            start_index, end_index = self.get_crop_indices(emphasize_beginning_crops=emphasize_beginning_crops,
-                                                           crop_size=crop_size)
+        if self.residue_crop_size:
+            start_index, end_index = self.get_crop_indices(emphasize_beginning_crops=emphasize_beginning_crops)
         else:
             start_index, end_index = 0, self.structure.number_residues
 
@@ -267,19 +265,19 @@ class ModelInput:
 
         # Compute alternative ground truths by adding a temporary batch dimension
         batched_labels = sequence_labels.unsqueeze(0)
-        
+
         alternative_ground_truth_global_positions = create_alternative_truth_positions(
             ground_truth_positions=ground_truth_global_positions.unsqueeze(0),
             sequence_amino_acid_labels=batched_labels).squeeze(0)
-        
+
         alternative_ground_truth_local_positions = create_alternative_truth_positions(
             ground_truth_positions=ground_truth_local_positions.unsqueeze(0),
             sequence_amino_acid_labels=batched_labels).squeeze(0)
-        
+
         alternative_ground_truth_frames = create_alternative_truth_transformation_matrix(
             transformation_matrix=ground_truth_frames.unsqueeze(0),
             sequence_amino_acid_labels=batched_labels).squeeze(0)
-        
+
         alternative_ground_truth_angles = create_alternative_truth_angles(
             ground_truth_angles=ground_truth_angles.unsqueeze(0),
             sequence_amino_acid_labels=batched_labels).squeeze(0)
@@ -327,7 +325,8 @@ class ModelInput:
                 cycle_data["ground_truth_local_positions"].append(ground_truth_local_positions)
                 cycle_data["ground_truth_frames"].append(ground_truth_frames)
                 cycle_data["ground_truth_angles"].append(ground_truth_angles)
-                
+
+                # Add alternative truth data, based on symmetries.
                 cycle_data["alternative_ground_truth_global_positions"].append(alternative_ground_truth_global_positions)
                 cycle_data["alternative_ground_truth_local_positions"].append(alternative_ground_truth_local_positions)
                 cycle_data["alternative_ground_truth_frames"].append(alternative_ground_truth_frames)

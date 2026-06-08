@@ -107,12 +107,8 @@ class ProteinDataset(Dataset):
             dtype=self.dtype)
 
         # Get the cropped and recycled batch data
-        batch_data = model_input.get_data(
-            number_samples=self.number_recycle_cycles,
-            random_samples=True,
-            seed=None,
-            batch_mode=False
-        )
+        # NOTE : if self.residue_crop_size is None then we just get the whole data
+        batch_data = model_input.get_data(number_samples=self.number_recycle_cycles,seed=None,batch_mode=False)
 
         return batch_data
 
@@ -135,14 +131,12 @@ def protein_collate_fn(batch: list[dict]) -> dict:
     keys = batch[0].keys()
 
     for key in keys:
-        example_tensor = batch[0][key]
-        if not isinstance(example_tensor, torch.Tensor):
-            collated_batch[key] = [item[key] for item in batch]
-            continue
 
         # 1. Find the maximum size for each dimension across the batch
         # We assume all tensors for this key have the same number of dimensions.
+        # Generally either number_residues, or number_msa_cluster or number_extra_msa_cluster
         max_shape = list(batch[0][key].shape)
+
         for item in batch[1:]:
             current_shape = item[key].shape
             for i, size in enumerate(current_shape):
@@ -180,6 +174,7 @@ def get_protein_dataloaders(data_folder: str,
                             num_workers: int = 0,
                             **dataset_kwargs) -> tuple[DataLoader, DataLoader]:
     """
+    # Todo later we will add all the kwargs so that they can be clearly defined.
     Creates and returns the training and validation PyTorch DataLoaders.
 
     :param data_folder: Path to the root data folder.
@@ -194,24 +189,23 @@ def get_protein_dataloaders(data_folder: str,
     train_dataset = ProteinDataset(
         data_folder=data_folder,
         split_file_path=train_split_path,
-        **dataset_kwargs
-    )
+        **dataset_kwargs)
 
     validation_dataset = ProteinDataset(
         data_folder=data_folder,
         split_file_path=validation_split_path,
-        **dataset_kwargs
-    )
+        **dataset_kwargs)
 
     # Use our custom collate function to handle varying sequence lengths
+    # TODO Test the shuffling
+    # TODO Test prefetch_factor to see how much we can accelerate it
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=batch_size,
         shuffle=True,  # Shuffle clusters/proteins for training
         num_workers=num_workers,
         collate_fn=protein_collate_fn,
-        drop_last=False
-    )
+        drop_last=False)
 
     validation_dataloader = DataLoader(
         dataset=validation_dataset,
@@ -219,7 +213,6 @@ def get_protein_dataloaders(data_folder: str,
         shuffle=False,
         num_workers=num_workers,
         collate_fn=protein_collate_fn,
-        drop_last=False
-    )
+        drop_last=False)
 
     return train_dataloader, validation_dataloader
