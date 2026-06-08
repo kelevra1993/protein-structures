@@ -246,7 +246,6 @@ def get_protein_dataloader(data_folder: str,
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=protein_collate_fn,
-        drop_last=False,
-        prefetch_factor=4)
+        drop_last=False)
 
     return dataloader
