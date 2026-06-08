@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from typing import Dict
 
 from embedders.input_embedder import InputEmbedder
 from embedders.recycling_embedder import RecyclingEmbedder
@@ -112,7 +113,7 @@ class Model(nn.Module):
             device=self.device,
             dtype=self.dtype)
 
-    def forward(self, batch_input_dictionary):
+    def forward(self, batch_input_dictionary: Dict[str, torch.Tensor]):
         """
         Forward pass for the Alphafold model ran for multiple cycles.
         The msa and extra msa features change in each cycle
