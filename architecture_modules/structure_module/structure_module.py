@@ -8,7 +8,7 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
 
 # Here we will have to design this explicitly
 from utilities.constants import atom_types, canonical_amino_acid_residues
-from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, rename_symetric_ground_truth_metrics
+from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, rename_symmetric_ground_truth_metrics
 
 
 class StructureModuleTransition(nn.Module):
