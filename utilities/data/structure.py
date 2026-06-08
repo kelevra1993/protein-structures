@@ -240,7 +240,7 @@ class Structure:
                 # Get frame index for the specific amino acid type and atom type
                 frame_index = int(atom_frame_indices[residue_object.amino_acid_index, atom_index])
 
-                # local_position : for iteratively updating the postion through local frames
+                # local_position : for iteratively updating the position through local frames
                 # frame_index : target frame for the atom
                 # current_frame_used : tracking the current local frame
                 # both frame_index and current_frame_used help us debug the code
