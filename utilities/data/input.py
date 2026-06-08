@@ -3,9 +3,8 @@ import torch
 from typing import Optional, Tuple, List, Dict
 from collections import Counter
 from utilities.data.structure import Structure, Residue, Atom
-from utilities.data.msa import load_a3m_file, compute_unique_sequences
+from utilities.data.msa import load_a3m_file, compute_unique_sequences, one_hot_encode_amino_acid_types
 from feature_extraction.extractor import FeatureExtractor
-from utilities.tensor_utilities import get_device
 from utilities.constants import x_to_xxx, all_amino_acid_dictionary
 from utilities.geometry_utilities import (create_alternative_truth_positions,
                                           create_alternative_truth_angles,
@@ -324,7 +323,7 @@ class ModelInput:
             ground_truth_angles=ground_truth_angles.unsqueeze(0),
             sequence_amino_acid_labels=batched_labels).squeeze(0)
 
-        # For training we recycle data by shuffling the msa data
+        # For training, we recycle data by shuffling the msa data
         cycle_data = {"input_msa_feature": [], "input_extra_msa_feature": [],
                       "input_sequence_feature": [], "input_residue_index_feature": [],
                       "sequence_labels": [],
@@ -338,7 +337,21 @@ class ModelInput:
         # Generate features for each cycle (number_samples)
         # We wrap this in no_grad to prevent accidental gradient tracking during data prep
         with torch.no_grad():
+
+            # Precompute static features outside the recycling loop to avoid redundant calculations
+            precomputed_input_sequence_feature = one_hot_encode_amino_acid_types(
+                sequence=target_sequence,include_gap_token=False,
+                device=msa_sequence_tensor.device,dtype=msa_sequence_tensor.dtype)
+
+            # Residue indices
+            precomputed_input_residue_index_feature = torch.arange(len(target_sequence),
+                                                                   device=msa_sequence_tensor.device)
+
+            # Amino acid distribution : used for masking
+            precomputed_total_amino_acid_distribution = msa_sequence_tensor.mean(dim=0, keepdim=True)
+
             for cycle in range(number_samples):
+
                 # Vary seed per cycle to allow different random masks/shuffles
                 current_seed = seed + cycle if seed is not None else None
 
@@ -346,6 +359,9 @@ class ModelInput:
                     target_sequence=target_sequence,
                     global_msa_sequence_tensor=msa_sequence_tensor,
                     global_msa_deletion_count_tensor=msa_deletion_tensor,
+                    input_sequence_feature=precomputed_input_sequence_feature,
+                    input_residue_index_feature=precomputed_input_residue_index_feature,
+                    total_amino_acid_distribution=precomputed_total_amino_acid_distribution,
                     maximum_cluster_sequences=self.maximum_cluster_sequences,
                     maximum_extra_msa_sequences=self.maximum_extra_msa_sequences,
                     mask_probability=self.mask_probability,
@@ -369,7 +385,8 @@ class ModelInput:
                 cycle_data["ground_truth_angles"].append(ground_truth_angles)
 
                 # Add alternative truth data, based on symmetries.
-                cycle_data["alternative_ground_truth_global_positions"].append(alternative_ground_truth_global_positions)
+                cycle_data["alternative_ground_truth_global_positions"].append(
+                    alternative_ground_truth_global_positions)
                 cycle_data["alternative_ground_truth_local_positions"].append(alternative_ground_truth_local_positions)
                 cycle_data["alternative_ground_truth_frames"].append(alternative_ground_truth_frames)
                 cycle_data["alternative_ground_truth_angles"].append(alternative_ground_truth_angles)

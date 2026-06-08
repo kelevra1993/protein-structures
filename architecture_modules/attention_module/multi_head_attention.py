@@ -202,20 +202,44 @@ if __name__ == "__main__":
     from utilities.tensor_utilities import get_device, print_tensor_shape
     from feature_extraction.extractor import FeatureExtractor
     from embedders.input_embedder import InputEmbedder
+    from utilities.data.msa import load_a3m_file, compute_unique_sequences
+    from utilities.data.msa import one_hot_encode_amino_acid_types
 
     # Robust path to the test file
     current_file_path = Path(__file__).resolve()
     project_root = current_file_path.parents[2]
     msa_file_path = project_root / "tests" / "feature_extraction" / "multiple_sequence_alignement.a3m"
 
+    device = torch.device("cpu")
+    dtype = torch.float32
+
+    unprocessed_sequences = load_a3m_file(str(msa_file_path))
+    target_sequence = unprocessed_sequences[0]
+    global_msa_sequence_tensor, global_msa_deletion_count_tensor = compute_unique_sequences(
+        unprocessed_sequences=unprocessed_sequences,
+        device=device,dtype=dtype)
+
+    input_sequence_feature = one_hot_encode_amino_acid_types(
+        sequence=target_sequence,
+        include_gap_token=False,
+        device=device,dtype=dtype)
+
+    input_residue_index_feature = torch.arange(len(target_sequence), device=device)
+    total_amino_acid_distribution = global_msa_sequence_tensor.mean(dim=0, keepdim=True)
+
     # Initialize the extractor with fixed parameters and seed for determinism
     extractor = FeatureExtractor(
-        file_path=str(msa_file_path),
+        target_sequence=target_sequence,
+        global_msa_sequence_tensor=global_msa_sequence_tensor,
+        global_msa_deletion_count_tensor=global_msa_deletion_count_tensor,
+        input_sequence_feature=input_sequence_feature,
+        input_residue_index_feature=input_residue_index_feature,
+        total_amino_acid_distribution=total_amino_acid_distribution,
         maximum_cluster_sequences=512,
         maximum_extra_msa_sequences=5120,
         mask_probability=0.15,
-        device=torch.device("cpu"),
-        dtype=torch.float32,
+        device=device,
+        dtype=dtype,
         seed=0
     )
 

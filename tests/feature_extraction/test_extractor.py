@@ -2,6 +2,7 @@ import torch
 import unittest
 import os
 from pathlib import Path
+from utilities.data.msa import one_hot_encode_amino_acid_types
 from feature_extraction.extractor import FeatureExtractor
 from utilities.data.msa import load_a3m_file, compute_unique_sequences
 
@@ -27,14 +28,25 @@ class TestFeatureExtractorIntegration(unittest.TestCase):
         global_msa_sequence_tensor, global_msa_deletion_count_tensor = compute_unique_sequences(
             unprocessed_sequences=unprocessed_sequences,
             device=device,
+            dtype=dtype)
+
+        input_sequence_feature = one_hot_encode_amino_acid_types(
+            sequence=target_sequence,
+            include_gap_token=False,
+            device=device,
             dtype=dtype
         )
+        input_residue_index_feature = torch.arange(len(target_sequence), device=device)
+        total_amino_acid_distribution = global_msa_sequence_tensor.mean(dim=0, keepdim=True)
 
         # 2. Initialize the extractor with pre-computed globals
         self.extractor = FeatureExtractor(
             target_sequence=target_sequence,
             global_msa_sequence_tensor=global_msa_sequence_tensor,
             global_msa_deletion_count_tensor=global_msa_deletion_count_tensor,
+            input_sequence_feature=input_sequence_feature,
+            input_residue_index_feature=input_residue_index_feature,
+            total_amino_acid_distribution=total_amino_acid_distribution,
             maximum_cluster_sequences=512,
             maximum_extra_msa_sequences=5120,
             mask_probability=0.15,

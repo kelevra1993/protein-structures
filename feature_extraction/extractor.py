@@ -37,6 +37,9 @@ class FeatureExtractor:
                  target_sequence: str,
                  global_msa_sequence_tensor: torch.Tensor,
                  global_msa_deletion_count_tensor: torch.Tensor,
+                 input_sequence_feature: torch.Tensor,
+                 input_residue_index_feature: torch.Tensor,
+                 total_amino_acid_distribution: torch.Tensor,
                  maximum_cluster_sequences: int,
                  maximum_extra_msa_sequences: int,
                  mask_probability: float,
@@ -49,6 +52,9 @@ class FeatureExtractor:
         :param target_sequence: The primary target sequence (already cropped).
         :param global_msa_sequence_tensor: Pre-computed, cropped one-hot MSA tensor.
         :param global_msa_deletion_count_tensor: Pre-computed, cropped deletion count tensor.
+        :param input_sequence_feature: Precomputed sequence one-hot encoding.
+        :param input_residue_index_feature: Precomputed residue indices.
+        :param total_amino_acid_distribution: Precomputed MSA amino acid distribution.
         :param maximum_cluster_sequences: Max number of sequences for the main MSA clusters.
         :param maximum_extra_msa_sequences: Max number of sequences for the extra MSA stack.
         :param mask_probability: Probability of masking residues in MSA clusters.
@@ -71,22 +77,13 @@ class FeatureExtractor:
         # The target sequence (str).
         self.input_sequence = target_sequence
 
-        # shape: (number_residues, number_canonical_amino_acids)
-        self.input_sequence_feature = one_hot_encode_amino_acid_types(
-            sequence=self.input_sequence,
-            include_gap_token=False,
-            device=self.device,
-            dtype=self.dtype
-        )
-
-        # shape: (number_residues,)
-        self.input_residue_index_feature = torch.arange(len(self.input_sequence), device=self.device)
-
+        self.input_sequence_feature = input_sequence_feature
+        self.input_residue_index_feature = input_residue_index_feature
+        
         self.number_residues = len(self.input_sequence)
         self.total_sequences = self.global_msa_sequence_tensor.shape[0]
 
-        # shape: (1, number_residues, number_gapped_amino_acids)
-        self.total_amino_acid_distribution = self.global_msa_sequence_tensor.mean(dim=0, keepdim=True)
+        self.total_amino_acid_distribution = total_amino_acid_distribution
 
         # self.input_msa_sequence_tensor shape: (number_clusters, number_residues, number_gapped_amino_acids)
         # self.input_extra_msa_sequence_tensor shape:
@@ -408,6 +405,16 @@ if __name__ == "__main__":
         dtype=dtype
     )
 
+
+    input_sequence_feature = one_hot_encode_amino_acid_types(
+        sequence=target_sequence,
+        include_gap_token=False,
+        device=device,
+        dtype=dtype
+    )
+    input_residue_index_feature = torch.arange(len(target_sequence), device=device)
+    total_amino_acid_distribution = global_msa_sequence_tensor.mean(dim=0, keepdim=True)
+
     # todo we will have to see if seed set to none yield random values.
     #  very important.
     # 2. Initialize the extractor with pre-computed globals
@@ -415,6 +422,9 @@ if __name__ == "__main__":
         target_sequence=target_sequence,
         global_msa_sequence_tensor=global_msa_sequence_tensor,
         global_msa_deletion_count_tensor=global_msa_deletion_count_tensor,
+        input_sequence_feature=input_sequence_feature,
+        input_residue_index_feature=input_residue_index_feature,
+        total_amino_acid_distribution=total_amino_acid_distribution,
         maximum_cluster_sequences=512,
         maximum_extra_msa_sequences=5120,
         mask_probability=0.15,
