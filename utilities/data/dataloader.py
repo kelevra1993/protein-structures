@@ -20,6 +20,7 @@ class ProteinDataset(Dataset):
                  acceptance_slope_start: int = 256,
                  acceptance_slope_end: int = 512,
                  residue_crop_size: int | None = 256,
+                 emphasize_beginning_crops: bool = True,
                  distribution_threshold: int = 80,
                  maximum_cluster_sequences: int = 512,
                  maximum_extra_msa_sequences: int = 5120,
@@ -36,6 +37,7 @@ class ProteinDataset(Dataset):
         :param acceptance_slope_start: Threshold for input filtering probability calculation.
         :param acceptance_slope_end: Upper threshold for input filtering probability calculation.
         :param residue_crop_size: The number of residues to crop from each sequence during sampling.
+        :param emphasize_beginning_crops: If True, applies a stochastic bias to sample crops closer to the N-terminus.
         :param distribution_threshold: Threshold to filter out sequences with highly biased amino acid distributions.
         :param maximum_cluster_sequences: Max number of sequences for the main MSA clusters.
         :param maximum_extra_msa_sequences: Max number of sequences for the extra MSA stack.
@@ -53,6 +55,7 @@ class ProteinDataset(Dataset):
         self.acceptance_slope_start = acceptance_slope_start
         self.acceptance_slope_end = acceptance_slope_end
         self.residue_crop_size = residue_crop_size
+        self.emphasize_beginning_crops = emphasize_beginning_crops
         self.distribution_threshold = distribution_threshold
         self.maximum_cluster_sequences = maximum_cluster_sequences
         self.maximum_extra_msa_sequences = maximum_extra_msa_sequences
@@ -73,7 +76,6 @@ class ProteinDataset(Dataset):
             else:
                 self.protein_ids.extend(members)
 
-
     def __len__(self) -> int:
         """
         Returns the total number of items in this dataset split. If we set use_single_representative as True,
@@ -83,6 +85,10 @@ class ProteinDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict:
         """
+        Todo we actually haven't implemented a mechanism of skipping datapoints
+          here might seem the best place to do this but we are dealing with an index that is passed that we do
+          not have control of unless we call __getitem__ explicitly which might defeat the purpose of our dataloader.
+
         Retrieves the cropped and processed tensor data for a specific protein.
 
         It constructs the paths to the .npz, .json, and .a3m files based on the
@@ -105,6 +111,7 @@ class ProteinDataset(Dataset):
             acceptance_slope_start=self.acceptance_slope_start,
             acceptance_slope_end=self.acceptance_slope_end,
             residue_crop_size=self.residue_crop_size,
+            emphasize_beginning_crops=self.emphasize_beginning_crops,
             distribution_threshold=self.distribution_threshold,
             maximum_cluster_sequences=self.maximum_cluster_sequences,
             maximum_extra_msa_sequences=self.maximum_extra_msa_sequences,
@@ -176,6 +183,7 @@ def protein_collate_fn(batch: list[dict]) -> dict:
 def get_protein_dataloader(data_folder: str,
                            split_file_path: str,
                            residue_crop_size: int | None = 256,
+                           emphasize_beginning_crops: bool = True,
                            batch_size: int = 1,
                            num_workers: int = 0,
                            shuffle: bool = False,
@@ -195,6 +203,7 @@ def get_protein_dataloader(data_folder: str,
     :param data_folder: Path to the root data folder.
     :param split_file_path: Path to the JSON file defining the dataset split.
     :param residue_crop_size: The number of residues to crop from each sequence.
+    :param emphasize_beginning_crops: If True, applies a stochastic bias to sample crops closer to the N-terminus.
     :param batch_size: Number of samples per batch.
     :param num_workers: Number of worker threads for data loading.
     :param shuffle: Whether to shuffle the data in the DataLoader.
@@ -217,6 +226,7 @@ def get_protein_dataloader(data_folder: str,
         acceptance_slope_start=acceptance_slope_start,
         acceptance_slope_end=acceptance_slope_end,
         residue_crop_size=residue_crop_size,
+        emphasize_beginning_crops=emphasize_beginning_crops,
         distribution_threshold=distribution_threshold,
         maximum_cluster_sequences=maximum_cluster_sequences,
         maximum_extra_msa_sequences=maximum_extra_msa_sequences,
@@ -232,6 +242,7 @@ def get_protein_dataloader(data_folder: str,
         shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=protein_collate_fn,
-        drop_last=False)
+        drop_last=False,
+        prefetch_factor=4)
 
     return dataloader

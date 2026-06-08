@@ -1,4 +1,4 @@
-DataConfiguration:
+TrainDataConfiguration:
   maximum_cluster_sequences: 512
   maximum_extra_msa_sequences: 5120
   mask_probability: 0.15

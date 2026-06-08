@@ -24,6 +24,7 @@ class ModelInput:
                  acceptance_slope_start: int = 256,
                  acceptance_slope_end: int = 512,
                  residue_crop_size: int | None = 256,
+                 emphasize_beginning_crops: bool = True,
                  distribution_threshold: int = 80,
                  maximum_cluster_sequences: int = 512,
                  maximum_extra_msa_sequences: int = 5120,
@@ -45,6 +46,7 @@ class ModelInput:
             acceptance_slope_end (int): Maximum protein length for the acceptance probability ramp.
             residue_crop_size (int | None): The number of residues to include in a crop. If None,
                 no cropping is performed.
+            emphasize_beginning_crops (bool): If True, applies a stochastic bias to sample crops closer to the N-terminus.
             distribution_threshold (int): Percentage threshold for filtering out sequences with
                 unusually high concentrations of a single amino acid.
             maximum_cluster_sequences (int): Maximum number of unique sequences to retain for MSA clustering.
@@ -65,6 +67,7 @@ class ModelInput:
         self.acceptance_slope_start = acceptance_slope_start
         self.acceptance_slope_end = acceptance_slope_end
         self.residue_crop_size = residue_crop_size
+        self.emphasize_beginning_crops = emphasize_beginning_crops
         self.maximum_cluster_sequences = maximum_cluster_sequences
         self.maximum_extra_msa_sequences = maximum_extra_msa_sequences
         self.mask_probability = mask_probability
@@ -140,16 +143,12 @@ class ModelInput:
         """
         return random.random() < self.acceptance_probability
 
-    def get_crop_indices(self, emphasize_beginning_crops: bool) -> tuple[int, int]:
+    def get_crop_indices(self) -> tuple[int, int]:
         """
         Generates random start and end indices for cropping the sequence and structure.
 
         This method is invoked only when `residue_crop_size` is specified. It provides
         the indices necessary to slice MSA and structural tensors into a fixed-size window.
-
-        Args:
-            emphasize_beginning_crops (bool): If True, applies a stochastic bias to sample
-                crops closer to the N-terminus of the protein.
 
         Returns:
             tuple[int, int]: A pair of (start_index, end_index) for slicing.
@@ -163,7 +162,7 @@ class ModelInput:
         # Maximum possible start index to ensure we don't go out of bounds
         max_start_index = num_residues - self.residue_crop_size
 
-        if not emphasize_beginning_crops:
+        if not self.emphasize_beginning_crops:
             # Uniform sampling
             start_index = random.randint(0, max_start_index)
         else:
@@ -254,8 +253,7 @@ class ModelInput:
         return cropped_global_positions, cropped_local_positions, cropped_frames, cropped_angles
 
     def get_data(self, number_samples: int,
-                 seed: Optional[int] = None, batch_mode: bool = False,
-                 emphasize_beginning_crops: bool = True) -> Dict[str, torch.Tensor]:
+                 seed: Optional[int] = None, batch_mode: bool = False) -> Dict[str, torch.Tensor]:
         """
         Constructs a comprehensive input dictionary for the model, supporting recycling cycles.
 
@@ -267,7 +265,6 @@ class ModelInput:
             number_samples (int): The number of recycling cycles (iterations) to generate data for.
             seed (Optional[int]): Base random seed for reproducible stochastic features (e.g., masking).
             batch_mode (bool): If True, prepends a batch dimension of size 1 to all tensors.
-            emphasize_beginning_crops (bool): If True, biases random cropping towards the N-terminus.
 
         Returns:
             Dict[str, torch.Tensor]: A dictionary of stacked features. All tensors follow the
@@ -289,7 +286,7 @@ class ModelInput:
 
         # Determine the residue range (Cropping)
         if self.residue_crop_size:
-            start_index, end_index = self.get_crop_indices(emphasize_beginning_crops=emphasize_beginning_crops)
+            start_index, end_index = self.get_crop_indices()
         else:
             start_index, end_index = 0, self.structure.number_residues
 
@@ -340,8 +337,8 @@ class ModelInput:
 
             # Precompute static features outside the recycling loop to avoid redundant calculations
             precomputed_input_sequence_feature = one_hot_encode_amino_acid_types(
-                sequence=target_sequence,include_gap_token=False,
-                device=msa_sequence_tensor.device,dtype=msa_sequence_tensor.dtype)
+                sequence=target_sequence, include_gap_token=False,
+                device=msa_sequence_tensor.device, dtype=msa_sequence_tensor.dtype)
 
             # Residue indices
             precomputed_input_residue_index_feature = torch.arange(len(target_sequence),
@@ -351,7 +348,6 @@ class ModelInput:
             precomputed_total_amino_acid_distribution = msa_sequence_tensor.mean(dim=0, keepdim=True)
 
             for cycle in range(number_samples):
-
                 # Vary seed per cycle to allow different random masks/shuffles
                 current_seed = seed + cycle if seed is not None else None
 
