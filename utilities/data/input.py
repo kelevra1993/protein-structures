@@ -20,15 +20,15 @@ class ModelInput:
     def __init__(self,
                  structure_path: str,
                  msa_path: str,
+                 acceptance_slope_start: int,
+                 acceptance_slope_end: int,
+                 residue_crop_size: int | None,
+                 emphasize_beginning_crops: bool,
+                 distribution_threshold: int,
+                 maximum_cluster_sequences: int,
+                 maximum_extra_msa_sequences: int,
+                 mask_probability: float,
                  record_path: Optional[str] = None,
-                 acceptance_slope_start: int = 256,
-                 acceptance_slope_end: int = 512,
-                 residue_crop_size: int | None = 256,
-                 emphasize_beginning_crops: bool = True,
-                 distribution_threshold: int = 80,
-                 maximum_cluster_sequences: int = 512,
-                 maximum_extra_msa_sequences: int = 5120,
-                 mask_probability: float = 0.15,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
         Initializes a ModelInput object, representing a single protein complex for training or inference.
