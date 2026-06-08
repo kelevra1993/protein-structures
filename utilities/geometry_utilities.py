@@ -425,7 +425,7 @@ def approximate_next_nitrogen(carbon_alpha: torch.Tensor, carbon: torch.Tensor, 
 
 def compute_non_chi_transform_matrices() -> torch.Tensor:
     """
-    Calculates the non-chi local frame transformations for all 20 canonical amino acids.
+    Calculates the non-chi local frame transformations for all 21 residues (20 canonical + 1 unknown 'X').
 
     Constructs the transformations for the backbone, pre-omega, phi, and psi rigid groups. 
     These represent the base frames in the local coordinate systems before any torsion 
@@ -447,7 +447,7 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
 
     Returns:
         torch.Tensor: The stacked transformation matrices for the non-chi rigid groups.
-            Shape: `(20, 4, 4, 4)`, where the second dimension represents the 4 frames 
+            Shape: `(21, 4, 4, 4)`, where the second dimension represents the 4 frames 
             (backbone, pre-omega, phi, psi).
     """
 
@@ -507,11 +507,11 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
 
 def compute_chi_transform_matrices() -> torch.Tensor:
     """
-    Calculates transforms for the local side-chain frames (chi1 to chi4) for 
-    all 20 canonical amino acids.
+    Calculates transforms for the local side-chain frames (chi1 to chi4) for
+    all 21 residues (20 canonical + 1 unknown 'X').
 
-    These frames track the side-chain atom positions. If the chi angles are not present 
-    for the given amino acid (according to `chi_angles_mask`), they are substituted by 
+    These frames track the side-chain atom positions. If the chi angles are not present
+    for the given amino acid (according to `chi_angles_mask`), they are substituted by
     the Identity transform.
 
     chi1:
@@ -534,7 +534,7 @@ def compute_chi_transform_matrices() -> torch.Tensor:
 
     Returns:
         torch.Tensor: Stacked transforms for the chi frames.
-            Shape: `(20, 4, 4, 4)`. The second dim corresponds to the 4 chi frames.
+            Shape: `(21, 4, 4, 4)`. The second dim corresponds to the 4 chi frames.
     """
 
     # Note: For chi2, chi3 and chi4, ey is the inverse of the previous ex.
@@ -542,7 +542,7 @@ def compute_chi_transform_matrices() -> torch.Tensor:
     # Also note: For chi2, chi3, and chi4, ex starts at t of the previous transform.
     # This means, that the starting point is 0 in local coordinates.
 
-    chi_transforms = torch.zeros((20, 4, 4, 4))
+    chi_transforms = torch.zeros((21, 4, 4, 4))
     for amino_acid_index, (amino_acid, amino_acid_information) in enumerate(rigid_group_atom_position_map.items()):
 
         side_chain_centers = chi_angles_frame_centers[amino_acid]
@@ -576,12 +576,12 @@ def compute_initial_rigid_transform_matrices() -> torch.Tensor:
     """
     Combines the non-chi and chi local frame transformations into a single tensor.
 
-    This provides all 8 initial rigid group transformation frames (backbone, pre-omega, 
-    phi, psi, chi1, chi2, chi3, chi4) for the 20 amino acids.
+    This provides all 8 initial rigid group transformation frames (backbone, pre-omega,
+    phi, psi, chi1, chi2, chi3, chi4) for the 21 residues.
 
     Returns:
         torch.Tensor: The stacked initial rigid transformations.
-            Shape: `(20, 8, 4, 4)`.
+            Shape: `(21, 8, 4, 4)`.
     """
 
     rigid_transforms = torch.cat(tensors=[compute_non_chi_transform_matrices(),
