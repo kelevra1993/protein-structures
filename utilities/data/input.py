@@ -126,7 +126,7 @@ class ModelInput:
         """
 
         distribution_counter = Counter(self.global_target_sequence)
-        distribution = {x_to_xxx[x]: round(100 * count / len(self.global_target_sequence), 2) for x, count in
+        distribution = {x_to_xxx.get(x, "UNK"): round(100 * count / len(self.global_target_sequence), 2) for x, count in
                         distribution_counter.items()}
 
         return distribution

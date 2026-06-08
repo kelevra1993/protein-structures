@@ -35,7 +35,7 @@ def one_hot_encode_amino_acid_types(sequence: str, include_gap_token: bool, devi
     """
     amino_acid_dictionary = all_amino_acid_dictionary if not include_gap_token else gapped_amino_acid_dictionary
 
-    sequence_indices = torch.tensor([amino_acid_dictionary[amino_acid_index] for amino_acid_index in sequence],
+    sequence_indices = torch.tensor([amino_acid_dictionary.get(amino_acid, 20) for amino_acid in sequence],
                                     device=device)
 
     encoding = torch.nn.functional.one_hot(sequence_indices, num_classes=len(amino_acid_dictionary))

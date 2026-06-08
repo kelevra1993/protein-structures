@@ -190,7 +190,7 @@ class Structure:
             list[Residue]: A list of populated Residue objects.
         """
         return [Residue(name=str(row[0]),
-                        amino_acid_index=xxx_to_index.get(str(row[0])),
+                        amino_acid_index=xxx_to_index.get(str(row[0]), 20),
                         residue_index=int(row[2]),
                         atom_start_index=int(row[3]),
                         atom_count=int(row[4]),
