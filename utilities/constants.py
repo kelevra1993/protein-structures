@@ -249,8 +249,13 @@ rigid_group_atom_positions = {
         ["C", 0, (1.527, -0.000, -0.000)],
         ["CB", 0, (-0.533, -0.795, -1.213)],
         ["O", 3, (0.627, 1.062, -0.000)],
-        ["CG1", 4, (0.540, 1.429, -0.000)],
-        ["CG2", 4, (0.533, -0.776, 1.203)],
+    ],
+    "UNK": [
+        ["N", 0, (-0.526, 1.361, 0.000)],
+        ["CA", 0, (0.000, 0.000, 0.000)],
+        ["C", 0, (1.525, -0.000, -0.000)],
+        ["CB", 0, (-0.526, -0.771, -1.214)],
+        ["O", 3, (0.626, 1.062, 0.000)],
     ],
 }
 
@@ -308,13 +313,13 @@ index_to_atom = {i: atom_type for i, atom_type in enumerate(atom_types)}
 number_atom_types = len(atom_types)  # := 37.
 
 # Todo add small description + example
-atom_local_positions = torch.zeros((20, 37, 3))
+atom_local_positions = torch.zeros((21, 37, 3))
 
 # Todo add small description + example
-atom_frame_indices = torch.zeros((20, 37), dtype=torch.int64)
+atom_frame_indices = torch.zeros((21, 37), dtype=torch.int64)
 
 # Todo add small description + example
-atom_mask = torch.zeros((20, 37)).to(torch.bool)
+atom_mask = torch.zeros((21, 37)).to(torch.bool)
 
 for i, (aa, values) in enumerate(rigid_group_atom_positions.items()):
     for name, index, pos in values:
@@ -345,6 +350,7 @@ chi_angles_mask = [
     [1.0, 1.0, 0.0, 0.0],  # TRP
     [1.0, 1.0, 0.0, 0.0],  # TYR
     [1.0, 0.0, 0.0, 0.0],  # VAL
+    [0.0, 0.0, 0.0, 0.0],  # UNK
 ]
 
 # Non-chi coordinate frames centers (consistent across all residues)
@@ -374,6 +380,7 @@ chi_angles_frame_centers = {
     'TRP': ['CB', 'CG'],
     'TYR': ['CB', 'CG'],
     'VAL': ['CB'],
+    'UNK': [],
 }
 
 # This dictionary is used to compute the different dihedral/torsion angles of ground truths for chi frames.
@@ -396,6 +403,7 @@ chi_dihedral_dictionary = {
     "TRP": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD1'},
     "TYR": {'atom_0': 'CB', 'atom_1': 'CG', 'atom_2': 'CD1'},
     "VAL": {'atom_0': 'CB', 'atom_1': 'CG1'},
+    "UNK": {},
 }
 #########################################################
 # Management of alternative truths for loss computation #
@@ -405,19 +413,20 @@ chi_dihedral_dictionary = {
 xxx_to_index = {'ALA': 0, 'ARG': 1, 'ASN': 2, 'ASP': 3, 'CYS': 4,
                 'GLN': 5, 'GLU': 6, 'GLY': 7, 'HIS': 8, 'ILE': 9,
                 'LEU': 10, 'LYS': 11, 'MET': 12, 'PHE': 13, 'PRO': 14,
-                'SER': 15, 'THR': 16, 'TRP': 17, 'TYR': 18, 'VAL': 19}
+                'SER': 15, 'THR': 16, 'TRP': 17, 'TYR': 18, 'VAL': 19,
+                'UNK': 20}
 index_to_xxx = {value: key for key, value in xxx_to_index.items()}
 
 # Single Letter Codes
-x_to_index = {key: index for index, key in enumerate(canonical_amino_acid_residues)}
-index_to_x = {index: key for index, key in enumerate(canonical_amino_acid_residues)}
+x_to_index = {key: index for index, key in enumerate(all_amino_acid_residues)}
+index_to_x = {index: key for index, key in enumerate(all_amino_acid_residues)}
 
 # Single <-> Three Letter Code Changes
 x_to_xxx = {x: index_to_xxx[index] for x, index in x_to_index.items()}
 xxx_to_x = {xxx: x for x, xxx in x_to_xxx.items()}
 
-# Angles : shape (20, 7, 2)
-alternative_angle_mask = torch.ones((20, 7, 2))
+# Angles : shape (21, 7, 2)
+alternative_angle_mask = torch.ones((21, 7, 2))
 
 # Rigid Groups with atom symetry based on torsion angles
 # For amino-acids such as aspartic acid, glutamic acid, phenylalanine and tyrosine
@@ -431,8 +440,8 @@ angle_symetry_amino_acids = {
 for amino_acid, chi_angle_index in angle_symetry_amino_acids.items():
     alternative_angle_mask[xxx_to_index[amino_acid], chi_angle_index] *= -1
 
-# Positions : shape (20, 37)
-alternative_position_mask = torch.arange(number_atom_types).repeat(20, 1)
+# Positions : shape (21, 37)
+alternative_position_mask = torch.arange(number_atom_types).repeat(21, 1)
 
 # Swapped atoms
 position_symetry_atoms = {
@@ -461,7 +470,7 @@ ambiguous_position_mask = torch.abs(alternative_position_mask - torch.arange(num
 # print(ambiguous_position_mask.numpy())
 # print(alternative_position_mask.numpy() - np.array(list(range(37))))
 # print(ambigous_position_mask.numpy())
-# for i in range(20):
+# for i in range(21):
 #     print(f"Amino Acid : {index_to_xxx[i]}")
 #     # print(angle_alternative_truth_mask[i].numpy())
 #     print(position_alternative_mask[i].numpy())
