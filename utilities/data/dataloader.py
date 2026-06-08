@@ -1,5 +1,6 @@
 import json
 import torch
+import random
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from utilities.data.input import ModelInput
@@ -24,6 +25,7 @@ class ProteinDataset(Dataset):
                  maximum_extra_msa_sequences: int = 5120,
                  mask_probability: float = 0.15,
                  number_recycle_cycles: int = 1,
+                 use_single_representative: bool = False,
                  device: torch.device = torch.device("cpu"),
                  dtype: torch.dtype = torch.float32):
         """
@@ -39,6 +41,7 @@ class ProteinDataset(Dataset):
         :param maximum_extra_msa_sequences: Max number of sequences for the extra MSA stack.
         :param mask_probability: Probability of masking residues in MSA clusters.
         :param number_recycle_cycles: Number of recycling iterations to simulate in the batch (used by ModelInput.get_data).
+        :param use_single_representative: If True, each cluster contributes only one random representative per epoch.
         :param device: The target torch.device.
         :param dtype: The target torch.dtype.
         """
@@ -55,23 +58,28 @@ class ProteinDataset(Dataset):
         self.maximum_extra_msa_sequences = maximum_extra_msa_sequences
         self.mask_probability = mask_probability
         self.number_recycle_cycles = number_recycle_cycles
+        self.use_single_representative = use_single_representative
 
         # Parse the JSON split file
         # The structure is assumed to be: { "cluster_id": ["protein_id_1", "protein_id_2"], ... }
         cluster_mapping = read_json(path=str(self.split_file_path))
 
         # Flatten the clusters into a single list of protein IDs
-        # Here we just take all of the protiens of all of the clusters
-        # Todo we will later implement a key call use_single_representative, and when available,
-        #  just take a random member and not all of them
-        #  consider using shuffling as well after all of the members have been added to self.protein_ids ?
+        # If we set use_single_representative as True, we just take one random element.
         self.protein_ids = []
         for cluster, members in cluster_mapping.items():
-            self.protein_ids.extend(members)
+            if self.use_single_representative:
+                self.protein_ids.append(random.choice(members))
+            else:
+                self.protein_ids.extend(members)
+
+        # Shuffle once at initialization to ensure diverse cluster representation if shuffle=False
+        random.shuffle(self.protein_ids)
 
     def __len__(self) -> int:
         """
-        Returns the total number of proteins in this dataset split.
+        Returns the total number of items in this dataset split. If we set use_single_representative as True,
+        this is the number of clusters. Otherwise, it is the total number of proteins.
         """
         return len(self.protein_ids)
 
@@ -108,7 +116,7 @@ class ProteinDataset(Dataset):
 
         # Get the cropped and recycled batch data
         # NOTE : if self.residue_crop_size is None then we just get the whole data
-        batch_data = model_input.get_data(number_samples=self.number_recycle_cycles,seed=None,batch_mode=False)
+        batch_data = model_input.get_data(number_samples=self.number_recycle_cycles, seed=None, batch_mode=False)
 
         return batch_data
 
@@ -170,10 +178,12 @@ def protein_collate_fn(batch: list[dict]) -> dict:
 def get_protein_dataloaders(data_folder: str,
                             train_split_path: str,
                             validation_split_path: str,
+                            shuffle: bool = False,
                             batch_size: int = 1,
                             num_workers: int = 0,
                             **dataset_kwargs) -> tuple[DataLoader, DataLoader]:
     """
+    TODO Update Docstring add shuffle
     # Todo later we will add all the kwargs so that they can be clearly defined.
     Creates and returns the training and validation PyTorch DataLoaders.
 
@@ -202,7 +212,7 @@ def get_protein_dataloaders(data_folder: str,
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=batch_size,
-        shuffle=True,  # Shuffle clusters/proteins for training
+        shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=protein_collate_fn,
         drop_last=False)
@@ -210,7 +220,7 @@ def get_protein_dataloaders(data_folder: str,
     validation_dataloader = DataLoader(
         dataset=validation_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=protein_collate_fn,
         drop_last=False)
