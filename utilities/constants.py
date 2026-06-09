@@ -6,7 +6,8 @@ import numpy as np
 
 # No printing of scientific notations
 np.set_printoptions(suppress=True)
-np.set_printoptions(linewidth=500, threshold=np.inf)
+np.set_printoptions(linewidth=1000, threshold=np.inf)
+torch.set_printoptions(linewidth=1000)
 
 # TODO ADD THREE LETTER ENCODING EASIER FOR FUTURE WORK
 # TODO CONSIDER ADDING INTEGER INDICES TO AMINO ACID RESIDUES DIRECTLY ?

@@ -3,6 +3,7 @@ import time
 from torch import nn
 from typing import Tuple, Optional
 
+from architecture_modules.lddt_module.lddt_module import LddtModule
 from architecture_modules.structure_module.invariant_point_attention_module import InvariantPointAttention
 from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_4x4_transform_matrix, \
     turn_quaternion_to_3x3_matrix
@@ -10,7 +11,7 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
 # Here we will have to design this explicitly
 from utilities.constants import atom_types, canonical_amino_acid_residues, index_to_xxx
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
-    rename_symmetric_ground_truth_metrics
+    rename_symmetric_ground_truth_metrics, compute_local_distance_difference_test, compute_plddt_loss
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 
@@ -41,15 +42,19 @@ class StructureModuleTransition(nn.Module):
         self.first_embedder = nn.Linear(in_features=self.single_representation_embedding,
                                         out_features=self.single_representation_embedding,
                                         device=self.device, dtype=self.dtype)
+
         self.second_embedder = nn.Linear(in_features=self.single_representation_embedding,
                                          out_features=self.single_representation_embedding,
                                          device=self.device, dtype=self.dtype)
+
         self.third_embedder = nn.Linear(in_features=self.single_representation_embedding,
                                         out_features=self.single_representation_embedding,
                                         device=self.device, dtype=self.dtype)
+
         self.single_representation_layer_normalizer = nn.LayerNorm(
             normalized_shape=self.single_representation_embedding,
             device=self.device, dtype=self.dtype)
+
         self.ReLu = nn.ReLU()
 
     def forward(self, single_representation: torch.Tensor) -> torch.Tensor:
@@ -316,6 +321,11 @@ class StructureModule(nn.Module):
                                         number_torsion_angles=self.number_torsion_angles,
                                         device=self.device, dtype=self.dtype)
 
+        # Initializing Local Distance Difference Test Prediction Module
+        self.lddt_module = LddtModule(single_representation_embedding=self.single_representation_embedding,
+                                      intermediate_embedding=int(self.single_representation_embedding / 4),
+                                      device=self.device, dtype=self.dtype)
+
     @staticmethod
     def process_outputs(
             transformation_matrix: torch.Tensor,
@@ -426,6 +436,21 @@ class StructureModule(nn.Module):
         device = single_representation.device
         dtype = single_representation.dtype
 
+        # Setup the batch size
+        if list(batch_dimension):
+            batch_size = batch_dimension[0]
+        else:
+            batch_size = 1
+            single_representation = single_representation.unsqueeze(0)
+            pair_representation = pair_representation.unsqueeze(0)
+            sequence_amino_acid_labels = sequence_amino_acid_labels.unsqueeze(0)
+            ground_truth_transformation_matrix = ground_truth_transformation_matrix.unsqueeze(0)
+            alternative_ground_truth_transformation_matrix = alternative_ground_truth_transformation_matrix.unsqueeze(0)
+            ground_truth_angles = ground_truth_angles.unsqueeze(0)
+            alternative_ground_truth_angles = alternative_ground_truth_angles.unsqueeze(0)
+            ground_truth_positions = ground_truth_positions.unsqueeze(0)
+            alternative_ground_truth_positions = alternative_ground_truth_positions.unsqueeze(0)
+
         # Get the Backbone Transformation Matrix from (..., number_residues, 8, 4, 4) -> (..., number_residues, 4, 4)`
         ground_truth_backbone_transformation_matrix = ground_truth_transformation_matrix[..., 0, :, :]
 
@@ -523,31 +548,18 @@ class StructureModule(nn.Module):
         # Since we are dealing with only heavy atoms and some residue present areas of 180 symetry rotation
         # the network can predict coordinates that are legit and therefore it should not be penalized,
         # therefore the ground truth has to change accordingly, but it has to be done at every prediction cycle
-        # If there is not batch dimension, just simple call without a for loop
-        if list(batch_dimension):
-            batch_size = batch_dimension[0]
-            for batch_index in range(batch_size):
-                # Modify Ground Truth Positions And Frames Accordingly, by iterating through batches
-                (ground_truth_positions[batch_index],
-                 ground_truth_transformation_matrix[batch_index]) = rename_symmetric_ground_truth_metrics(
-                    predicted_positions=final_positions[batch_index],
-                    ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
-                    ground_truth_positions=ground_truth_positions[batch_index],
-                    alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[
-                        batch_index],
-                    alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
-                    sequence_amino_acid_labels=sequence_amino_acid_labels[batch_index])
-        else:
 
-            ground_truth_positions, ground_truth_transformation_matrix = rename_symmetric_ground_truth_metrics(
-                predicted_positions=final_positions,
-                ground_truth_transformation_matrix=ground_truth_transformation_matrix,
-                ground_truth_positions=ground_truth_positions,
-                alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix,
-                alternative_ground_truth_positions=alternative_ground_truth_positions,
-                sequence_amino_acid_labels=sequence_amino_acid_labels)
-
-        start = time.time()
+        for batch_index in range(batch_size):
+            # Modify Ground Truth Positions And Frames Accordingly, by iterating through batches
+            (ground_truth_positions[batch_index],
+             ground_truth_transformation_matrix[batch_index]) = rename_symmetric_ground_truth_metrics(
+                predicted_positions=final_positions[batch_index],
+                ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
+                ground_truth_positions=ground_truth_positions[batch_index],
+                alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[
+                    batch_index],
+                alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
+                sequence_amino_acid_labels=sequence_amino_acid_labels[batch_index])
 
         # Note Here we use all frames in the transformation matrices
         # Note We also use all positions
@@ -588,8 +600,19 @@ class StructureModule(nn.Module):
         # Average out the overall fape loss by the number of present positions
         overall_fape_loss = overall_fape_loss / fape_loss_counter
 
-        # TODO Implementation of predictperresiduelddt-c-alpha
-        print(f"This took {time.time() - start} seconds")
-        exit()
+        # Implementation of Prediction Per Residue LDDT C-Alpha Loss
+        local_difference_distance_test = compute_local_distance_difference_test(
+            prediction_positions=final_positions,
+            ground_truth_positions=ground_truth_positions)
 
-        return angles, frames, final_positions, position_mask, pseudo_beta_positions, overall_fape_loss, auxillary_loss
+        # Predict LDDT Logits and Probabilities as well as
+        lddt_logits, lddt_probabilities, predicted_lddt_per_residue = self.lddt_module(
+            single_representation=single_representation)
+
+        # Compute LDDT Loss
+        predicted_lddt_loss = compute_plddt_loss(ground_truth_lddt=local_difference_distance_test,
+                                                 predicted_lddt_logits=lddt_logits,
+                                                 lddt_bins=self.lddt_module.lddt_bins)
+
+        return (angles, frames, final_positions, position_mask,
+                pseudo_beta_positions, overall_fape_loss, auxillary_loss, predicted_lddt_loss)
