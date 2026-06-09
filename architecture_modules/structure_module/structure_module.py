@@ -7,7 +7,7 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
     turn_quaternion_to_3x3_matrix
 
 # Here we will have to design this explicitly
-from utilities.constants import atom_types, canonical_amino_acid_residues
+from utilities.constants import atom_types, canonical_amino_acid_residues, index_to_xxx
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
     rename_symmetric_ground_truth_metrics
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
@@ -420,7 +420,7 @@ class StructureModule(nn.Module):
                   Shape: `(..., number_residues, 3)`.
         """
         number_residues = pair_representation.shape[-2]
-        batch_dimension = single_representation.shape[:-2]
+        batch_size = single_representation.shape[-3]
         outputs = {'angles': [], 'frames': []}
         device = single_representation.device
         dtype = single_representation.dtype
@@ -458,7 +458,7 @@ class StructureModule(nn.Module):
 
         # Initial backbone transformation matrix as an identity matrix.
         transformation_matrix = (torch.eye(4, device=device, dtype=dtype).
-                                 broadcast_to(batch_dimension + (number_residues, 4, 4)))
+                                 broadcast_to((batch_size,) + (number_residues, 4, 4)))
 
         # Losses
         auxillary_loss = torch.tensor(0.0, dtype=self.dtype, device=self.device)
@@ -534,34 +534,25 @@ class StructureModule(nn.Module):
             residue_angles=residue_angles,
             sequence_amino_acid_labels=sequence_amino_acid_labels)
 
-
-
-        print_tensor_shape(final_positions,name="final_positions")
-        print_tensor_list(final_positions[0,0,:5])
-        print_tensor_list(5*ground_truth_positions[0,0,:5])
-        exit()
         # Implementation of the renaming of the symmetric ground truth atoms
-        # TODO To put the right elements here
-        ground_truth_positions, ground_truth_transformation_matrix = rename_symmetric_ground_truth_metrics(
-            predicted_positions=final_positions,
-            ground_truth_transformation_matrix=ground_truth_transformation_matrix,
-            ground_truth_positions=None,
-            alternative_ground_truth_transformation_matrix=None,
-            alternative_ground_truth_positions=None,
-            sequence_amino_acid_labels=None)
-        exit()
+        # Since we are dealing with only heavy atoms and some residue present areas of 180 symetry rotation
+        # the network can predict coordinates that are legit and therefore it should not be penalized,
+        # therefore the ground truth has to change accordingly, but it has to be done at every prediction cycle
+        for batch_index in range(batch_size):
+            # Modify Ground Truth Positions And Frames Accordingly, by iterating through batches
+            (ground_truth_positions[batch_index],
+             ground_truth_transformation_matrix[batch_index]) = rename_symmetric_ground_truth_metrics(
+                predicted_positions=final_positions[batch_index],
+                ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
+                ground_truth_positions=ground_truth_positions[batch_index],
+                alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[
+                    batch_index],
+                alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
+                sequence_amino_acid_labels=sequence_amino_acid_labels[batch_index])
 
-        # print(iteration_torsion_angle_loss.item())
-        # print(90 * "#")
-        # import numpy as np
-        # print(np.round(compute_torsion_angle_loss(
-        #     predicted_unnormalised_angles=residue_angles,
-        #     ground_truth_angles=torch.nn.functional.normalize(residue_angles, dim=-1),
-        #     alternative_ground_truth_angles=residue_angles,
-        #     angle_norm_loss_scaler=0.02).item(), 4))
-        # print(ground_truth_backbone_transformation_matrix.shape)
-        # print(ground_truth_carbon_alpha_positions.shape)
-        # print(carbon_alpha_index)
+
+        # TODO Implementation of compute fape loss on all coordinates
+        # TODO Implementation of predictperresiduelddt-c-alpha
         exit()
 
         return angles, frames, final_positions, position_mask, pseudo_beta_positions

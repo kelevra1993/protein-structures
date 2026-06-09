@@ -61,11 +61,13 @@ def run_structure_module_forward():
     alternative_angles = data["alternative_ground_truth_angles"][:target_number_residues, :, :, 0]
     positions = data["ground_truth_global_positions"][:target_number_residues, :, :, 0]
     alternative_positions = data["alternative_ground_truth_global_positions"][:target_number_residues, :, :, 0]
+    sequence_labels = data["sequence_labels"][:target_number_residues, 0]
+
 
     input_tensor_dictionary = {
         "single_representation": simple_inputs["single_representation"].to(device),
         "pair_representation": simple_inputs["pair_representation"].to(device),
-        "sequence_amino_acid_labels": simple_inputs["sequence_amino_acid_labels"].to(device),
+        "sequence_amino_acid_labels": sequence_labels,
         "ground_truth_transformation_matrix": frames,
         "alternative_ground_truth_transformation_matrix": alternative_frames,
         "ground_truth_angles": angles,
@@ -76,7 +78,7 @@ def run_structure_module_forward():
     batched_input_tensor_dictionary = {
         "single_representation": batched_inputs["single_representation"].to(device),
         "pair_representation": batched_inputs["pair_representation"].to(device),
-        "sequence_amino_acid_labels": batched_inputs["sequence_amino_acid_labels"].to(device),
+        "sequence_amino_acid_labels": sequence_labels.unsqueeze(0).repeat(config["batch_size"], 1),
         "ground_truth_transformation_matrix": frames.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1, 1),
         "alternative_ground_truth_transformation_matrix": alternative_frames.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1, 1),
         "ground_truth_angles": angles.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1),
