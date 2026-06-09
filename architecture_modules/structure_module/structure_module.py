@@ -63,11 +63,11 @@ class StructureModuleTransition(nn.Module):
 
         Args:
             single_representation (torch.Tensor): Input residue-level features.
-                Shape: `(..., number_residues, single_representation_embedding)`.
+                Shape: `(..., number_residues, single_representation_dimension)`.
 
         Returns:
             torch.Tensor: Updated single representation.
-                Shape: `(..., number_residues, single_representation_embedding)`.
+                Shape: `(..., number_residues, single_representation_dimension)`.
         """
         single_representation_output = (single_representation +
                                         self.third_embedder(self.ReLu(
@@ -165,11 +165,11 @@ class AngleResNetLayer(nn.Module):
 
         Args:
             angle_representation (torch.Tensor): Input angle features.
-                Shape: `(..., angle_representation_embedding)`.
+                Shape: `(..., number_residues, angle_representation_embedding)`.
 
         Returns:
             torch.Tensor: Updated angle representation.
-                Shape: `(..., angle_representation_embedding)`.
+                Shape: `(..., number_residues, angle_representation_embedding)`.
         """
         angle_representation = angle_representation + self.second_angle_embedder(
             self.relu(self.first_angle_embedder(self.relu(angle_representation))))
@@ -224,9 +224,9 @@ class AngleResNet(nn.Module):
 
         Args:
             single_representation (torch.Tensor): Current single representation.
-                Shape: `(..., number_residues, single_representation_embedding)`.
+                Shape: `(..., number_residues, single_representation_dimension)`.
             initial_single_representation (torch.Tensor): Initial single representation features.
-                Shape: `(..., number_residues, single_representation_embedding)`.
+                Shape: `(..., number_residues, single_representation_dimension)`.
 
         Returns:
             torch.Tensor: Predicted torsion angles as (cos, sin) pairs.
@@ -332,8 +332,7 @@ class StructureModule(nn.Module):
             residue_angles: torch.Tensor,
             sequence_amino_acid_labels: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        todo to be updated since we are returning more things
-        Post-processes predicted frames and angles to obtain final 3D coordinates.
+        Post-processes predicted frames and angles to obtain final 3D coordinates and global transformation matrices.
 
         Args:
             transformation_matrix (torch.Tensor): Global backbone transformations.
@@ -344,11 +343,13 @@ class StructureModule(nn.Module):
                 Shape: `(..., number_residues)`.
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
                 - final_positions: Coordinates for all 37 atoms. Shape `(..., number_residues, 37, 3)`.
                 - position_mask: Mask for present atoms. Shape `(..., number_residues, 37)`.
                 - pseudo_beta_positions: Predicted C-beta (or C-alpha for Glycine) positions.
-                 Shape `(..., number_residues, 3)`.
+                  Shape `(..., number_residues, 3)`.
+                - global_transformation_matrices: Transformation matrices for all 8 rigid groups.
+                  Shape `(..., number_residues, 8, 4, 4)`.
         """
 
         # Scale translations before coordinate calculation (nanometers to angstroms)
@@ -386,14 +387,15 @@ class StructureModule(nn.Module):
                 alternative_ground_truth_angles: torch.Tensor,
                 ground_truth_positions: torch.Tensor,
                 alternative_ground_truth_positions: torch.Tensor) -> tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the iterative Structure Module pipeline to predict 3D protein structure.
 
         This method performs several iterations of geometric updates. In each iteration,
         it applies Invariant Point Attention (IPA) and a transition layer to the single
         representation, updates the backbone frames, and predicts torsion angles.
-        The final backbone frames and angles are used to compute the all-atom coordinates.
+        The final backbone frames and angles are used to compute the all-atom coordinates
+        and structural losses.
 
         Args:
             single_representation (torch.Tensor): Residue-level features.
@@ -402,23 +404,23 @@ class StructureModule(nn.Module):
                 Shape: `(..., number_residues, number_residues, pair_representation_dimension)`.
             sequence_amino_acid_labels (torch.Tensor): Amino acid type indices.
                 Shape: `(..., number_residues)`.
-            ground_truth_transformation_matrix (torch.Tensor, optional): Ground truth global backbone
+            ground_truth_transformation_matrix (torch.Tensor): Ground truth global backbone
                 transformation matrices. Shape: `(..., number_residues, 8, 4, 4)`.
-            alternative_ground_truth_transformation_matrix (torch.Tensor, optional): Alternative ground truth
+            alternative_ground_truth_transformation_matrix (torch.Tensor): Alternative ground truth
                 global backbone transformation matrices (e.g., for symmetric cases).
                 Shape: `(..., number_residues, 8, 4, 4)`.
-
-            ground_truth_angles (torch.Tensor, optional): Ground truth torsion angles.
+            ground_truth_angles (torch.Tensor): Ground truth torsion angles.
                 Shape: `(..., number_residues, 7, 2)`.
-            alternative_ground_truth_angles (torch.Tensor, optional): Alternative ground truth torsion angles.
+            alternative_ground_truth_angles (torch.Tensor): Alternative ground truth torsion angles.
                 Shape: `(..., number_residues, 7, 2)`.
-            ground_truth_positions (torch.Tensor, optional): Ground truth 3D coordinates for all atoms.
+            ground_truth_positions (torch.Tensor): Ground truth 3D coordinates for all atoms.
                 Shape: `(..., number_residues, 37, 3)`.
-            alternative_ground_truth_positions (torch.Tensor, optional): Alternative ground truth 3D coordinates.
+            alternative_ground_truth_positions (torch.Tensor): Alternative ground truth 3D coordinates.
                 Shape: `(..., number_residues, 37, 3)`.
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
+                  torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
                 - angles: Predicted torsion angles as (cos, sin) pairs for all iterations.
                   Shape: `(..., number_layers, number_residues, 7, 2)`.
                 - frames: Global backbone transformation matrices for all iterations.
@@ -429,6 +431,12 @@ class StructureModule(nn.Module):
                   Shape: `(..., number_residues, 37)`.
                 - pseudo_beta_positions: Predicted positions of C-beta atoms (or C-alpha for Glycine).
                   Shape: `(..., number_residues, 3)`.
+                - overall_fape_loss: Computed Frame Aligned Point Error (FAPE) loss across all atoms.
+                  Shape: `()`.
+                - auxillary_loss: Averaged auxiliary loss across all iterations (FAPE and torsion angle).
+                  Shape: `()`.
+                - predicted_lddt_loss: Computed predicted Local Distance Difference Test (pLDDT) loss.
+                  Shape: `()`.
         """
         number_residues = pair_representation.shape[-2]
         batch_dimension = single_representation.shape[:-2]
