@@ -61,6 +61,7 @@ def test_structure_module_forward():
     alternative_angles = data["alternative_ground_truth_angles"][:target_number_residues, :, :, 0]
     positions = data["ground_truth_global_positions"][:target_number_residues, :, :, 0]
     alternative_positions = data["alternative_ground_truth_global_positions"][:target_number_residues, :, :, 0]
+    sequence_labels = data["sequence_labels"][:target_number_residues, 0]
 
     input_tensor_dictionary = {
         "single_representation": simple_inputs["single_representation"].to(device),

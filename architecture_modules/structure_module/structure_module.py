@@ -622,5 +622,5 @@ class StructureModule(nn.Module):
                                                  predicted_lddt_logits=lddt_logits,
                                                  lddt_bins=self.lddt_module.lddt_bins)
 
-        return (angles, frames, final_positions, position_mask,
-                pseudo_beta_positions, overall_fape_loss, auxillary_loss, predicted_lddt_loss)
+        return (angles, frames, final_positions, position_mask, pseudo_beta_positions, overall_fape_loss,
+                auxillary_loss, predicted_lddt_loss)
