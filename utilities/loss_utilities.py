@@ -119,7 +119,7 @@ def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
                                ground_truth_angles: torch.Tensor,
                                alternative_ground_truth_angles: torch.Tensor,
                                mask: torch.Tensor = None,
-                               angle_norm_loss_scaler: float = 0.02) -> torch.Tensor:
+                               angle_norm_loss_scaler: float = 0.001) -> torch.Tensor:
     """
     Computes the torsion angle loss and the angle unit norm loss.
 
