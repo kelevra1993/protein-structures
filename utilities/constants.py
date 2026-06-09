@@ -2,6 +2,11 @@
 File that contains all constants that will be used in the project
 """
 import torch
+import numpy as np
+
+# No printing of scientific notations
+np.set_printoptions(suppress=True)
+np.set_printoptions(linewidth=500, threshold=np.inf)
 
 # TODO ADD THREE LETTER ENCODING EASIER FOR FUTURE WORK
 # TODO CONSIDER ADDING INTEGER INDICES TO AMINO ACID RESIDUES DIRECTLY ?

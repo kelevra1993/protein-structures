@@ -1,4 +1,5 @@
 import torch
+import time
 from torch import nn
 from typing import Tuple, Optional
 
@@ -420,26 +421,10 @@ class StructureModule(nn.Module):
                   Shape: `(..., number_residues, 3)`.
         """
         number_residues = pair_representation.shape[-2]
-        batch_size = single_representation.shape[-3]
+        batch_dimension = single_representation.shape[:-2]
         outputs = {'angles': [], 'frames': []}
         device = single_representation.device
         dtype = single_representation.dtype
-
-        print(90 * "#")
-        print("Ground Truth Data")
-        print_tensor_shape(tensor=ground_truth_transformation_matrix,
-                           name="ground_truth_transformation_matrix")
-        print_tensor_shape(tensor=alternative_ground_truth_transformation_matrix,
-                           name="alternative_ground_truth_transformation_matrix")
-        print_tensor_shape(tensor=ground_truth_positions,
-                           name="ground_truth_positions")
-        print_tensor_shape(tensor=alternative_ground_truth_positions,
-                           name="alternative_ground_truth_positions")
-        print_tensor_shape(tensor=ground_truth_angles,
-                           name="ground_truth_angles")
-        print_tensor_shape(tensor=alternative_ground_truth_angles,
-                           name="alternative_ground_truth_angles")
-        print(90 * "#")
 
         # Get the Backbone Transformation Matrix from (..., number_residues, 8, 4, 4) -> (..., number_residues, 4, 4)`
         ground_truth_backbone_transformation_matrix = ground_truth_transformation_matrix[..., 0, :, :]
@@ -458,7 +443,7 @@ class StructureModule(nn.Module):
 
         # Initial backbone transformation matrix as an identity matrix.
         transformation_matrix = (torch.eye(4, device=device, dtype=dtype).
-                                 broadcast_to((batch_size,) + (number_residues, 4, 4)))
+                                 broadcast_to(batch_dimension + (number_residues, 4, 4)))
 
         # Losses
         auxillary_loss = torch.tensor(0.0, dtype=self.dtype, device=self.device)
@@ -538,21 +523,73 @@ class StructureModule(nn.Module):
         # Since we are dealing with only heavy atoms and some residue present areas of 180 symetry rotation
         # the network can predict coordinates that are legit and therefore it should not be penalized,
         # therefore the ground truth has to change accordingly, but it has to be done at every prediction cycle
-        for batch_index in range(batch_size):
-            # Modify Ground Truth Positions And Frames Accordingly, by iterating through batches
-            (ground_truth_positions[batch_index],
-             ground_truth_transformation_matrix[batch_index]) = rename_symmetric_ground_truth_metrics(
-                predicted_positions=final_positions[batch_index],
-                ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
-                ground_truth_positions=ground_truth_positions[batch_index],
-                alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[
-                    batch_index],
-                alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
-                sequence_amino_acid_labels=sequence_amino_acid_labels[batch_index])
+        # If there is not batch dimension, just simple call without a for loop
+        if list(batch_dimension):
+            batch_size = batch_dimension[0]
+            for batch_index in range(batch_size):
+                # Modify Ground Truth Positions And Frames Accordingly, by iterating through batches
+                (ground_truth_positions[batch_index],
+                 ground_truth_transformation_matrix[batch_index]) = rename_symmetric_ground_truth_metrics(
+                    predicted_positions=final_positions[batch_index],
+                    ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
+                    ground_truth_positions=ground_truth_positions[batch_index],
+                    alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[
+                        batch_index],
+                    alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
+                    sequence_amino_acid_labels=sequence_amino_acid_labels[batch_index])
+        else:
 
+            ground_truth_positions, ground_truth_transformation_matrix = rename_symmetric_ground_truth_metrics(
+                predicted_positions=final_positions,
+                ground_truth_transformation_matrix=ground_truth_transformation_matrix,
+                ground_truth_positions=ground_truth_positions,
+                alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix,
+                alternative_ground_truth_positions=alternative_ground_truth_positions,
+                sequence_amino_acid_labels=sequence_amino_acid_labels)
 
-        # TODO Implementation of compute fape loss on all coordinates
+        start = time.time()
+
+        # Note Here we use all frames in the transformation matrices
+        # Note We also use all positions
+        overall_fape_loss = torch.tensor(0.0, device=device, dtype=dtype)
+        fape_loss_counter = torch.tensor(1e-8, device=device, dtype=dtype)
+
+        for frame_index in range(8):
+
+            # Get the Current Frame Matrix from (..., number_residues, 8, 4, 4) -> (..., number_residues, 4, 4)`
+            current_predicted_frame = global_transformation_matrices[..., frame_index, :, :]
+            current_ground_truth_frame = ground_truth_transformation_matrix[..., frame_index, :, :]
+
+            # Go through all atom types
+            for atom_index in range(37):
+
+                # Implementation of the mask of size (batch, number_residues)
+                current_position_masks = position_mask[..., atom_index]
+
+                # If all the atom is not present for any residue in the batch, do not compute fape loss
+                if not current_position_masks.any():
+                    continue
+
+                # Get ground truth current positions
+                current_predicted_positions = final_positions[..., atom_index, :]
+                current_ground_truth_positions = ground_truth_positions[..., atom_index, :]
+
+                # Call the loss with a mask
+                frame_atom_fape_loss = compute_fape_loss(
+                    predicted_transformation_matrix=current_predicted_frame,
+                    predicted_positions=current_predicted_positions,
+                    mask=current_position_masks,
+                    ground_truth_transformation_matrix=current_ground_truth_frame,
+                    ground_truth_positions=current_ground_truth_positions)
+
+                overall_fape_loss = overall_fape_loss + torch.mean(frame_atom_fape_loss)
+                fape_loss_counter = fape_loss_counter + 1.0
+
+        # Average out the overall fape loss by the number of present positions
+        overall_fape_loss = overall_fape_loss / fape_loss_counter
+
         # TODO Implementation of predictperresiduelddt-c-alpha
+        print(f"This took {time.time() - start} seconds")
         exit()
 
-        return angles, frames, final_positions, position_mask, pseudo_beta_positions
+        return angles, frames, final_positions, position_mask, pseudo_beta_positions, overall_fape_loss, auxillary_loss
