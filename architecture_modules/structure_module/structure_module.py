@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import Tuple
+from typing import Tuple, Optional
 
 from architecture_modules.structure_module.invariant_point_attention_module import InvariantPointAttention
 from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_4x4_transform_matrix, \
@@ -9,6 +9,7 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
 # Here we will have to design this explicitly
 from utilities.constants import atom_types, canonical_amino_acid_residues
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, rename_symmetric_ground_truth_metrics
+from utilities.tensor_utilities import print_tensor_shape
 
 
 class StructureModuleTransition(nn.Module):
@@ -254,7 +255,7 @@ class StructureModule(nn.Module):
         Args:
             single_representation_embedding (int): Feature dimension of the single representation.
             pair_representation_embedding (int): Feature dimension of the pair representation.
-            number_iterations (int): Number of iterative updates.
+            number_iterations (int): Number of iterative updates. Equivalent to re-usage of layer
             angle_representation_embedding (int): Dimension for angle ResNet.
             number_query_points (int): Number of geometric query points for IPA.
             number_value_points (int): Number of geometric value points for IPA.
@@ -365,7 +366,13 @@ class StructureModule(nn.Module):
 
     def forward(self, single_representation: torch.Tensor,
                 pair_representation: torch.Tensor,
-                sequence_amino_acid_labels: torch.Tensor) -> tuple[
+                sequence_amino_acid_labels: torch.Tensor,
+                ground_truth_transformation_matrix: Optional[torch.Tensor] = None,
+                alternative_ground_truth_transformation_matrix: Optional[torch.Tensor] = None,
+                ground_truth_angles: Optional[torch.Tensor] = None,
+                alternative_ground_truth_angles: Optional[torch.Tensor] = None,
+                ground_truth_positions: Optional[torch.Tensor] = None,
+                alternative_ground_truth_positions: Optional[torch.Tensor] = None) -> tuple[
         torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the iterative Structure Module pipeline to predict 3D protein structure.
@@ -382,6 +389,19 @@ class StructureModule(nn.Module):
                 Shape: `(..., number_residues, number_residues, pair_representation_dimension)`.
             sequence_amino_acid_labels (torch.Tensor): Amino acid type indices.
                 Shape: `(..., number_residues)`.
+            ground_truth_transformation_matrix (torch.Tensor, optional): Ground truth global backbone
+                transformation matrices. Shape: `(..., number_residues, 4, 4)`.
+            alternative_ground_truth_transformation_matrix (torch.Tensor, optional): Alternative ground truth
+                global backbone transformation matrices (e.g., for symmetric cases).
+                Shape: `(..., number_residues, 4, 4)`.
+            ground_truth_angles (torch.Tensor, optional): Ground truth torsion angles.
+                Shape: `(..., number_residues, 7, 2)`.
+            alternative_ground_truth_angles (torch.Tensor, optional): Alternative ground truth torsion angles.
+                Shape: `(..., number_residues, 7, 2)`.
+            ground_truth_positions (torch.Tensor, optional): Ground truth 3D coordinates for all atoms.
+                Shape: `(..., number_residues, 37, 3)`.
+            alternative_ground_truth_positions (torch.Tensor, optional): Alternative ground truth 3D coordinates.
+                Shape: `(..., number_residues, 37, 3)`.
 
         Returns:
             tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -416,7 +436,7 @@ class StructureModule(nn.Module):
         # Losses
         auxillary_loss = torch.tensor(0.0, dtype=self.dtype, device=self.device)
 
-        # TODO NOTE : IT IS IN THIS BLOCK WHERE WE WILL BE INSERTING LOSSES FOR BACKPROPAGATION
+        # Equivalent to re-usage of layer
         for iteration in range(self.number_iterations):
             # IPA and it's normalizer
             # TODO It would have been better to normalise the output of the invariant point attention before adding it
@@ -445,10 +465,20 @@ class StructureModule(nn.Module):
             # Note : carbon alpha positions correspond to the translation_matrix since we are dealing with the backbone
             rotation_matrix = transformation_matrix[..., :3, :3]
             translation_matrix = transformation_matrix[..., :3, -1]
+            print_tensor_shape(tensor=transformation_matrix, name="transformation_matrix")
+            print_tensor_shape(tensor=rotation_matrix, name="rotation_matrix")
+            print_tensor_shape(tensor=translation_matrix, name="translation_matrix")
 
-            # todo to be implemented
-            #  bring the ground truth transformation matrix (only the backbone one)
-            #  Normally no need for the carbon alpha positions ????
+
+            # ground_truth_transformation_matrix
+            # ground_truth_positions
+            carbon_alpha_index = atom_types.index("CA")
+            ground_truth_carbon_alpha_positions = ground_truth_positions[...,carbon_alpha_index,:]
+            print(carbon_alpha_index)
+            exit()
+
+            # Note we are only using the backbone transformation matrices
+            # Note we are only using carbon alpha global positions as inputs
             iteration_fape_loss = compute_fape_loss(
                 predicted_transformation_matrix=transformation_matrix,
                 predicted_positions=translation_matrix,
