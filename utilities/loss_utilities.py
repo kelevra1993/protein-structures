@@ -7,6 +7,7 @@ from utilities.geometry_utilities import invert_4x4_transform_matrix, apply_tran
 
 def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_positions: torch.Tensor,
                       ground_truth_transformation_matrix: torch.Tensor, ground_truth_positions: torch.Tensor,
+                      mask: torch.Tensor = None,
                       length_scaler: int = 10, epsilon: float = 1e-8, distance_clamp: float = 10.0):
     """
     Computes the Frame Aligned Point Error (FAPE) loss between predicted and ground truth structures.
@@ -27,6 +28,8 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
             Expected shape: (*batch_dims, number_residues, 4, 4)
         ground_truth_positions: Ground truth 3D Cartesian coordinates.
             Expected shape: (*batch_dims, number_residues, 3)
+        mask: Optional binary mask indicating valid residues (1 for valid, 0 for padded/missing).
+            Expected shape: (*batch_dims, number_residues)
         length_scaler: A normalization constant, typically 10.0 Angstroms.
         epsilon: Small constant for numerical stability when calculating the square root of distances.
         distance_clamp: A cutoff distance (in Angstroms) above which the error is clamped.
@@ -62,11 +65,24 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
         vector=ground_truth_positions)
 
     # Compute distance (while adding a small epsilon to avoid derivatives at 0)
-    # Clamp the distance accordignly and compute the mean on the width and height.
+    # Clamp the distance accordingly and compute the mean on the width and height.
     squared_norm_tensor = torch.linalg.vector_norm((transformed_predictions - transformed_ground_truths), dim=-1) ** 2
     distance_matrix = torch.clamp(torch.sqrt(squared_norm_tensor + epsilon), max=distance_clamp)
 
-    fape_loss = torch.mean(distance_matrix, dim=[-2, -1]) / length_scaler
+    if mask is not None:
+        # A pair (i, j) is valid only if both residue i and residue j are valid
+        pair_mask = mask.unsqueeze(dim=-1) * mask.unsqueeze(dim=-2)
+
+        # Apply mask to distance matrix
+        distance_matrix = distance_matrix * pair_mask
+
+        # Compute the mean over valid pairs
+        # Add epsilon to the denominator to prevent division by zero if mask is entirely empty
+        fape_loss = torch.sum(distance_matrix, dim=[-2, -1]) / (torch.sum(pair_mask, dim=[-2, -1]) + epsilon)
+    else:
+        fape_loss = torch.mean(distance_matrix, dim=[-2, -1])
+
+    fape_loss = fape_loss / length_scaler
 
     return fape_loss
 
@@ -102,6 +118,7 @@ def compute_distogram_loss(distogram_logits: torch.Tensor, distogram_labels: tor
 def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
                                ground_truth_angles: torch.Tensor,
                                alternative_ground_truth_angles: torch.Tensor,
+                               mask: torch.Tensor = None,
                                angle_norm_loss_scaler: float = 0.02) -> torch.Tensor:
     """
     Computes the torsion angle loss and the angle unit norm loss.
@@ -124,6 +141,8 @@ def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
         alternative_ground_truth_angles: Alternative ground truth torsion angles,
             accounting for 180-degree symmetries in certain side chains (e.g., TYR chi2).
             Expected shape: (*batch_dims, number_residues, 7, 2)
+        mask: Optional binary mask indicating which angles are valid and should be scored.
+            Expected shape: (*batch_dims, number_residues, 7)
         angle_norm_loss_scaler: Scaling factor for the angle unit norm loss component.
 
     Returns:
@@ -142,24 +161,31 @@ def compute_torsion_angle_loss(predicted_unnormalised_angles: torch.Tensor,
     pred_alternative_gt_difference = torch.linalg.norm((prediction_angles - alternative_ground_truth_angles),
                                                        dim=-1) ** 2
 
-    # Compute torsion loss (batch_size, 1)
-    torsion_loss = torch.mean(torch.minimum(input=pred_gt_difference, other=pred_alternative_gt_difference),
-                              dim=[-2, -1])
+    # Torsion difference (batch_size, number_residues, 7)
+    torsion_difference = torch.minimum(input=pred_gt_difference, other=pred_alternative_gt_difference)
 
-    # Todo : Later try to keep track of these norms to see if they tend to go towards 1
-    # Be careful, we need the absolute value here to target a positive norm
-    # Compute angle normalisation loss (batch_size, 1)
-    angle_norm_loss = torch.mean(torch.abs(norm_predicted_angles - 1), dim=[-2, -1])
+    # Angle normalization difference (batch_size, number_residues, 7)
+    angle_norm_difference = torch.abs(norm_predicted_angles - 1)
+
+    if mask is not None:
+        torsion_loss = torch.sum(torsion_difference * mask, dim=[-2, -1]) / (torch.sum(mask, dim=[-2, -1]) + 1e-8)
+        angle_norm_loss = torch.sum(angle_norm_difference * mask, dim=[-2, -1]) / (torch.sum(mask, dim=[-2, -1]) + 1e-8)
+    else:
+        # Todo : Later try to keep track of these norms to see if they tend to go towards 1
+        # Be careful, we need the absolute value here to target a positive norm
+        # Compute angle normalisation loss (batch_size, 1)
+        torsion_loss = torch.mean(torsion_difference, dim=[-2, -1])
+        angle_norm_loss = torch.mean(angle_norm_difference, dim=[-2, -1])
 
     return torsion_loss + angle_norm_loss_scaler * angle_norm_loss
 
 
-def rename_symetric_ground_truth_metrics(predicted_positions: torch.Tensor,
-                                         ground_truth_transformation_matrix: torch.Tensor,
-                                         ground_truth_positions: torch.Tensor,
-                                         alternative_ground_truth_transformation_matrix: torch.Tensor,
-                                         alternative_ground_truth_positions: torch.Tensor,
-                                         sequence_amino_acid_labels: torch.Tensor):
+def rename_symmetric_ground_truth_metrics(predicted_positions: torch.Tensor,
+                                          ground_truth_transformation_matrix: torch.Tensor,
+                                          ground_truth_positions: torch.Tensor,
+                                          alternative_ground_truth_transformation_matrix: torch.Tensor,
+                                          alternative_ground_truth_positions: torch.Tensor,
+                                          sequence_amino_acid_labels: torch.Tensor):
     """
     Renames symmetric ground truth metrics by selecting the ground truth or alternative ground truth
     that is closest to the predicted positions.
