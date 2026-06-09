@@ -56,8 +56,10 @@ def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str,
 
     # Simple Output And Batched Output
     if use_kwargs:
-        simple_output = module(**simple_input_dictionary)
+        # todo to be changed back
         batched_output = module(**batched_input_dictionary)
+        simple_output = module(**simple_input_dictionary)
+        # batched_output = module(**batched_input_dictionary)
     else:
         simple_output = module(simple_input_dictionary).values()
         batched_output = module(batched_input_dictionary).values()

@@ -2,261 +2,167 @@ import os.path
 
 import torch
 import numpy as np
-from sympy import residue
 
+from utilities.constants import alternative_position_mask, alternative_angle_mask, index_to_xxx
+from utilities.geometry_utilities import create_alternative_truth_transformation_matrix
 from utilities.tensor_utilities import get_device
 
 np.set_printoptions(linewidth=500, threshold=np.inf)
 
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, specialised_one_hot_encoder
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
-    compute_local_distance_difference_test, compute_plddt_loss
-from utilities.constants import alternative_angle_mask, alternative_position_mask, index_to_xxx, \
-    ambiguous_position_mask, atom_types, rigid_group_atom_positions, rigid_group_atom_position_map, \
-    chi_angles_frame_centers, chi_angles_mask, x_to_xxx
-from utilities.geometry_utilities import create_alternative_truth_transformation_matrix, create_4x4_transform_matrix, \
-    invert_4x4_transform_matrix, apply_transformation_on_vector, compute_dihedral_angle, \
-    make_transformation_matrix_around_ex, create_3x3_rotation_matrix, \
-    turn_quaternion_to_3x3_matrix, make_transformation_matrix_around_ex
-from utilities.geometry_utilities import approximate_next_nitrogen
+    compute_local_distance_difference_test, compute_plddt_loss, rename_symmetric_ground_truth_metrics
+import yaml
+from utilities.data.dataloader import get_protein_dataloader
+
+from tqdm import tqdm
+import time
 
 
 
+batch_size = 4
+number_residues = 5
+number_frames =8
+
+amino_acid_residues = (torch.arange(batch_size * number_residues) % 20).reshape(batch_size, number_residues)
+
+def create_all_atom_positions(batch_size: int, number_residues: int, flip: bool = False, random=False):
+    if random:
+        positions = torch.randperm(number_residues * 37 * 3).reshape(number_residues, 37, 3)
+    else:
+        positions = torch.arange(number_residues * 37 * 3).reshape(number_residues, 37, 3)
+
+    if flip:
+        positions = torch.flip(positions, dims=[-2])
+
+    positions = positions.to(torch.float64).unsqueeze(0).repeat(batch_size, 1, 1, 1)
+
+    return positions
+def create_transformation_matrices(batch_size: int,
+                                   number_residues: int,
+                                   number_frames: int = 8,
+                                   delta=2):
+    transformation_matrix = torch.eye(4).to(torch.float64).unsqueeze(dim=0).repeat(number_residues, number_frames, 1, 1)
+
+    # Replace the last column (equivalent to the translation with some known value > simple (x,x,x) translation)
+    for k in range(number_residues):
+        for j in range(number_frames):
+            transformation_matrix[k, j, :3, -1] += k + j + 1 + delta
+
+    # Accommodate batch
+    transformation_matrix = transformation_matrix.repeat(batch_size, 1, 1, 1, 1)
+
+    return transformation_matrix
+
+
+# The position matrices
+ground_truth_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=False)
+predicted_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=True)
+# Shape (number_residues, 37)
+alternative_positions = alternative_position_mask[amino_acid_residues].unsqueeze(dim=-1).repeat(1, 1, 1, 3)
+alternative_ground_truth_positions = torch.gather(ground_truth_positions, dim=2, index=alternative_positions)
+
+# The transformation matrices
+ground_truth_transformation_matrix = create_transformation_matrices(batch_size=batch_size,
+                                                                    number_residues=number_residues,
+                                                                    number_frames=number_frames, delta=0)
+predicted_transformation_matrix = create_transformation_matrices(batch_size=batch_size,
+                                                                 number_residues=number_residues,
+                                                                 number_frames=number_frames, delta=1)
+
+# Swap change the rotations of the transformation matrices
+alternative_rotations = alternative_angle_mask[amino_acid_residues]
+alternative_rotations = alternative_rotations.repeat(batch_size, 1, 1, 1)
+residue_angles = torch.tensor([1.0, 0.0]).repeat(batch_size, number_residues, 7, 1)
+alternative_ground_truth_transformation_matrix = create_alternative_truth_transformation_matrix(
+    transformation_matrix=ground_truth_transformation_matrix,
+    sequence_amino_acid_labels=amino_acid_residues)
+
+
+print(ground_truth_transformation_matrix.shape)
 exit()
-#########################
-# Test of approximated next nitrogen
-#########################
-print("--- Verifying Approximated Next Nitrogen (pre_omega frame) ---")
+for batch_index in range(batch_size):
+    modified_ground_truth_positions, modified_ground_truth_transformation_matrix = rename_symmetric_ground_truth_metrics(
+        predicted_positions=predicted_positions[batch_index],
+        ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
+        ground_truth_positions=ground_truth_positions[batch_index],
+        alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[batch_index],
+        alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
+        sequence_amino_acid_labels=amino_acid_residues[batch_index],
+    )
 
-for aa_name, aa_info in rigid_group_atom_position_map.items():
-    c_pos = aa_info["C"]
-    ca_pos = aa_info["CA"]
-    o_pos = aa_info["O"]
-    
-    # Directly calculate the approximated N_{i+1}
-    n_next_pos = approximate_next_nitrogen(carbon_alpha=ca_pos, carbon=c_pos, oxygen=o_pos)
-    
-    # 1. Check distance C -> N_next (should be 1.329)
-    dist_c_n = torch.linalg.norm(n_next_pos - c_pos).item()
-
-    # 2. Check angle CA -> C -> N_next (should be ~116.2 degrees / 2.028 radians)
-    v_ca_c = ca_pos - c_pos
-    v_n_c = n_next_pos - c_pos
-
-    cos_theta = torch.sum(v_ca_c * v_n_c) / (torch.linalg.norm(v_ca_c) * torch.linalg.norm(v_n_c))
-    angle_rad = torch.acos(cos_theta).item()
-    angle_deg = np.rad2deg(angle_rad)
-
-    # 3. Check planarity (CA, C, O, N_next should be coplanar)
-    # The dot product of (N_next - C) with the normal of (CA, C, O) should be 0
-    v_o_c = o_pos - c_pos
-    normal = torch.linalg.cross(v_ca_c, v_o_c)
-    planarity = torch.sum(v_n_c * normal).item()
-
-    print(f"{aa_name:3s} | C-N dist: {dist_c_n:.4f} Å (ideal 1.329) | CA-C-N angle: {angle_deg:.2f}° (ideal 116.2) | Out-of-plane: {planarity:.4f}")
-
-print("-" * 60)
-exit()
-#########################
-# Final ASN Repair Verification
-structures_dir = Path("data_examples/openfold/structures/")
-npz_files = sorted(list(structures_dir.glob("*.npz")))
-
-for npz_file in npz_files:
-    #############
-    # put the call for the input data here so that we can test it
-    ##############
-    from utilities.data.input import ModelInput
-
-    record_file = str(npz_file).replace("structures", "records").replace(".npz", ".json")
-    msa_file = str(npz_file).replace("structures", "raw_msa").replace(".npz", ".a3m")
-
-    # Initialize ModelInput (this should automatically compute the ground truth tensors)
-    model_input = ModelInput(structure_path=str(npz_file), record_path=record_file, msa_path=msa_file,
-                             acceptance_slope_start=256,
-                             acceptance_slope_end=512,
-                             residue_crop_size=128,
-                             distribution_threshold=90,
-                             maximum_cluster_sequences=50,
-                             maximum_extra_msa_sequences=100)
-
-    # Get batch data (with crop_size = 50 for testing slicing, and 2 recycle steps)
-    batch_data = model_input.get_data(number_samples=2, random_samples=False, seed=42, batch_mode=True)
-
-    print(f"File: {npz_file.name}")
-    print(f"  Input Sequence Feature Shape: {batch_data['input_sequence_feature'].shape}")
-    print(f"  Sequence Labels Shape: {batch_data['sequence_labels'].shape}")
-    print(f"  Input MSA Feature Shape: {batch_data['input_msa_feature'].shape}")
-    print(f"  Input Extra MSA Feature Shape: {batch_data['input_extra_msa_feature'].shape}")
-    print(f"  Input Residue Index Feature Shape: {batch_data['input_residue_index_feature'].shape}")
-    print(f"  Ground Truth Global Positions Shape: {batch_data['ground_truth_global_positions'].shape}")
-    print(f"  Ground Truth Local Positions Shape: {batch_data['ground_truth_local_positions'].shape}")
-    print(f"  Ground Truth Frames Shape: {batch_data['ground_truth_frames'].shape}")
-    print(f"  Ground Truth Angles Shape: {batch_data['ground_truth_angles'].shape}")
-
-    # We slice out the first recycle step (index 0 on the last dimension) for testing
-    ground_truth_global_positions = batch_data['ground_truth_global_positions'][..., 0]
-    ground_truth_angles = batch_data['ground_truth_angles'][..., 0]
-    sequence_labels = batch_data['sequence_labels'][..., 0]
-
-    alternative_ground_truth_global_positions = batch_data['alternative_ground_truth_global_positions'][..., 0]
-    alternative_ground_truth_angles = batch_data['alternative_ground_truth_angles'][..., 0]
-
-    print(f"  Alternative Ground Truth Global Positions Shape: {batch_data['alternative_ground_truth_global_positions'].shape}")
-    print(f"  Alternative Ground Truth Local Positions Shape: {batch_data['alternative_ground_truth_local_positions'].shape}")
-    print(f"  Alternative Ground Truth Frames Shape: {batch_data['alternative_ground_truth_frames'].shape}")
-    print(f"  Alternative Ground Truth Angles Shape: {batch_data['alternative_ground_truth_angles'].shape}")
-
-    # Find a symmetric residue in the sequence to verify swap
-    sequence_one_dimensional = sequence_labels[0, :]
-
-    # Map amino acid names to their symmetric atom indices (atom 1, atom 2) and the specific chi angle index
-    # Angle indices: 0=omega, 1=phi, 2=psi, 3=chi1, 4=chi2, 5=chi3, 6=chi4
-    # ASP: chi2 (4), GLU: chi3 (5), PHE: chi2 (4), TYR: chi2 (4)
-    symmetric_atoms = {
-        "ASP": (atom_to_index["OD1"], atom_to_index["OD2"], 4),
-        "GLU": (atom_to_index["OE1"], atom_to_index["OE2"], 5),
-        "PHE": (atom_to_index["CD1"], atom_to_index["CD2"], 4),
-        "TYR": (atom_to_index["CD1"], atom_to_index["CD2"], 4)
-    }
-
-    found_valid = False
-    for aa_name, (idx1, idx2, chi_idx) in symmetric_atoms.items():
-        if found_valid: break
-
-        aa_index = xxx_to_index.get(aa_name, -1)
-        positions = (sequence_one_dimensional == aa_index).nonzero(as_tuple=True)[0]
-
-        for position_index in positions:
-            position_index = position_index.item()
-            ground_truth_atom_1 = ground_truth_global_positions[0, position_index, idx1, :]
-            
-            # Check if it's resolved (not all zeros)
-            if torch.sum(torch.abs(ground_truth_atom_1)) > 0:
-                print(f"\n  Found resolved {aa_name} at sequence index {position_index}. Verifying alternatives...")
-                
-                ground_truth_atom_2 = ground_truth_global_positions[0, position_index, idx2, :]
-                alternative_atom_1 = alternative_ground_truth_global_positions[0, position_index, idx1, :]
-                alternative_atom_2 = alternative_ground_truth_global_positions[0, position_index, idx2, :]
-                
-                print(f"    [Positions]")
-                print(f"    Ground Truth Atom 1: {ground_truth_atom_1.numpy()}")
-                print(f"    Alternative  Atom 1: {alternative_atom_1.numpy()} (Should match Ground Truth Atom 2)")
-                print(f"    Ground Truth Atom 2: {ground_truth_atom_2.numpy()}")
-                print(f"    Alternative  Atom 2: {alternative_atom_2.numpy()} (Should match Ground Truth Atom 1)")
-                
-                # Check Angles
-                ground_truth_angle = ground_truth_angles[0, position_index, chi_idx, :]
-                alternative_angle = alternative_ground_truth_angles[0, position_index, chi_idx, :]
-                
-                print(f"\n    [Angles (chi{chi_idx - 2})]") # chi_idx 4 corresponds to chi2, etc.
-                print(f"    Ground Truth Angle: {ground_truth_angle.numpy()}")
-                print(f"    Alternative  Angle: {alternative_angle.numpy()} (Should be negative of Ground Truth)")
-                
-                found_valid = True
-                break
-
-    if not found_valid:
-        print("\n  Could not find any resolved symmetric residues (ASP, GLU, PHE, TYR) in this sequence crop.")
-
-    break  # Just test the first one
-
-exit()
-############################
-# Cluster, and Split Data
-source_folder = "data_examples"
-file_stem = "open_fold_sequences"
-
-input_fasta = f"{source_folder}/{file_stem}.fasta"
-output_prefix = "clusters/openfold_clusters"
-exit()
-# # Run MMseqs2 clustering
-# run_mmseqs_clustering(input_fasta=input_fasta, output_prefix=output_prefix, min_identity=0.4)
-exit()
-# Load cluster mapping
-tsv_path = Path(f"{output_prefix}_cluster.tsv")
-if tsv_path.exists():
-    cluster_mapping = load_cluster_mapping(tsv_path=str(tsv_path))
-
-    # 4. Split data into train and validation sets
-    train_ids, val_ids = split_data_by_clusters(cluster_mapping=cluster_mapping,
-                                                output_folder="dataset_splits",
-                                                train_ratio=0.90)
-###########################
-
-
-exit()
-
-
-# For Testing / Debugging Comparison to constant.py. to see if we will ultimately just set everything to what is in constant.py
-def frame_debugger(atom_position_dictionary, residue_name, frame_to_consider=None):
-    for atom_name, atom_information in atom_position_dictionary.items():
-
-        atom_frame = atom_information["frame"]
-        current_atom_frame = atom_information["current_frame_used"]
-
-        if frame_to_consider and frame_to_consider != atom_frame:
+for b in range(batch_size):
+    for r in range(number_residues):
+        aa_r = r % 20
+        if index_to_xxx[aa_r] not in ["ASP", "GLU", "TYR", "PHE"]:
             continue
+        for n in range(37):
+            gt_atom = ground_truth_positions[b, aa_r, n].numpy()
+            alt_atom = alternative_ground_truth_positions[b, aa_r, n].numpy()
 
-        if current_atom_frame == atom_frame:
-            local_position = atom_information["frame_coordinates"].numpy().round(4)
-            constant_position = rigid_group_atom_position_map[residue_name][atom_name].numpy().round(4)
-            difference = local_position - constant_position
-            difference_norm = torch.linalg.norm(torch.tensor(difference)).numpy()
+            if sum(alt_atom - gt_atom) != 0:
+                print(f"Amino Acid Residue {index_to_xxx[aa_r]} For Atom {n:02}")
+                print(15 * '-')
+                print(gt_atom, alt_atom)
+                print(30 * '-')
+exit()
+exit()
+# Testing the new PyTorch DataLoaders
+print("--- Benchmarking PyTorch DataLoaders ---")
 
-            if difference_norm > 0.002:
-                print(40 * '-')
-                print(f"Local      {atom_name} : {local_position}")
-                print(f"Consant    {atom_name} : {constant_position}")
-                print(f"Delta      {atom_name} : {difference.round(4)}")
-                print(f"Delta Norm {atom_name} : {difference_norm.round(4)}")
-                print(40 * '-')
+data_folder = "/home/robert_kelevra/Data/protein_data/openfold_data"
+train_split = "dataset_splits/Train.json"
+validation_split = "dataset_splits/Validation.json"
 
+number_epochs = 2
+number_steps_per_epoch = 100  # Limit steps for quick benchmarking
 
-# compute backbones based on atom coordinates in structure file
-device = torch.device("cpu")
-dtype = torch.float64
-# Step 1 : Get a structure object with a structure npz file
-structure_object = Structure(npz_path="data_examples/openfold/structures/P90561.npz",
-                             record_path="data_examples/openfold/records/P90561.json")
+# Load Configurations
+config_path = "configurations/template_configuration.yaml"
+with open(config_path, "r") as f:
+    config = yaml.safe_load(f)
 
-# put the test here
-#########################
-global_positions, local_positions, frames, angles = structure_object.compute_ground_truth_data(device=device,
-                                                                                               dtype=dtype)
+train_config = config["TrainDataConfiguration"]
 
-print(f"Global Positions Shape: {global_positions.shape}")
-print(f"Local Positions Shape: {local_positions.shape}")
-print(f"Frames Shape: {frames.shape}")
-print(f"Angles Shape: {angles.shape}")
+# Temporarily override for quick benchmarking without massive MSAs
+train_config["maximum_cluster_sequences"] = 32
+train_config["maximum_extra_msa_sequences"] = 64
+train_config["residue_crop_size"] = None
+train_config["number_recycle_cycles"] = 10
 
-# Verify using frame_debugger for all residues
-for residue_index, residue_object in enumerate(structure_object.residues):
-    # To use frame_debugger, we need the atom_dictionary for the residue
-    atom_dictionary = structure_object._get_residue_atom_dictionary(residue_object, device, dtype)
+train_loader = get_protein_dataloader(
+    data_folder=data_folder,
+    split_file_path=train_split,
+    batch_size=1,
+    shuffle=False,
+    num_workers=10,
+    **train_config)
 
-    # We need to populate current_frame_used and local_position in atom_dictionary for the debugger
-    # Since compute_ground_truth_data doesn't return the dictionary, we'll run a quick loop to check
-    # Or better yet, we can modify the test to just call the debugger logic if we want to be surgical.
-    # But for a high-level test, let's just use the returned tensors.
+for epoch in range(number_epochs):
+    start_time = time.time()
+    print(f"\nEpoch {epoch + 1}/{number_epochs}")
 
-    # Re-running the internal steps for the first residue to verify debugger works
-    if residue_index == 1:  # Let's check residue 1 like in the previous steps
-        print(f"\nDebugging Residue {residue_index} ({residue_object.name}):")
-        # To use the static method frame_debugger, we need an atom_dictionary that matches what it expects
-        # The compute_ground_truth_data already does the work, so let's just reuse the dictionary from _get_residue_atom_dictionary
-        # and manually set the local_position from our result tensor to verify.
-        for atom_name, atom_data in atom_dictionary.items():
-            atom_idx = atom_data["atom_index"]
-            atom_data["local_position"] = local_positions[residue_index, atom_idx]
-            atom_data["current_frame_used"] = atom_data["frame_index"]
+    for batch_index, batch_data in tqdm(enumerate(train_loader), total=number_steps_per_epoch, desc="Loading Batches"):
+        if batch_index >= number_steps_per_epoch:
+            break
+        print(f"  Input Sequence Feature Shape: {batch_data['input_sequence_feature'].shape}")
+        print(f"  Sequence Labels Shape: {batch_data['sequence_labels'].shape}")
+        print(f"  Input MSA Feature Shape: {batch_data['input_msa_feature'].shape}")
+        print(f"  Input Extra MSA Feature Shape: {batch_data['input_extra_msa_feature'].shape}")
+        print(f"  Input Residue Index Feature Shape: {batch_data['input_residue_index_feature'].shape}")
+        print(f"  Ground Truth Global Positions Shape: {batch_data['ground_truth_global_positions'].shape}")
+        print(f"  Ground Truth Local Positions Shape: {batch_data['ground_truth_local_positions'].shape}")
+        print(f"  Ground Truth Frames Shape: {batch_data['ground_truth_frames'].shape}")
+        print(f"  Ground Truth Angles Shape: {batch_data['ground_truth_angles'].shape}")
+        exit()
 
-        structure_object.frame_debugger(atom_dictionary, residue_object.name, threshold=0.001)
-
-#########################
-
+    end_time = time.time()
+    epoch_duration = end_time - start_time
+    samples_per_second = number_steps_per_epoch / epoch_duration
+    print(f"Epoch {epoch + 1} completed in {epoch_duration:.2f}s ({samples_per_second:.2f} samples/s)")
 
 exit()
+
 batch_size = 2
 number_residues = 5
 
@@ -350,137 +256,7 @@ plddt_loss = compute_plddt_loss(
     predicted_lddt_logits=lddt_logits,
     lddt_bins=lddt_module.lddt_bins
 )
-# def create_transformation_matrices(batch_size: int,
-#                                    number_residues: int,
-#                                    number_frames: int = 8,
-#                                    delta=2):
-#     transformation_matrix = torch.eye(4).to(torch.float64).unsqueeze(dim=0).repeat(number_residues, number_frames, 1, 1)
-#
-#     # Replace the last column (equivalent to the translation with some known value > simple (x,x,x) translation)
-#     for k in range(number_residues):
-#         for j in range(number_frames):
-#             transformation_matrix[k, j, :3, -1] += k + j + 1 + delta
-#
-#     # Accommodate batch
-#     transformation_matrix = transformation_matrix.repeat(batch_size, 1, 1, 1, 1)
-#
-#     return transformation_matrix
-#
-#
-# # The position matrices
-# ground_truth_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=False)
-# predicted_positions = create_all_atom_positions(batch_size=batch_size, number_residues=number_residues, flip=True)
-# # Shape (number_residues, 37)
-# alternative_positions = alternative_position_mask[amino_acid_residues].unsqueeze(dim=-1).repeat(1, 1, 1, 3)
-# alternative_ground_truth_positions = torch.gather(ground_truth_positions, dim=2, index=alternative_positions)
-#
-# # The transformation matrices
-# ground_truth_transformation_matrix = create_transformation_matrices(batch_size=batch_size,
-#                                                                     number_residues=number_residues,
-#                                                                     number_frames=number_frames, delta=0)
-# predicted_transformation_matrix = create_transformation_matrices(batch_size=batch_size,
-#                                                                  number_residues=number_residues,
-#                                                                  number_frames=number_frames, delta=1)
-#
-# # Swap change the rotations of the transformation matrices
-# alternative_rotations = alternative_angle_mask[amino_acid_residues]
-# alternative_rotations = alternative_rotations.repeat(batch_size, 1, 1, 1)
-# residue_angles = torch.tensor([1.0, 0.0]).repeat(batch_size, number_residues, 7, 1)
-# alternative_ground_truth_transformation_matrix = create_alternative_truth_transformation_matrix(
-#     transformation_matrix=ground_truth_transformation_matrix,
-#     sequence_amino_acid_labels=amino_acid_residues)
-#
-#
-# def rename_symetric_ground_truth_metrics(predicted_transformation_matrix,
-#                                          predicted_positions,
-#                                          ground_truth_transformation_matrix,
-#                                          ground_truth_positions,
-#                                          alternative_ground_truth_transformation_matrix,
-#                                          alternative_ground_truth_positions,
-#                                          sequence_amino_acid_labels):
-#     # Important : We assume that there is no batch in our inputs
-#
-#     # Get tensors that will be returned
-#     modified_ground_truth_positions = ground_truth_positions.clone()
-#     modified_ground_truth_transformation_matrix = ground_truth_transformation_matrix.clone()
-#
-#     # Get non-ambiguous positions
-#     sequence_ambiguous_positions_masks = ambiguous_position_mask[sequence_amino_acid_labels]
-#     sequence_non_ambiguous_position_masks = ~sequence_ambiguous_positions_masks
-#
-#     # Gets all the non ambigouous positions : (non_ambiguous_atoms_of_sequence, 3)
-#     sequence_unambiguous_predicted_positions = predicted_positions[sequence_non_ambiguous_position_masks]
-#     sequence_unambiguous_ground_truth_positions = ground_truth_positions[sequence_non_ambiguous_position_masks]
-#
-#     # Go through all residues and only evaluate the amino acid residues with ambigous atoms
-#     for index, residue_index in enumerate(sequence_amino_acid_labels):
-#
-#         # Skip if this residue has no ambiguous atoms.
-#         if not sequence_ambiguous_positions_masks[index].any():
-#             continue
-#
-#         # Get current residue positions
-#         pred_res_pos = predicted_positions[index]
-#         gt_res_pos = ground_truth_positions[index]
-#         alt_gt_res_pos = alternative_ground_truth_positions[index]
-#
-#         # Get current residue ambiguous positions
-#         pred_ambiguous_positions = pred_res_pos[ambiguous_position_mask[residue_index]]
-#         gt_ambiguous_positions = gt_res_pos[ambiguous_position_mask[residue_index]]
-#         alt_gt_ambiguous_positions = alt_gt_res_pos[ambiguous_position_mask[residue_index]]
-#
-#         # Get the different distances
-#         # - predicitions<->predictions
-#         distance_predictions = torch.cdist(x1=pred_ambiguous_positions,
-#                                            x2=sequence_unambiguous_predicted_positions)
-#
-#         # - ground_truth<->ground_truth
-#         distance_ground_truths = torch.cdist(x1=gt_ambiguous_positions,
-#                                              x2=sequence_unambiguous_ground_truth_positions)
-#
-#         # - alternative_ground_truth <-> ground_truth
-#         distance_alternative_ground_truths = torch.cdist(x1=alt_gt_ambiguous_positions,
-#                                                          x2=sequence_unambiguous_ground_truth_positions)
-#
-#         # Left element abs(predictions-alt_ground_truth)
-#         left_side = torch.sum(torch.abs(distance_predictions - distance_alternative_ground_truths))
-#
-#         # Right element abs(predictions-ground_truth)
-#         right_side = torch.sum(torch.abs(distance_predictions - distance_ground_truths))
-#
-#         if left_side < right_side:
-#             modified_ground_truth_positions[index] = alternative_ground_truth_positions[index]
-#             modified_ground_truth_transformation_matrix[index] = alternative_ground_truth_transformation_matrix[index]
-#
-#     return modified_ground_truth_positions, modified_ground_truth_transformation_matrix
-#
-#
-# for batch_index in range(batch_size):
-#     modified_ground_truth_positions, modified_ground_truth_transformation_matrix = rename_symetric_ground_truth_metrics(
-#         predicted_transformation_matrix=predicted_transformation_matrix[batch_index],
-#         predicted_positions=predicted_positions[batch_index],
-#         ground_truth_transformation_matrix=ground_truth_transformation_matrix[batch_index],
-#         ground_truth_positions=ground_truth_positions[batch_index],
-#         alternative_ground_truth_transformation_matrix=alternative_ground_truth_transformation_matrix[batch_index],
-#         alternative_ground_truth_positions=alternative_ground_truth_positions[batch_index],
-#         sequence_amino_acid_labels=amino_acid_residues[batch_index],
-#     )
 
-# for b in range(batch_size):
-#     for r in range(number_residues):
-#         aa_r = r % 20
-#         if index_to_xxx[aa_r] not in ["ASP", "GLU", "TYR", "PHE"]:
-#             continue
-#         for n in range(37):
-#             gt_atom = ground_truth_positions[b, aa_r, n].numpy()
-#             alt_atom = alternative_ground_truth_positions[b, aa_r, n].numpy()
-#
-#             if sum(alt_atom - gt_atom) != 0:
-#                 print(f"Amino Acid Residue {index_to_xxx[aa_r]} For Atom {n:02}")
-#                 print(15 * '-')
-#                 print(gt_atom, alt_atom)
-#                 print(30 * '-')
-# exit()
 # print(residue_angles)
 # print_tensor_shape(tensor=alternative_rotations)
 # print_tensor_shape(tensor=residue_angles)

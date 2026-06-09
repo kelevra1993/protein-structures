@@ -202,12 +202,12 @@ def rename_symmetric_ground_truth_metrics(predicted_positions: torch.Tensor,
         predicted_positions: Predicted 3D Cartesian coordinates for all atoms.
             Expected shape: (number_residues, 37, 3)
         ground_truth_transformation_matrix: Standard ground truth local transformation frames.
-            Expected shape: (number_residues, 4, 4)
+            Expected shape: (number_residues, 8, 4, 4)
         ground_truth_positions: Standard ground truth 3D Cartesian coordinates for all atoms.
             Expected shape: (number_residues, 37, 3)
         alternative_ground_truth_transformation_matrix: Alternative ground truth local transformation frames,
             accounting for side-chain symmetries.
-            Expected shape: (number_residues, 4, 4)
+            Expected shape: (number_residues, 8, 4, 4)
         alternative_ground_truth_positions: Alternative ground truth 3D Cartesian coordinates.
             Expected shape: (number_residues, 37, 3)
         sequence_amino_acid_labels: Integer indices representing the amino acid type for each residue.
@@ -217,7 +217,7 @@ def rename_symmetric_ground_truth_metrics(predicted_positions: torch.Tensor,
         modified_ground_truth_positions: Selected ground truth positions (standard or alternative).
             Shape: (number_residues, 37, 3)
         modified_ground_truth_transformation_matrix: Selected ground truth transformation matrices.
-            Shape: (number_residues, 4, 4)
+            Shape: (number_residues, 8, 4, 4)
     """
     # Important : We assume that there is no batch in our inputs
 

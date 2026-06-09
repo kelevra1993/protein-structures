@@ -10,7 +10,7 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
 from utilities.constants import atom_types, canonical_amino_acid_residues
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
     rename_symmetric_ground_truth_metrics
-from utilities.tensor_utilities import print_tensor_shape
+from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 
 class StructureModuleTransition(nn.Module):
@@ -534,16 +534,24 @@ class StructureModule(nn.Module):
             residue_angles=residue_angles,
             sequence_amino_acid_labels=sequence_amino_acid_labels)
 
-        # # Implementation of the renaming of the symetric ground truth atoms
-        # # TODO To put the right elements here
-        # ground_truth_positions, ground_truth_transformation_matrix = rename_symetric_ground_truth_metrics(
-        #     predicted_positions=None,
-        #     ground_truth_transformation_matrix=None,
-        #     ground_truth_positions=None,
-        #     alternative_ground_truth_transformation_matrix=None,
-        #     alternative_ground_truth_positions=None,
-        #     sequence_amino_acid_labels=None)
-                # print(iteration_torsion_angle_loss.item())
+
+
+        print_tensor_shape(final_positions,name="final_positions")
+        print_tensor_list(final_positions[0,0,:5])
+        print_tensor_list(5*ground_truth_positions[0,0,:5])
+        exit()
+        # Implementation of the renaming of the symmetric ground truth atoms
+        # TODO To put the right elements here
+        ground_truth_positions, ground_truth_transformation_matrix = rename_symmetric_ground_truth_metrics(
+            predicted_positions=final_positions,
+            ground_truth_transformation_matrix=ground_truth_transformation_matrix,
+            ground_truth_positions=None,
+            alternative_ground_truth_transformation_matrix=None,
+            alternative_ground_truth_positions=None,
+            sequence_amino_acid_labels=None)
+        exit()
+
+        # print(iteration_torsion_angle_loss.item())
         # print(90 * "#")
         # import numpy as np
         # print(np.round(compute_torsion_angle_loss(

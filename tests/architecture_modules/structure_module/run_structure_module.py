@@ -7,7 +7,7 @@ from tests.utilities.testing_utilities import check_nn_module_method, get_struct
 from utilities.data.input import ModelInput
 
 
-def test_structure_module_forward():
+def run_structure_module_forward():
     device = torch.device('cpu')
     dtype = torch.float64
 
@@ -78,13 +78,11 @@ def test_structure_module_forward():
         "pair_representation": batched_inputs["pair_representation"].to(device),
         "sequence_amino_acid_labels": batched_inputs["sequence_amino_acid_labels"].to(device),
         "ground_truth_transformation_matrix": frames.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1, 1),
-        "alternative_ground_truth_transformation_matrix": alternative_frames.unsqueeze(0).repeat(config["batch_size"],
-                                                                                                 1, 1, 1, 1),
+        "alternative_ground_truth_transformation_matrix": alternative_frames.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1, 1),
         "ground_truth_angles": angles.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1),
         "alternative_ground_truth_angles": alternative_angles.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1),
         "ground_truth_positions": positions.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1),
-        "alternative_ground_truth_positions": alternative_positions.unsqueeze(0).repeat(config["batch_size"], 1, 1,
-                                                                                        1), }
+        "alternative_ground_truth_positions": alternative_positions.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1),}
 
     output_tensor_names = [
         "structure_module_angles",
@@ -102,3 +100,6 @@ def test_structure_module_forward():
         batched_input_tensor_dictionary=batched_input_tensor_dictionary
     )
     print(" - StructureModule Test Completed Successfuly.")
+
+
+run_structure_module_forward()
