@@ -244,3 +244,5 @@ if __name__ == "__main__":
 
     # Test the alphafold model with template configuration
     alphafold_model = Model(configuration=model_configuration, device=computer_device, dtype=tensor_dtype)
+
+    # TODO We have not implemented the run forward

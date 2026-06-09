@@ -23,12 +23,10 @@ def test_structure_module_forward():
     target_number_residues = config["number_residues"]
 
     # Data extraction from ModelInput
-    # todo the testing data will need to be moved later to the adeaquate folders.
-    project_root = Path(__file__).parents[3]
     protein_id = "P90561"
-    structure_path = project_root / f"data_examples/openfold/structures/{protein_id}.npz"
-    msa_path = project_root / f"data_examples/openfold/raw_msa/{protein_id}.a3m"
-    record_path = project_root / f"data_examples/openfold/records/{protein_id}.json"
+    structure_path = os.path.join(reference_folder, f"structures/{protein_id}.npz")
+    msa_path = os.path.join(reference_folder, f"raw_msa/{protein_id}.a3m")
+    record_path = os.path.join(reference_folder, f"records/{protein_id}.json")
 
     model_input = ModelInput(structure_path=str(structure_path), msa_path=str(msa_path), record_path=str(record_path),
                              acceptance_slope_start=256, acceptance_slope_end=512,
@@ -66,7 +64,7 @@ def test_structure_module_forward():
     input_tensor_dictionary = {
         "single_representation": simple_inputs["single_representation"].to(device),
         "pair_representation": simple_inputs["pair_representation"].to(device),
-        "sequence_amino_acid_labels": simple_inputs["sequence_amino_acid_labels"].to(device),
+        "sequence_amino_acid_labels": sequence_labels,
         "ground_truth_transformation_matrix": frames,
         "alternative_ground_truth_transformation_matrix": alternative_frames,
         "ground_truth_angles": angles,
@@ -77,7 +75,7 @@ def test_structure_module_forward():
     batched_input_tensor_dictionary = {
         "single_representation": batched_inputs["single_representation"].to(device),
         "pair_representation": batched_inputs["pair_representation"].to(device),
-        "sequence_amino_acid_labels": batched_inputs["sequence_amino_acid_labels"].to(device),
+        "sequence_amino_acid_labels":  sequence_labels.unsqueeze(0).repeat(config["batch_size"], 1),
         "ground_truth_transformation_matrix": frames.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1, 1),
         "alternative_ground_truth_transformation_matrix": alternative_frames.unsqueeze(0).repeat(config["batch_size"],
                                                                                                  1, 1, 1, 1),
@@ -92,7 +90,11 @@ def test_structure_module_forward():
         "structure_module_frames",
         "structure_module_final_positions",
         "structure_module_position_mask",
-        "structure_module_pseudo_beta_positions"]
+        "structure_module_pseudo_beta_positions",
+        "structure_module_overall_fape_loss",
+        "structure_module_auxillary_loss",
+        "structure_module_predicted_lddt_loss"
+    ]
 
     check_nn_module_method(
         module=module,
@@ -100,6 +102,7 @@ def test_structure_module_forward():
         output_tensor_names=output_tensor_names,
         reference_folder=reference_folder,
         batch_size=config["batch_size"],
-        batched_input_tensor_dictionary=batched_input_tensor_dictionary
+        batched_input_tensor_dictionary=batched_input_tensor_dictionary,
+        save_tensors=True
     )
     print(" - StructureModule Test Completed Successfuly.")
