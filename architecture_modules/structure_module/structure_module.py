@@ -8,7 +8,8 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
 
 # Here we will have to design this explicitly
 from utilities.constants import atom_types, canonical_amino_acid_residues
-from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, rename_symmetric_ground_truth_metrics
+from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
+    rename_symmetric_ground_truth_metrics
 from utilities.tensor_utilities import print_tensor_shape
 
 
@@ -364,15 +365,16 @@ class StructureModule(nn.Module):
 
         return final_positions, position_mask, pseudo_beta_positions, global_transformation_matrices
 
-    def forward(self, single_representation: torch.Tensor,
+    def forward(self,
+                single_representation: torch.Tensor,
                 pair_representation: torch.Tensor,
                 sequence_amino_acid_labels: torch.Tensor,
-                ground_truth_transformation_matrix: Optional[torch.Tensor] = None,
-                alternative_ground_truth_transformation_matrix: Optional[torch.Tensor] = None,
-                ground_truth_angles: Optional[torch.Tensor] = None,
-                alternative_ground_truth_angles: Optional[torch.Tensor] = None,
-                ground_truth_positions: Optional[torch.Tensor] = None,
-                alternative_ground_truth_positions: Optional[torch.Tensor] = None) -> tuple[
+                ground_truth_transformation_matrix: torch.Tensor,
+                alternative_ground_truth_transformation_matrix: torch.Tensor,
+                ground_truth_angles: torch.Tensor,
+                alternative_ground_truth_angles: torch.Tensor,
+                ground_truth_positions: torch.Tensor,
+                alternative_ground_truth_positions: torch.Tensor) -> tuple[
         torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the iterative Structure Module pipeline to predict 3D protein structure.
@@ -390,10 +392,11 @@ class StructureModule(nn.Module):
             sequence_amino_acid_labels (torch.Tensor): Amino acid type indices.
                 Shape: `(..., number_residues)`.
             ground_truth_transformation_matrix (torch.Tensor, optional): Ground truth global backbone
-                transformation matrices. Shape: `(..., number_residues, 4, 4)`.
+                transformation matrices. Shape: `(..., number_residues, 8, 4, 4)`.
             alternative_ground_truth_transformation_matrix (torch.Tensor, optional): Alternative ground truth
                 global backbone transformation matrices (e.g., for symmetric cases).
-                Shape: `(..., number_residues, 4, 4)`.
+                Shape: `(..., number_residues, 8, 4, 4)`.
+
             ground_truth_angles (torch.Tensor, optional): Ground truth torsion angles.
                 Shape: `(..., number_residues, 7, 2)`.
             alternative_ground_truth_angles (torch.Tensor, optional): Alternative ground truth torsion angles.
@@ -421,6 +424,30 @@ class StructureModule(nn.Module):
         outputs = {'angles': [], 'frames': []}
         device = single_representation.device
         dtype = single_representation.dtype
+
+        print(90 * "#")
+        print("Ground Truth Data")
+        print_tensor_shape(tensor=ground_truth_transformation_matrix,
+                           name="ground_truth_transformation_matrix")
+        print_tensor_shape(tensor=alternative_ground_truth_transformation_matrix,
+                           name="alternative_ground_truth_transformation_matrix")
+        print_tensor_shape(tensor=ground_truth_positions,
+                           name="ground_truth_positions")
+        print_tensor_shape(tensor=alternative_ground_truth_positions,
+                           name="alternative_ground_truth_positions")
+        print_tensor_shape(tensor=ground_truth_angles,
+                           name="ground_truth_angles")
+        print_tensor_shape(tensor=alternative_ground_truth_angles,
+                           name="alternative_ground_truth_angles")
+        print(90 * "#")
+
+        # Get the Backbone Transformation Matrix from (..., number_residues, 8, 4, 4) -> (..., number_residues, 4, 4)`
+        ground_truth_backbone_transformation_matrix = ground_truth_transformation_matrix[..., 0, :, :]
+
+        # Get ground truth carbon alpha positions
+        # Note we could also have got it from the translation matrix of the backbone transformation
+        carbon_alpha_index = atom_types.index("CA")
+        ground_truth_carbon_alpha_positions = ground_truth_positions[..., carbon_alpha_index, :]
 
         # initial single representation never changed after this, just passed around
         initial_single_representation = self.single_representation_layer_normalizer(single_representation)
@@ -465,34 +492,22 @@ class StructureModule(nn.Module):
             # Note : carbon alpha positions correspond to the translation_matrix since we are dealing with the backbone
             rotation_matrix = transformation_matrix[..., :3, :3]
             translation_matrix = transformation_matrix[..., :3, -1]
-            print_tensor_shape(tensor=transformation_matrix, name="transformation_matrix")
-            print_tensor_shape(tensor=rotation_matrix, name="rotation_matrix")
-            print_tensor_shape(tensor=translation_matrix, name="translation_matrix")
-
-
-            # ground_truth_transformation_matrix
-            # ground_truth_positions
-            carbon_alpha_index = atom_types.index("CA")
-            ground_truth_carbon_alpha_positions = ground_truth_positions[...,carbon_alpha_index,:]
-            print(carbon_alpha_index)
-            exit()
 
             # Note we are only using the backbone transformation matrices
             # Note we are only using carbon alpha global positions as inputs
             iteration_fape_loss = compute_fape_loss(
                 predicted_transformation_matrix=transformation_matrix,
                 predicted_positions=translation_matrix,
-                ground_truth_transformation_matrix=transformation_matrix,  # todo this is a huge NO-NO
-                ground_truth_positions=translation_matrix)  # todo this is a huge NO-NO
+                ground_truth_transformation_matrix=ground_truth_backbone_transformation_matrix,
+                ground_truth_positions=ground_truth_carbon_alpha_positions)
 
-            # TODO Bring ground truth angles and their alternatives
-            #  DONT FORGET TO RE-CHECK THE ANGLE NORM LOSS SCALER AND ADD IT TO TENSORBOARD
+            #  DON'T FORGET TO RE-CHECK THE ANGLE NORM LOSS SCALER AND ADD IT TO TENSORBOARD
             # Be careful, ground truth angle should already be normalised in the form (cos(phi), sin(phi))
             iteration_torsion_angle_loss = compute_torsion_angle_loss(
                 predicted_unnormalised_angles=residue_angles,
-                ground_truth_angles=torch.nn.functional.normalize(residue_angles, dim=-1),  # todo this is a huge NO-NO
-                alternative_ground_truth_angles=residue_angles,  # todo this is a huge NO-NO
-                angle_norm_loss_scaler=0.02)
+                ground_truth_angles=ground_truth_angles,
+                alternative_ground_truth_angles=alternative_ground_truth_angles,
+                angle_norm_loss_scaler=0.005)
 
             # Sum up the losses for this iteration and add them to auxillary loss
             # We average them over the batch dimensions before adding them to the auxillary loss
@@ -509,7 +524,6 @@ class StructureModule(nn.Module):
             outputs['frames'].append(transformation_matrix)
 
         # Average Out The Auxillary Loss
-        # TODO MUST BE PASSED ALONG
         auxillary_loss = auxillary_loss / self.number_iterations
 
         angles = torch.stack(outputs['angles'], dim=-4)
@@ -529,5 +543,17 @@ class StructureModule(nn.Module):
         #     alternative_ground_truth_transformation_matrix=None,
         #     alternative_ground_truth_positions=None,
         #     sequence_amino_acid_labels=None)
+                # print(iteration_torsion_angle_loss.item())
+        # print(90 * "#")
+        # import numpy as np
+        # print(np.round(compute_torsion_angle_loss(
+        #     predicted_unnormalised_angles=residue_angles,
+        #     ground_truth_angles=torch.nn.functional.normalize(residue_angles, dim=-1),
+        #     alternative_ground_truth_angles=residue_angles,
+        #     angle_norm_loss_scaler=0.02).item(), 4))
+        # print(ground_truth_backbone_transformation_matrix.shape)
+        # print(ground_truth_carbon_alpha_positions.shape)
+        # print(carbon_alpha_index)
+        exit()
 
         return angles, frames, final_positions, position_mask, pseudo_beta_positions
