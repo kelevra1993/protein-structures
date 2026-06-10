@@ -763,7 +763,7 @@ def create_alternative_truth_transformation_matrix(transformation_matrix: torch.
 
     batch_size, number_residues = sequence_amino_acid_labels.shape[:2]
 
-    alternative_rotations = alternative_angle_mask[sequence_amino_acid_labels]
+    alternative_rotations = alternative_angle_mask.to(device)[sequence_amino_acid_labels]
     residue_angles = torch.tensor([1.0, 0.0]).repeat(batch_size, number_residues, 7, 1).to(device=device, dtype=dtype)
 
     # Apply rotation to get alternative rotations
@@ -823,9 +823,11 @@ def create_alternative_truth_positions(ground_truth_positions: torch.Tensor,
         torch.Tensor: The alternative global positions with symmetric atoms swapped.
             Shape: `(..., number_residues, 37, 3)`.
     """
+    # Get device
+    device = sequence_amino_acid_labels.device
 
     # Shape becomes: (..., number_residues, 37)
-    alternative_indices = alternative_position_mask[sequence_amino_acid_labels].to(ground_truth_positions.device)
+    alternative_indices = alternative_position_mask.to(device)[sequence_amino_acid_labels].to(ground_truth_positions.device)
 
     # Expand the indices to cover the spatial dimension (x, y, z)
     # Shape becomes: (..., number_residues, 37, 3)
@@ -866,10 +868,12 @@ def create_alternative_truth_angles(ground_truth_angles: torch.Tensor,
         torch.Tensor: The alternative torsion angles.
             Shape: `(..., number_residues, 7, 2)`.
     """
+    # Get device
+    device = sequence_amino_acid_labels.device
 
     # Retrieve the scaler mask using the sequence labels
     # Shape becomes: (..., number_residues, 7, 2)
-    alternative_angle_scaler = alternative_angle_mask[sequence_amino_acid_labels].to(ground_truth_angles.device)
+    alternative_angle_scaler = alternative_angle_mask.to(device)[sequence_amino_acid_labels].to(ground_truth_angles.device)
 
     # Apply the scaler to the ground truth angles
     alternative_ground_truth_angles = ground_truth_angles * alternative_angle_scaler
