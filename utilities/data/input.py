@@ -279,7 +279,8 @@ class ModelInput:
             Dict[str, torch.Tensor]: A dictionary of stacked features. All tensors follow the
                 (..., number_samples) shape, or (1, ..., number_samples) if batch_mode is True.
                 - input_msa_feature: (number_clusters, number_residues, msa_feature_dimension, number_samples)
-                - input_extra_msa_feature: (number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_samples)
+                - input_extra_msa_feature:
+                  (number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_samples)
                 - input_sequence_feature: (number_residues, input_sequence_feature_dimension, number_samples)
                 - input_residue_index_feature: (number_residues, number_samples)
                 - sequence_labels: (number_residues, number_samples)
@@ -331,7 +332,8 @@ class ModelInput:
 
         # We use carbon beta atoms for all amino acids except for glycine
         # Pseudo Beta Positions : (..., number_residues, 3)
-        ground_truth_pseudo_carbon_beta_positions = ground_truth_global_positions[..., self.carbon_beta_index, :]
+        # Note: We need to clone it so we don't modify ground_truth_global_positions in-place
+        ground_truth_pseudo_carbon_beta_positions = ground_truth_global_positions[..., self.carbon_beta_index, :].clone()
         ground_truth_carbon_alpha_positions = ground_truth_global_positions[..., self.carbon_alpha_index, :]
         glycine_indices = sequence_labels == self.glycine_index
         ground_truth_pseudo_carbon_beta_positions[glycine_indices] = ground_truth_carbon_alpha_positions[
