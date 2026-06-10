@@ -6,7 +6,7 @@ TrainDataConfiguration:
   mask_probability: 0.15
   acceptance_slope_start: 256
   acceptance_slope_end: 512
-  residue_crop_size: 256
+  residue_crop_size: 16
   distribution_threshold: 80
   emphasize_beginning_crops: true
   number_recycle_cycles: 3
@@ -20,7 +20,7 @@ ValidationDataConfiguration:
   mask_probability: 0.0
   acceptance_slope_start: 256
   acceptance_slope_end: 512
-  residue_crop_size: null
+  residue_crop_size: 16
   distribution_threshold: 80
   emphasize_beginning_crops: false
   number_recycle_cycles: 3
@@ -51,31 +51,31 @@ ExtraMsaStack:
   msa_global_number_heads: 4
   msa_global_head_embedding_dimension: 4
   pair_number_heads: 4
-  pair_head_embedding_dimension: 16
-  intermediate_embedding: 16
+  pair_head_embedding_dimension: 4
+  intermediate_embedding: 4
   msa_transition_channel_scaler: 2
   pair_stack_channel_scaler: 2
-  triangle_multiplication_embedding: 16
+  triangle_multiplication_embedding: 4
 
 EvoformerStack:
-  number_blocks: 12
+  number_blocks: 4
   msa_number_heads: 4
-  msa_head_embedding_dimension: 16
+  msa_head_embedding_dimension: 4
   pair_number_heads: 2
-  pair_head_embedding_dimension: 16
+  pair_head_embedding_dimension: 4
   msa_transition_channel_scaler: 2
   pair_stack_channel_scaler: 2
-  intermediate_embedding: 16
-  triangle_multiplication_embedding: 16
+  intermediate_embedding: 4
+  triangle_multiplication_embedding: 4
 
 StructureModule:
   number_structure_module_iterations: 4
-  angle_representation_embedding: 16
+  angle_representation_embedding: 4
   number_heads: 4
-  head_embedding_dimension: 8
+  head_embedding_dimension: 4
   number_query_points: 2
-  number_value_points: 4
+  number_value_points: 2
   number_torsion_angles: 7
 
 LddtModule:
-  intermediate_embedding: 32
+  intermediate_embedding: 16
