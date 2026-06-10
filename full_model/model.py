@@ -127,12 +127,12 @@ class Model(nn.Module):
          * input_residue_index_feature:
          Tensor of shape (*, number_residues, number_cycles).
          The index of each residue, which is [0,...,number_residues-1].
-         * ground_truth_transformation_matrix: Shape (*, number_residues, 8, 4, 4)
-         * alternative_ground_truth_transformation_matrix: Shape (*, number_residues, 8, 4, 4)
-         * ground_truth_angles: Shape (*, number_residues, 7, 2)
-         * alternative_ground_truth_angles: Shape (*, number_residues, 7, 2)
-         * ground_truth_positions: Shape (*, number_residues, 37, 3)
-         * alternative_ground_truth_positions: Shape (*, number_residues, 37, 3)
+         * ground_truth_frames: Shape (*, number_residues, 8, 4, 4, number_cycles)
+         * alternative_ground_truth_frames: Shape (*, number_residues, 8, 4, 4, number_cycles)
+         * ground_truth_angles: Shape (*, number_residues, 7, 2, number_cycles)
+         * alternative_ground_truth_angles: Shape (*, number_residues, 7, 2, number_cycles)
+         * ground_truth_global_positions: Shape (*, number_residues, 37, 3, number_cycles)
+         * alternative_ground_truth_global_positions: Shape (*, number_residues, 37, 3, number_cycles)
 
         Returns:
         dict: A dictionary with the following entries:
@@ -220,13 +220,14 @@ class Model(nn.Module):
                 single_representation=single_representation_tensor,
                 pair_representation=pair_representation_tensor,
                 sequence_amino_acid_labels=sequence_amino_acid_labels,
-                ground_truth_transformation_matrix=current_cycle_input_batch["ground_truth_transformation_matrix"],
+                ground_truth_transformation_matrix=current_cycle_input_batch["ground_truth_frames"],
                 alternative_ground_truth_transformation_matrix=current_cycle_input_batch[
-                    "alternative_ground_truth_transformation_matrix"],
+                    "alternative_ground_truth_frames"],
                 ground_truth_angles=current_cycle_input_batch["ground_truth_angles"],
                 alternative_ground_truth_angles=current_cycle_input_batch["alternative_ground_truth_angles"],
-                ground_truth_positions=current_cycle_input_batch["ground_truth_positions"],
-                alternative_ground_truth_positions=current_cycle_input_batch["alternative_ground_truth_positions"])
+                ground_truth_positions=current_cycle_input_batch["ground_truth_global_positions"],
+                alternative_ground_truth_positions=current_cycle_input_batch[
+                    "alternative_ground_truth_global_positions"])
 
             previous_msa_representation_tensor = msa_representation_tensor
             previous_pair_representation_tensor = pair_representation_tensor

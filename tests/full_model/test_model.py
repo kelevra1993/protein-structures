@@ -102,16 +102,14 @@ def test_model():
         'input_extra_msa_feature': data['input_extra_msa_feature'][:, :number_residues, ...].unsqueeze(0),
         'input_sequence_feature': data['input_sequence_feature'][:number_residues, ...].unsqueeze(0),
         'input_residue_index_feature': data['input_residue_index_feature'][:number_residues, ...].unsqueeze(0),
-        'ground_truth_transformation_matrix': data['ground_truth_frames'][:number_residues, ...].unsqueeze(0),
-        'alternative_ground_truth_transformation_matrix': data['alternative_ground_truth_frames'][
-            :number_residues, ...].unsqueeze(0),
+        'ground_truth_frames': data['ground_truth_frames'][:number_residues, ...].unsqueeze(0),
+        'alternative_ground_truth_frames': data['alternative_ground_truth_frames'][:number_residues, ...].unsqueeze(0),
         'ground_truth_angles': data['ground_truth_angles'][:number_residues, ...].unsqueeze(0),
         'alternative_ground_truth_angles': data['alternative_ground_truth_angles'][:number_residues, ...].unsqueeze(0),
-        'ground_truth_positions': data['ground_truth_global_positions'][:number_residues, ...].unsqueeze(0),
-        'alternative_ground_truth_positions': data['alternative_ground_truth_global_positions'][
+        'ground_truth_global_positions': data['ground_truth_global_positions'][:number_residues, ...].unsqueeze(0),
+        'alternative_ground_truth_global_positions': data['alternative_ground_truth_global_positions'][
             :number_residues, ...].unsqueeze(0),
-        'distogram_labels': data['distogram_labels'][:number_residues, :number_residues, ...].unsqueeze(0),
-    }
+        'distogram_labels': data['distogram_labels'][:number_residues, :number_residues, ...].unsqueeze(0),}
 
     batched_input_dict = {
         key: tensor.repeat(batch_size, *([1] * len(tensor.shape[1:]))) for key, tensor in simple_input_dict.items()
