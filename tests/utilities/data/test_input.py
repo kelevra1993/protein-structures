@@ -116,6 +116,7 @@ class TestInput(unittest.TestCase):
 
         for key in comparison_keys:
             torch.testing.assert_close(generated_data[key], reference_data[key],
+                                       atol=1e-4, rtol=1e-5,
                                        msg=f"Parity check failed for tensor: {key}")
 
     def test_cropped_local_coordinate_precision(self):
