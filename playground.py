@@ -4,8 +4,10 @@ import time
 import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
+
 from tqdm import tqdm
 from pathlib import Path
+from typing import Dict, Any, Optional
 
 from full_model.model import Model
 from utilities.os_utilities import load_configuration, print_red, print_green, print_blue, print_yellow
@@ -32,7 +34,8 @@ class Trainer:
                  compute_validation_iteration: bool,
                  learning_rate: float,
                  dtype: torch.dtype,
-                 compute_model_size: bool = False):
+                 compute_model_size: bool = False,
+                 information_dump: int = 100):
         """
         Initializes the Trainer with all necessary components for a training run.
 
@@ -48,6 +51,7 @@ class Trainer:
             learning_rate (float): Initial learning rate for the Adam optimizer.
             dtype (torch.dtype): Data type to be used for all model tensors (e.g., torch.float32 or torch.float64).
             compute_model_size (bool): If True, prints the model size and exits.
+            information_dump (int): Interval at which rolling average losses are printed to the console.
         """
         # Get device and dtype
         self.device = get_device()
@@ -98,6 +102,16 @@ class Trainer:
         self.weight_saving_iterations = weight_saving_iterations
         self.compute_validation_iteration = compute_validation_iteration
         self.compute_model_size = compute_model_size
+        self.information_dump = information_dump
+
+        # Loss names mapping for logging and tracking
+        self.loss_names_mapping = {
+            "total_loss": "Total Loss",
+            "fape_loss": "Frame Aligned Point Error Loss",
+            "auxillary_loss": "Auxillary Loss",
+            "lddt_loss": "Local Distance Difference Test Loss",
+            "distogram_loss": "Distogram Loss"
+        }
 
     def setup_training_paths(self):
         """
@@ -142,6 +156,14 @@ class Trainer:
         training_dataloader_iterator = iter(self.train_dataloader)
         validation_dataloader_iterator = iter(self.validation_dataloader)
 
+        # Initialize trackers
+        # Todo add small comment to show what trackers look like
+        training_trackers = self.get_loss_trackers()
+        if self.compute_validation_iteration:
+            validation_trackers = self.get_loss_trackers()
+        else:
+            validation_trackers = None
+
         for training_iteration in range(1, self.training_iterations, 1):
 
             # Save the model
@@ -163,7 +185,9 @@ class Trainer:
 
             # Forward pass containing batch dictionary and tensorboard logger
             training_loss = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
-                                                     writer=self.training_writer, iteration=training_iteration)
+                                                     writer=self.training_writer,
+                                                     iteration=training_iteration,
+                                                     tracker_dictionary=training_trackers)
 
             # Backward and Step
             training_loss.backward()
@@ -171,6 +195,7 @@ class Trainer:
 
             # Validation phase : No gradient computation
             if self.compute_validation_iteration:
+                self.model.eval()
                 with torch.no_grad():
                     # Get data
                     # Ensure that in case of stopIteration, just relaunch iterator
@@ -181,10 +206,20 @@ class Trainer:
                         validation_batch_dictionary = next(validation_dataloader_iterator)
 
                     # Forward pass containing batch dictionary and tensorboard logger
-                    validation_loss = self.run_model_iteration(
+                    _ = self.run_model_iteration(
                         batch_input_dictionary=validation_batch_dictionary,
                         writer=self.validation_writer,
-                        iteration=training_iteration)
+                        iteration=training_iteration,
+                        tracker_dictionary=validation_trackers)
+
+            # Console log dump
+            if training_iteration % self.information_dump == 0:
+                training_trackers = self.console_log_update_tracker(
+                    iterations=training_iteration,
+                    training_tracker_dictionary=training_trackers,
+                    validation_tracker_dictionary=validation_trackers)
+                if self.compute_validation_iteration:
+                    validation_trackers = self.get_loss_trackers()
 
         # Close all the summary writers
         self.training_writer.close()
@@ -192,7 +227,8 @@ class Trainer:
             self.validation_writer.close()
 
     def run_model_iteration(self, batch_input_dictionary: Dict[str, torch.Tensor],
-                            writer: SummaryWriter, iteration: int) -> torch.Tensor:
+                            writer: SummaryWriter, iteration: int,
+                            tracker_dictionary: Dict[str, Any] | None) -> torch.Tensor:
         """
         Performs a single forward pass of the model, calculates losses, and logs metrics.
 
@@ -209,6 +245,7 @@ class Trainer:
                 - distogram_labels: (batch_size, number_residues, number_residues, number_cycles)
             writer (SummaryWriter): The TensorBoard writer to use for logging.
             iteration (int): The current training iteration index.
+            tracker_dictionary (Dict[str, Any]): Dictionary to accumulate rolling average losses.
 
         Returns:
             torch.Tensor: The total calculated loss for the current iteration (scalar).
@@ -226,14 +263,22 @@ class Trainer:
         # Get full training loss
         total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss
 
-        # Log data to tensorboard
+        # Store losses in a dictionary
+        loss_dictionary = {
+            "total_loss": total_loss,
+            "fape_loss": fape_loss,
+            "auxillary_loss": auxillary_loss,
+            "lddt_loss": lddt_loss,
+            "distogram_loss": distogram_loss}
+
+        # Update tracker dictionary (rolling average accumulation)
+        for loss_key, loss_value in loss_dictionary.items():
+            tracker_dictionary[loss_key] += loss_value.item() / self.information_dump
+
+        # Log data to tensorboard (per-iteration)
         self.log_losses_to_tensorboard(writer=writer,
                                        iteration=iteration,
-                                       total_loss=total_loss,
-                                       fape_loss=fape_loss,
-                                       auxillary_loss=auxillary_loss,
-                                       lddt_loss=lddt_loss,
-                                       distogram_loss=distogram_loss)
+                                       loss_dictionary=loss_dictionary)
 
         return total_loss
 
@@ -255,26 +300,17 @@ class Trainer:
         self.dump_in_checkpoint(iteration=iteration)
 
     def log_losses_to_tensorboard(self, writer: SummaryWriter, iteration: int,
-                                  total_loss: torch.Tensor, fape_loss: torch.Tensor,
-                                  auxillary_loss: torch.Tensor, lddt_loss: torch.Tensor,
-                                  distogram_loss: torch.Tensor):
+                                  loss_dictionary: Dict[str, torch.Tensor]):
         """
         Logs individual loss components and total loss to TensorBoard.
 
         Args:
             writer (SummaryWriter): The TensorBoard writer to use.
             iteration (int): The current iteration index.
-            total_loss (torch.Tensor): Total combined loss (scalar).
-            fape_loss (torch.Tensor): Frame Aligned Point Error loss (scalar).
-            auxillary_loss (torch.Tensor): Auxiliary head loss (scalar).
-            lddt_loss (torch.Tensor): Local Distance Difference Test loss (scalar).
-            distogram_loss (torch.Tensor): Distogram prediction loss (scalar).
+            loss_dictionary (Dict[str, torch.Tensor]): Dictionary containing current iteration losses.
         """
-        writer.add_scalar("Total Loss", total_loss.item(), iteration)
-        writer.add_scalar("Frame Aligned Point Error Loss", fape_loss.item(), iteration)
-        writer.add_scalar("Auxillary Loss", auxillary_loss.item(), iteration)
-        writer.add_scalar("Local Distance Difference Test Loss", lddt_loss.item(), iteration)
-        writer.add_scalar("Distogram Loss", distogram_loss.item(), iteration)
+        for loss_key, display_name in self.loss_names_mapping.items():
+            writer.add_scalar(display_name, loss_dictionary[loss_key].item(), iteration)
 
     def dump_training_information(self, iteration: int):
         """
@@ -394,3 +430,50 @@ class Trainer:
                 d.append(f'all_model_checkpoint_paths: "Iteration_{iteration}"\n')
             for line in d:
                 f.write(line)
+
+    def console_log_update_tracker(self, iterations: int,
+                                   training_tracker_dictionary: Dict[str, Any],
+                                   validation_tracker_dictionary: Optional[Dict[str, Any]] = None):
+        """
+        Prints the rolling average of losses to the console.
+
+        Args:
+            iterations (int): Current global training iteration.
+            training_tracker_dictionary (Dict[str, Any]): Rolling average trackers for training.
+            validation_tracker_dictionary (Optional[Dict[str, Any]]): Rolling average trackers for validation.
+
+        Returns:
+            Dict[str, Any]: A fresh training tracker dictionary for the next interval.
+        """
+        print_length = 100
+        print("-" * print_length)
+        print(f"Iteration: {iterations}")
+
+        for loss_key, display_name in self.loss_names_mapping.items():
+            train_value = training_tracker_dictionary[loss_key]
+            message = f"Moving Average of Training {display_name:30} : {train_value:.4f}"
+            print_blue(message)
+
+            if validation_tracker_dictionary is not None:
+                validation_value = validation_tracker_dictionary[loss_key]
+                validation_message = f"Moving Average of Validation {display_name:30} : {validation_value:.4f}"
+                print_yellow(validation_message)
+
+        duration = time.time() - training_tracker_dictionary['start_time']
+        print(f"These {self.information_dump} iterations took {duration:.2f} seconds")
+        print("-" * print_length)
+
+        return self.get_loss_trackers()
+
+    def get_loss_trackers(self) -> Dict[str, Any]:
+        """
+        Initializes a dictionary to track rolling averages of losses.
+
+        Returns:
+            Dict[str, Any]: A dictionary with loss keys set to 0.0 and a start_time.
+        """
+        tracker_dictionary = {"start_time": time.time()}
+        for loss_key in self.loss_names_mapping.keys():
+            tracker_dictionary[loss_key] = 0.0
+
+        return tracker_dictionary
