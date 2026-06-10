@@ -125,3 +125,82 @@ def to_modelcif(atom_positions, atom_mask, sequence):
     modelcif.dumper.write(fh, [system])
 
     return fh.getvalue()
+
+
+def print_blue(output, add_separators=False):
+    """
+    Prints the output string in blue color.
+    :param output: The string that we wish to print in a certain color.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[94m" + "\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[94m" + "\033[1m" + output + "\033[0m")
+        print("\033[94m" + "\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[94m" + "\033[1m" + output + "\033[0m")
+
+
+def print_green(output, add_separators=False):
+    """
+    Prints the output string in green color.
+    :param output: The string that we wish to print in a certain color.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[32m" + "\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[32m" + "\033[1m" + output + "\033[0m")
+        print("\033[32m" + "\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[32m" + "\033[1m" + output + "\033[0m")
+
+
+def print_yellow(output, add_separators=False):
+    """
+    Prints the output string in yellow color.
+    :param output: The string that we wish to print in a certain color.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[93m" + "\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[93m" + "\033[1m" + output + "\033[0m")
+        print("\033[93m" + "\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[93m" + "\033[1m" + output + "\033[0m")
+
+
+def print_red(output, add_separators=False):
+    """
+    Prints the output string in red color.
+    :param output: The string that we wish to print in a certain color.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[91m" + "\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[91m" + "\033[1m" + output + "\033[0m")
+        print("\033[91m" + "\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[91m" + "\033[1m" + output + "\033[0m")
+
+
+def print_bold(output, add_separators=False):
+    """
+    Prints the output string in bold font.
+    :param output: The string that we wish to print in bold font.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[1m" + output + "\033[0m")
+        print("\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[1m" + output + "\033[0m")
+
+
+def print_dictionary(dictionary, indent):
+    json.dumps(dictionary, indent=indent)
