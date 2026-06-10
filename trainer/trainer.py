@@ -188,68 +188,77 @@ class Trainer:
         else:
             validation_trackers = None
 
-        for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
+        training_iteration = self.start_iteration
+        try:
+            for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
 
-            # Save the model and test it.
-            if training_iteration % self.weight_saving_iterations == 0:
-                self.save_model(iteration=training_iteration)
-                self.run_test_evaluation(iteration=training_iteration)
+                # Save the model and test it.
+                if training_iteration % self.weight_saving_iterations == 0:
+                    self.save_model(iteration=training_iteration)
+                    self.run_test_evaluation(iteration=training_iteration)
 
-            # Get next training elements
-            # Ensure that in case of stopIteration, just relaunch iterator
-            try:
-                training_batch_dictionary = next(training_dataloader_iterator)
-            except StopIteration:
-                training_dataloader_iterator = iter(self.train_dataloader)
-                training_batch_dictionary = next(training_dataloader_iterator)
+                # Get next training elements
+                # Ensure that in case of stopIteration, just relaunch iterator
+                try:
+                    training_batch_dictionary = next(training_dataloader_iterator)
+                except StopIteration:
+                    training_dataloader_iterator = iter(self.train_dataloader)
+                    training_batch_dictionary = next(training_dataloader_iterator)
 
-            # Set the module in training mode.
-            # Reset the gradients of all optimized classes :`torch.Tensor` s.
-            self.model.train()
-            self.optimizer.zero_grad()
+                # Set the module in training mode.
+                # Reset the gradients of all optimized classes :`torch.Tensor` s.
+                self.model.train()
+                self.optimizer.zero_grad()
 
-            # Forward pass containing batch dictionary and tensorboard logger
-            training_loss = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
-                                                     writer=self.training_writer,
-                                                     iteration=training_iteration,
-                                                     tracker_dictionary=training_trackers)
+                # Forward pass containing batch dictionary and tensorboard logger
+                training_loss = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
+                                                         writer=self.training_writer,
+                                                         iteration=training_iteration,
+                                                         tracker_dictionary=training_trackers)
 
-            # Backward and Step
-            training_loss.backward()
-            self.optimizer.step()
+                # Backward and Step
+                training_loss.backward()
+                self.optimizer.step()
 
-            # Validation phase : No gradient computation
-            if self.compute_validation_iteration:
-                self.model.eval()
-                with torch.no_grad():
-                    # Get data
-                    # Ensure that in case of stopIteration, just relaunch iterator
-                    try:
-                        validation_batch_dictionary = next(validation_dataloader_iterator)
-                    except StopIteration:
-                        validation_dataloader_iterator = iter(self.validation_dataloader)
-                        validation_batch_dictionary = next(validation_dataloader_iterator)
-
-                    # Forward pass containing batch dictionary and tensorboard logger
-                    _ = self.run_model_iteration(
-                        batch_input_dictionary=validation_batch_dictionary,
-                        writer=self.validation_writer,
-                        iteration=training_iteration,
-                        tracker_dictionary=validation_trackers)
-
-            # Console log dump
-            if training_iteration % self.information_dump == 0:
-                training_trackers = self.console_log_update_tracker(
-                    iterations=training_iteration,
-                    training_tracker_dictionary=training_trackers,
-                    validation_tracker_dictionary=validation_trackers)
+                # Validation phase : No gradient computation
                 if self.compute_validation_iteration:
-                    validation_trackers = self.get_loss_trackers()
+                    self.model.eval()
+                    with torch.no_grad():
+                        # Get data
+                        # Ensure that in case of stopIteration, just relaunch iterator
+                        try:
+                            validation_batch_dictionary = next(validation_dataloader_iterator)
+                        except StopIteration:
+                            validation_dataloader_iterator = iter(self.validation_dataloader)
+                            validation_batch_dictionary = next(validation_dataloader_iterator)
 
-        # Close all the summary writers
-        self.training_writer.close()
-        if self.compute_validation_iteration:
-            self.validation_writer.close()
+                        # Forward pass containing batch dictionary and tensorboard logger
+                        _ = self.run_model_iteration(
+                            batch_input_dictionary=validation_batch_dictionary,
+                            writer=self.validation_writer,
+                            iteration=training_iteration,
+                            tracker_dictionary=validation_trackers)
+
+                # Console log dump
+                if training_iteration % self.information_dump == 0:
+                    training_trackers = self.console_log_update_tracker(
+                        iterations=training_iteration,
+                        training_tracker_dictionary=training_trackers,
+                        validation_tracker_dictionary=validation_trackers)
+                    if self.compute_validation_iteration:
+                        validation_trackers = self.get_loss_trackers()
+
+        except KeyboardInterrupt:
+            print_red(f"\nTraining Interrupted by User at iteration {training_iteration}.", add_separators=True)
+            self.save_model(iteration=training_iteration)
+            print_green(f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
+                        add_separators=True)
+
+        finally:
+            # Close all the summary writers
+            self.training_writer.close()
+            if self.compute_validation_iteration:
+                self.validation_writer.close()
 
     def run_test_evaluation(self, iteration: int):
         """
