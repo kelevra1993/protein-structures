@@ -251,66 +251,49 @@ def get_protein_dataloader(data_folder: str,
     return dataloader
 
 
-def get_train_and_validation_dataloader(
-        train_data_folder: str,
-        validation_data_folder: str,
-        model_configuration: dict,
-        train_split_path: str,
-        validation_split_path: str,
-        device: torch.device,
-        dtype: torch.dtype,
-        train_workers: int = 0,
-        validation_workers: int = 0) -> tuple[DataLoader, DataLoader]:
+def get_dataloader(data_folder: str,
+                   model_configuration: dict,
+                   split_path: str,
+                   phase: str,
+                   device: torch.device,
+                   dtype: torch.dtype,
+                   num_workers: int = 0) -> DataLoader:
     """
-    Creates and returns train and validation dataloaders.
-    
-    :param train_data_folder: Path to the root training data folder.
-    :param validation_data_folder: Path to the root validation data folder.
+    Creates and returns a PyTorch DataLoader for a specific phase (Train, Validation, or Test).
+
+    :param data_folder: Path to the root data folder.
     :param model_configuration: Model configuration dictionary.
-    :param train_split_path: Path to the JSON file defining the train dataset split.
-    :param validation_split_path: Path to the JSON file defining the validation dataset split.
+    :param split_path: Path to the JSON file defining the dataset split.
+    :param phase: The phase for which to get the dataloader ('Train', 'Validation', or 'Test').
     :param device: The target torch.device.
     :param dtype: The target torch.dtype.
-    :param train_workers: Number of workers for the train dataloader (default 0).
-    :param validation_workers: Number of workers for the validation dataloader (default 0).
-    :return: A tuple containing the train and validation PyTorch DataLoaders.
+    :param num_workers: Number of worker threads for data loading (default 0).
+    :return: A PyTorch DataLoader configured for the specified phase.
     """
-    train_dataloader = get_protein_dataloader(
-        data_folder=train_data_folder,
-        split_file_path=train_split_path,
-        residue_crop_size=model_configuration['TrainDataConfiguration']['residue_crop_size'],
-        emphasize_beginning_crops=model_configuration['TrainDataConfiguration']['emphasize_beginning_crops'],
-        acceptance_slope_start=model_configuration['TrainDataConfiguration']['acceptance_slope_start'],
-        acceptance_slope_end=model_configuration['TrainDataConfiguration']['acceptance_slope_end'],
-        distribution_threshold=model_configuration['TrainDataConfiguration']['distribution_threshold'],
-        maximum_cluster_sequences=model_configuration['TrainDataConfiguration']['maximum_cluster_sequences'],
-        maximum_extra_msa_sequences=model_configuration['TrainDataConfiguration']['maximum_extra_msa_sequences'],
-        mask_probability=model_configuration['TrainDataConfiguration']['mask_probability'],
-        number_recycle_cycles=model_configuration['TrainDataConfiguration']['number_recycle_cycles'],
-        use_single_representative=model_configuration['TrainDataConfiguration']['use_single_representative'],
-        batch_size=model_configuration['TrainDataConfiguration']['batch_size'],
-        num_workers=train_workers,
-        shuffle=model_configuration['TrainDataConfiguration']['shuffle'],
+    config_key = f"{phase}DataConfiguration"
+    if config_key not in model_configuration:
+        raise KeyError(f"Configuration for phase '{phase}' not found in model_configuration. "
+                       f"Expected key: '{config_key}'")
+
+    phase_configuration = model_configuration[config_key]
+
+    dataloader = get_protein_dataloader(
+        data_folder=data_folder,
+        split_file_path=split_path,
+        residue_crop_size=phase_configuration['residue_crop_size'],
+        emphasize_beginning_crops=phase_configuration['emphasize_beginning_crops'],
+        acceptance_slope_start=phase_configuration['acceptance_slope_start'],
+        acceptance_slope_end=phase_configuration['acceptance_slope_end'],
+        distribution_threshold=phase_configuration['distribution_threshold'],
+        maximum_cluster_sequences=phase_configuration['maximum_cluster_sequences'],
+        maximum_extra_msa_sequences=phase_configuration['maximum_extra_msa_sequences'],
+        mask_probability=phase_configuration['mask_probability'],
+        number_recycle_cycles=phase_configuration['number_recycle_cycles'],
+        use_single_representative=phase_configuration['use_single_representative'],
+        batch_size=phase_configuration['batch_size'],
+        num_workers=num_workers,
+        shuffle=phase_configuration['shuffle'],
         device=device,
         dtype=dtype)
 
-    validation_dataloader = get_protein_dataloader(
-        data_folder=validation_data_folder,
-        split_file_path=validation_split_path,
-        residue_crop_size=model_configuration['ValidationDataConfiguration']['residue_crop_size'],
-        emphasize_beginning_crops=model_configuration['ValidationDataConfiguration']['emphasize_beginning_crops'],
-        acceptance_slope_start=model_configuration['ValidationDataConfiguration']['acceptance_slope_start'],
-        acceptance_slope_end=model_configuration['ValidationDataConfiguration']['acceptance_slope_end'],
-        distribution_threshold=model_configuration['ValidationDataConfiguration']['distribution_threshold'],
-        maximum_cluster_sequences=model_configuration['ValidationDataConfiguration']['maximum_cluster_sequences'],
-        maximum_extra_msa_sequences=model_configuration['ValidationDataConfiguration']['maximum_extra_msa_sequences'],
-        mask_probability=model_configuration['ValidationDataConfiguration']['mask_probability'],
-        number_recycle_cycles=model_configuration['ValidationDataConfiguration']['number_recycle_cycles'],
-        use_single_representative=model_configuration['ValidationDataConfiguration']['use_single_representative'],
-        batch_size=model_configuration['ValidationDataConfiguration']['batch_size'],
-        num_workers=validation_workers,
-        shuffle=model_configuration['ValidationDataConfiguration']['shuffle'],
-        device=device,
-        dtype=dtype)
-
-    return train_dataloader, validation_dataloader
+    return dataloader
