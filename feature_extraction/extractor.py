@@ -79,7 +79,7 @@ class FeatureExtractor:
 
         self.input_sequence_feature = input_sequence_feature
         self.input_residue_index_feature = input_residue_index_feature
-        
+
         self.number_residues = len(self.input_sequence)
         self.total_sequences = self.global_msa_sequence_tensor.shape[0]
 
@@ -191,12 +191,10 @@ class FeatureExtractor:
         """
         number_amino_acid_categories = 23  # 20 Amino Acids, Unknown AA, Gap, masked_msa_token
 
-        odds = {
-            'uniform': 0.1,
-            'amino_acid_distribution': 0.1,
-            'no_action': 0.1,
-            'add_mask': 0.7,
-        }
+        odds = {'uniform': 0.1,
+                'amino_acid_distribution': 0.1,
+                'no_action': 0.1,
+                'add_mask': 0.7, }
 
         gen = None
         if seed is not None:
@@ -208,7 +206,8 @@ class FeatureExtractor:
         indices_to_change = random_mask < self.mask_probability
 
         # Uniform Replacement (number_sequences, number_residues, 22)
-        uniform_replacement = torch.tensor([1 / 20] * 20 + [0, 0]) * odds['uniform']
+        uniform_replacement = torch.tensor([1 / 20] * 20 + [0, 0],
+                                           device=self.device, dtype=self.dtype) * odds['uniform']
 
         # From Amino Acid Distribution
         from_distribution_replacement = self.total_amino_acid_distribution * odds['amino_acid_distribution']
@@ -217,7 +216,8 @@ class FeatureExtractor:
         no_replacement = self.input_msa_sequence_tensor * odds['no_action']
 
         # Add Mask
-        masked_out = torch.ones((self.number_clusters, self.number_residues, 1)) * odds['add_mask']
+        masked_out = torch.ones((self.number_clusters, self.number_residues, 1),
+                                device=self.device, dtype=self.dtype) * odds['add_mask']
 
         # Summing initial categories up
         # Note : This Will Broadcast Until Shape Of (number_cluster, number_residues, 22)
@@ -404,7 +404,6 @@ if __name__ == "__main__":
         device=device,
         dtype=dtype
     )
-
 
     input_sequence_feature = one_hot_encode_amino_acid_types(
         sequence=target_sequence,
