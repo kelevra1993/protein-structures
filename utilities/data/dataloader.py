@@ -249,3 +249,68 @@ def get_protein_dataloader(data_folder: str,
         drop_last=False)
 
     return dataloader
+
+
+def get_train_and_validation_dataloader(
+        train_data_folder: str,
+        validation_data_folder: str,
+        model_configuration: dict,
+        train_split_path: str,
+        validation_split_path: str,
+        device: torch.device,
+        dtype: torch.dtype,
+        train_workers: int = 0,
+        validation_workers: int = 0) -> tuple[DataLoader, DataLoader]:
+    """
+    Creates and returns train and validation dataloaders.
+    
+    :param train_data_folder: Path to the root training data folder.
+    :param validation_data_folder: Path to the root validation data folder.
+    :param model_configuration: Model configuration dictionary.
+    :param train_split_path: Path to the JSON file defining the train dataset split.
+    :param validation_split_path: Path to the JSON file defining the validation dataset split.
+    :param device: The target torch.device.
+    :param dtype: The target torch.dtype.
+    :param train_workers: Number of workers for the train dataloader (default 0).
+    :param validation_workers: Number of workers for the validation dataloader (default 0).
+    :return: A tuple containing the train and validation PyTorch DataLoaders.
+    """
+    train_dataloader = get_protein_dataloader(
+        data_folder=train_data_folder,
+        split_file_path=train_split_path,
+        residue_crop_size=model_configuration['TrainDataConfiguration']['residue_crop_size'],
+        emphasize_beginning_crops=model_configuration['TrainDataConfiguration']['emphasize_beginning_crops'],
+        acceptance_slope_start=model_configuration['TrainDataConfiguration']['acceptance_slope_start'],
+        acceptance_slope_end=model_configuration['TrainDataConfiguration']['acceptance_slope_end'],
+        distribution_threshold=model_configuration['TrainDataConfiguration']['distribution_threshold'],
+        maximum_cluster_sequences=model_configuration['TrainDataConfiguration']['maximum_cluster_sequences'],
+        maximum_extra_msa_sequences=model_configuration['TrainDataConfiguration']['maximum_extra_msa_sequences'],
+        mask_probability=model_configuration['TrainDataConfiguration']['mask_probability'],
+        number_recycle_cycles=model_configuration['TrainDataConfiguration']['number_recycle_cycles'],
+        use_single_representative=model_configuration['TrainDataConfiguration']['use_single_representative'],
+        batch_size=model_configuration['TrainDataConfiguration']['batch_size'],
+        num_workers=train_workers,
+        shuffle=model_configuration['TrainDataConfiguration']['shuffle'],
+        device=device,
+        dtype=dtype)
+
+    validation_dataloader = get_protein_dataloader(
+        data_folder=validation_data_folder,
+        split_file_path=validation_split_path,
+        residue_crop_size=model_configuration['ValidationDataConfiguration']['residue_crop_size'],
+        emphasize_beginning_crops=model_configuration['ValidationDataConfiguration']['emphasize_beginning_crops'],
+        acceptance_slope_start=model_configuration['ValidationDataConfiguration']['acceptance_slope_start'],
+        acceptance_slope_end=model_configuration['ValidationDataConfiguration']['acceptance_slope_end'],
+        distribution_threshold=model_configuration['ValidationDataConfiguration']['distribution_threshold'],
+        maximum_cluster_sequences=model_configuration['ValidationDataConfiguration']['maximum_cluster_sequences'],
+        maximum_extra_msa_sequences=model_configuration['ValidationDataConfiguration']['maximum_extra_msa_sequences'],
+        mask_probability=model_configuration['ValidationDataConfiguration']['mask_probability'],
+        number_recycle_cycles=model_configuration['ValidationDataConfiguration']['number_recycle_cycles'],
+        use_single_representative=model_configuration['ValidationDataConfiguration']['use_single_representative'],
+        batch_size=model_configuration['ValidationDataConfiguration']['batch_size'],
+        num_workers=validation_workers,
+        shuffle=model_configuration['ValidationDataConfiguration']['shuffle'],
+        device=device,
+        dtype=dtype)
+
+    return train_dataloader, validation_dataloader
