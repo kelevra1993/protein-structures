@@ -14,6 +14,7 @@ ipython_config.py
 
 # PEP 582 project packages
 __pypackages__/
+__pycache__*
 
 # Environments
 .env
