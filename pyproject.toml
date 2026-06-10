@@ -16,6 +16,7 @@ pyyaml = "^6.0.3"
 gradio = "^6.15.2"
 matplotlib = "^3.10.9"
 plotly = "^6.8.0"
+tensorboard = "^2.20.0"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
