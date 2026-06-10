@@ -252,8 +252,8 @@ class Model(nn.Module):
         distogram_labels = batch_input_dictionary['distogram_labels'][..., -1]
         distogram_loss = compute_distogram_loss(distogram_logits=distogram_logits, distogram_labels=distogram_labels)
 
-        model_outputs["distogram_loss"] = distogram_loss
         model_outputs["distogram_logits"] = distogram_logits
+        model_outputs["distogram_loss"] = distogram_loss
         model_outputs["distogram_probabilities"] = distogram_probabilities
 
         return model_outputs
