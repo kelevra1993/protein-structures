@@ -127,6 +127,12 @@ class Model(nn.Module):
          * input_residue_index_feature:
          Tensor of shape (*, number_residues, number_cycles).
          The index of each residue, which is [0,...,number_residues-1].
+         * ground_truth_transformation_matrix: Shape (*, number_residues, 8, 4, 4)
+         * alternative_ground_truth_transformation_matrix: Shape (*, number_residues, 8, 4, 4)
+         * ground_truth_angles: Shape (*, number_residues, 7, 2)
+         * alternative_ground_truth_angles: Shape (*, number_residues, 7, 2)
+         * ground_truth_positions: Shape (*, number_residues, 37, 3)
+         * alternative_ground_truth_positions: Shape (*, number_residues, 37, 3)
 
         Returns:
         dict: A dictionary with the following entries:
@@ -138,6 +144,9 @@ class Model(nn.Module):
             * frames: Backbone frames of shape (*, num_layers, number_residues, 4, 4, number_cycles)
              for every iteration of the Structure Module in every cycle.
             * pseudo_beta_positions: Pseudo C-beta positions of shape (*, number_residues, 3, number_cycles).
+            * overall_fape_loss: FAPE loss.
+            * auxillary_loss: Auxiliary loss.
+            * predicted_lddt_loss: Predicted LDDT loss.
             * distogram_logits: Distance bin logits of shape (*, number_residues, number_residues, 64).
         """
 
@@ -147,7 +156,8 @@ class Model(nn.Module):
 
         # Model outputs emanating from structure module
         model_outputs = {key: [] for key in
-                         ["angles", "frames", "final_positions", "position_mask", "pseudo_beta_positions"]}
+                         ["angles", "frames", "final_positions", "position_mask", "pseudo_beta_positions", 
+                          "overall_fape_loss", "auxillary_loss", "predicted_lddt_loss"]}
 
         # Initialisation of first tensors
         msa_shape = (batch_shape + (number_clusters, number_residues, self.msa_embedding))
@@ -177,8 +187,13 @@ class Model(nn.Module):
 
             # Only the very first sequence of the msa is updated with the recycled msa
             # The recycling embedder just actually normalizes the msa_representation_input using a layer normalizer
-            msa_representation_tensor[..., 0, :, :] += recycled_msa_representation
-            pair_representation_tensor += recycled_pair_representation
+            
+            # Non-inplace update for msa_representation_tensor
+            first_msa_sequence = msa_representation_tensor[..., 0, :, :] + recycled_msa_representation
+            msa_representation_tensor = torch.cat([first_msa_sequence.unsqueeze(-3),
+                                                   msa_representation_tensor[..., 1:, :, :]], dim=-3)
+            
+            pair_representation_tensor = pair_representation_tensor + recycled_pair_representation
 
             extra_msa_representation = self.extra_msa_embedder(
                 input_extra_msa_feature=current_cycle_input_batch['input_extra_msa_feature'])
@@ -200,10 +215,17 @@ class Model(nn.Module):
             sequence_amino_acid_labels = torch.argmax(
                 current_cycle_input_batch["input_sequence_feature"], dim=-1)
 
-            angles, frames, final_positions, position_mask, pseudo_beta_positions = self.structure_module(
+            (angles, frames, final_positions, position_mask, pseudo_beta_positions,
+             overall_fape_loss, auxillary_loss, predicted_lddt_loss) = self.structure_module(
                 single_representation=single_representation_tensor,
                 pair_representation=pair_representation_tensor,
-                sequence_amino_acid_labels=sequence_amino_acid_labels)
+                sequence_amino_acid_labels=sequence_amino_acid_labels,
+                ground_truth_transformation_matrix=current_cycle_input_batch["ground_truth_transformation_matrix"],
+                alternative_ground_truth_transformation_matrix=current_cycle_input_batch["alternative_ground_truth_transformation_matrix"],
+                ground_truth_angles=current_cycle_input_batch["ground_truth_angles"],
+                alternative_ground_truth_angles=current_cycle_input_batch["alternative_ground_truth_angles"],
+                ground_truth_positions=current_cycle_input_batch["ground_truth_positions"],
+                alternative_ground_truth_positions=current_cycle_input_batch["alternative_ground_truth_positions"])
 
             previous_msa_representation_tensor = msa_representation_tensor
             previous_pair_representation_tensor = pair_representation_tensor
@@ -214,6 +236,9 @@ class Model(nn.Module):
             model_outputs["final_positions"].append(final_positions)
             model_outputs["position_mask"].append(position_mask)
             model_outputs["pseudo_beta_positions"].append(pseudo_beta_positions)
+            model_outputs["overall_fape_loss"].append(overall_fape_loss)
+            model_outputs["auxillary_loss"].append(auxillary_loss)
+            model_outputs["predicted_lddt_loss"].append(predicted_lddt_loss)
 
         # Stack all tensors emanating from different cycles
         model_outputs = {key: torch.stack(value, dim=-1) for key, value in model_outputs.items()}
