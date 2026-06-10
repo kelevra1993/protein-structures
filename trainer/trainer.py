@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 from full_model.model import Model
 from utilities.os_utilities import load_configuration, print_red, print_green, print_blue, print_yellow
 from utilities.tensor_utilities import get_device
-from utilities.data.dataloader import get_train_and_validation_dataloader
+from utilities.data.dataloader import get_dataloader
 
 
 class Trainer:
@@ -27,13 +27,14 @@ class Trainer:
     """
 
     def __init__(self, project_root: Path, configuration_path: Path, data_folder: Path,
-                 train_split_file: Path, validation_split_file: Path,
+                 train_split_file: Path, validation_split_file: Path, test_split_file: Path,
                  number_iterations: int, weight_saving_iterations: int,
                  compute_validation_iteration: bool,
                  learning_rate: float,
                  dtype: torch.dtype,
                  compute_model_size: bool = False,
-                 information_dump: int = 100):
+                 information_dump: int = 100,
+                 resume_training: bool = True):
         """
         Initializes the Trainer with all necessary components for a training run.
 
@@ -43,6 +44,7 @@ class Trainer:
             data_folder (Path): Root directory containing the processed protein data (structures, records, msa).
             train_split_file (Path): Path to the JSON file defining the training dataset split.
             validation_split_file (Path): Path to the JSON file defining the validation dataset split.
+            test_split_file (Path): Path to the JSON file defining the test dataset split.
             number_iterations (int): Total number of training iterations to perform.
             weight_saving_iterations (int): Interval (in iterations) at which to save model weights.
             compute_validation_iteration (bool): If True, performs a validation step during each training iteration.
@@ -50,6 +52,7 @@ class Trainer:
             dtype (torch.dtype): Data type to be used for all model tensors (e.g., torch.float32 or torch.float64).
             compute_model_size (bool): If True, prints the model size and exits.
             information_dump (int): Interval at which rolling average losses are printed to the console.
+            resume_training (bool): If True, restores the model and optimizer state from the last checkpoint.
         """
         # Get device and dtype
         self.device = get_device()
@@ -57,11 +60,19 @@ class Trainer:
 
         print(f"For Training We Will Be Using device: {self.device}")
 
+        # Basic training parameters
+        self.project_root = project_root
+        self.training_iterations = number_iterations
+        self.weight_saving_iterations = weight_saving_iterations
+        self.compute_validation_iteration = compute_validation_iteration
+        self.compute_model_size = compute_model_size
+        self.information_dump = information_dump
+        self.learning_rate = learning_rate
+
         # Root where training will be performed
         # Will contain tensorboard logs
         # Will contain weights
         # Will contain model outputs for debugging
-        self.project_root = project_root
         self.tensorboard_directory, self.weights_directory = self.setup_training_paths()
 
         # Setup writers
@@ -75,14 +86,30 @@ class Trainer:
         self.data_folder = data_folder
         self.train_split_file = train_split_file
         self.validation_split_file = validation_split_file
+        self.test_split_file = test_split_file
 
-        # Setup training and validation dataloaders
-        self.train_dataloader, self.validation_dataloader = get_train_and_validation_dataloader(
-            train_data_folder=str(self.data_folder),
-            validation_data_folder=str(self.data_folder),
+        # Setup training, validation, and test dataloaders
+        self.train_dataloader = get_dataloader(
+            data_folder=str(self.data_folder),
             model_configuration=self.model_configuration,
-            train_split_path=str(self.train_split_file),
-            validation_split_path=str(self.validation_split_file),
+            split_path=str(self.train_split_file),
+            phase="Train",
+            device=self.device,
+            dtype=self.dtype)
+
+        self.validation_dataloader = get_dataloader(
+            data_folder=str(self.data_folder),
+            model_configuration=self.model_configuration,
+            split_path=str(self.validation_split_file),
+            phase="Validation",
+            device=self.device,
+            dtype=self.dtype)
+
+        self.test_dataloader = get_dataloader(
+            data_folder=str(self.data_folder),
+            model_configuration=self.model_configuration,
+            split_path=str(self.test_split_file),
+            phase="Test",
             device=self.device,
             dtype=self.dtype)
 
@@ -91,16 +118,13 @@ class Trainer:
         self.model.to(device=self.device, dtype=self.dtype)
 
         # Setting Up The Optimizer
-        self.learning_rate = learning_rate
         self.optimizer = optim.Adam(self.model.parameters(),
                                     lr=self.learning_rate)
 
-        # Iterations + Weight Saving + Validation computation (if true slows down training)
-        self.training_iterations = number_iterations
-        self.weight_saving_iterations = weight_saving_iterations
-        self.compute_validation_iteration = compute_validation_iteration
-        self.compute_model_size = compute_model_size
-        self.information_dump = information_dump
+        # Restoration logic
+        self.start_iteration = 1
+        if resume_training:
+            self.start_iteration = self.restore_last_model()
 
         # Loss names mapping for logging and tracking
         self.loss_names_mapping = {
@@ -164,11 +188,12 @@ class Trainer:
         else:
             validation_trackers = None
 
-        for training_iteration in range(1, self.training_iterations, 1):
+        for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
 
-            # Save the model
+            # Save the model and test it.
             if training_iteration % self.weight_saving_iterations == 0:
                 self.save_model(iteration=training_iteration)
+                self.run_test_evaluation(iteration=training_iteration)
 
             # Get next training elements
             # Ensure that in case of stopIteration, just relaunch iterator
@@ -225,6 +250,53 @@ class Trainer:
         self.training_writer.close()
         if self.compute_validation_iteration:
             self.validation_writer.close()
+
+    def run_test_evaluation(self, iteration: int):
+        """
+        Performs a full evaluation on the test dataset and logs results to a file.
+
+        Args:
+            iteration (int): The current training iteration index.
+        """
+        print(f"Starting Full Test Evaluation at Iteration {iteration}...")
+        self.model.eval()
+        test_trackers = {loss_key: 0.0 for loss_key in self.loss_names_mapping.keys()}
+        number_batches = len(self.test_dataloader)
+
+        with torch.no_grad():
+            for batch in tqdm(self.test_dataloader, total=number_batches,
+                              desc=f"Test Evaluation Iteration {iteration}"):
+                model_outputs = self.model(batch_input_dictionary=batch)
+
+                # Calculate losses (mean over cycles)
+                fape_loss = model_outputs['overall_fape_loss'].mean().item()
+                auxillary_loss = model_outputs['auxillary_loss'].mean().item()
+                lddt_loss = model_outputs['predicted_lddt_loss'].mean().item()
+                distogram_loss = model_outputs["distogram_loss"].item()
+                total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss
+
+                # Accumulate
+                test_trackers["total_loss"] += total_loss
+                test_trackers["fape_loss"] += fape_loss
+                test_trackers["auxillary_loss"] += auxillary_loss
+                test_trackers["lddt_loss"] += lddt_loss
+                test_trackers["distogram_loss"] += distogram_loss
+
+        # Calculate means
+        for loss_key in test_trackers.keys():
+            test_trackers[loss_key] /= number_batches
+
+        # Log to file
+        evaluation_file = self.project_root / "test_evaluation_results.txt"
+        with open(evaluation_file, "a") as f:
+            f.write("+" + "-" * 50 + "+\n")
+            f.write(f"| Iteration: {iteration:<38} |\n")
+            f.write("+" + "-" * 50 + "+\n")
+            for loss_key, display_name in self.loss_names_mapping.items():
+                f.write(f"| {display_name:<35} : {test_trackers[loss_key]:<8.4f} |\n")
+            f.write("+" + "-" * 50 + "+\n\n")
+
+        print(f"Full Test Evaluation Completed. Results appended to {evaluation_file}")
 
     def run_model_iteration(self, batch_input_dictionary: Dict[str, torch.Tensor],
                             writer: SummaryWriter, iteration: int,
@@ -284,7 +356,7 @@ class Trainer:
 
     def save_model(self, iteration: int):
         """
-        Persists the current model weights to disk.
+        Persists the current model weights and optimizer state to disk.
 
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
@@ -292,9 +364,16 @@ class Trainer:
         model_directory = self.weights_directory / f"Iteration_{iteration}"
         model_directory.mkdir(exist_ok=True, parents=True)
 
-        print(f"Saving Model At : {model_directory}...")
-        torch.save(self.model.state_dict(), model_directory / f"model_{iteration:06}.pt")
-        print("Model Successfully Saved.")
+        checkpoint_path = model_directory / f"model_{iteration:06}.pt"
+        print(f"Saving Checkpoint At : {checkpoint_path}...")
+        
+        torch.save({
+            'iteration': iteration,
+            'model_state': self.model.state_dict(),
+            'optimizer_state': self.optimizer.state_dict()
+        }, checkpoint_path)
+        
+        print("Checkpoint Successfully Saved.")
 
         # Update the full-checkpoint registry
         self.dump_in_checkpoint(iteration=iteration)
@@ -376,7 +455,7 @@ class Trainer:
         Function that is used to restore the last model that was saved, if we are resuming training.
         If we are dealing with inference for validation or test set, to restore the model at index_iteration for evaluation.
         :param index_iteration: (int) iteration of interest for the model that we would like to restore
-        :return:
+        :return: (int) The iteration number to start training from.
         """
 
         if not index_iteration:
@@ -385,14 +464,16 @@ class Trainer:
         # Despite trying to get the last model None was found
         if not index_iteration:
             print_green(
-                "No Initiation Model Weights Will Be Used...\nWe generate A New Model That Will Be Trained From Scratch.",
+                "No Initiation Model Weights Will Be Used..."
+                "\nWe generate A New Model That Will Be Trained From Scratch.",
                 add_separators=True)
+            return 1
         else:
-
             self.load_model(iteration=index_iteration)
             print_green(f"We Loaded A Model That Was Previously Saved At Iteration {index_iteration}",
                         add_separators=True)
-        return index_iteration
+            # Resume from the next iteration
+            return index_iteration + 1
 
     def load_model(self, iteration):
         """
@@ -403,8 +484,11 @@ class Trainer:
         """
 
         model_path = self.weights_directory / f"Iteration_{iteration}" / f"model_{iteration:06}.pt"
+        
+        checkpoint = torch.load(model_path, map_location=self.device)
 
-        self.model.load_state_dict(torch.load(model_path))
+        self.model.load_state_dict(checkpoint["model_state"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state"])
 
     def dump_in_checkpoint(self, iteration):
         """
