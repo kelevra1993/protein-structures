@@ -1,4 +1,5 @@
 import json
+import torch
 import numpy as np
 import io
 from utilities.constants import atom_types
@@ -75,18 +76,49 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
 
 def load_experiment_configuration(configuration_path: str | Path) -> Dict[str, Any]:
     """
-    Loads and returns the 'ExperimentConfiguration' section from a YAML file.
+    Loads and returns the 'ExperimentConfiguration' section from a YAML file,
+    automatically handling type conversions (Path, int, float, torch.dtype).
 
     Args:
         configuration_path (str | Path): Path to the experiment YAML file.
 
     Returns:
-        Dict[str, Any]: The experiment configuration parameters.
+        Dict[str, Any]: The processed experiment configuration parameters.
     """
     config = load_configuration(configuration_path)
     if "ExperimentConfiguration" not in config:
         raise KeyError(f"Key 'ExperimentConfiguration' not found in {configuration_path}")
-    return config["ExperimentConfiguration"]
+
+    experiment_configuration = config["ExperimentConfiguration"]
+
+    # Convert paths
+    path_keys = [
+        "experiment_parent_folder", "data_folder", "configuration_path",
+        "train_split_file", "validation_split_file", "test_split_file"
+    ]
+    for key in path_keys:
+        if key in experiment_configuration:
+            experiment_configuration[key] = Path(experiment_configuration[key])
+
+    # Convert numerics
+    int_keys = ["information_dump", "weight_saving_iterations", "number_iterations"]
+    for key in int_keys:
+        if key in experiment_configuration:
+            experiment_configuration[key] = int(experiment_configuration[key])
+
+    if "learning_rate" in experiment_configuration:
+        experiment_configuration["learning_rate"] = float(experiment_configuration["learning_rate"])
+
+    # Convert dtype
+    if "dtype" in experiment_configuration:
+        dtype_map = {"float32": torch.float32, "float64": torch.float64}
+        experiment_configuration["dtype"] = dtype_map.get(experiment_configuration["dtype"], torch.float32)
+
+    # Set the project root
+    experiment_configuration["project_root"] = (
+            experiment_configuration["experiment_parent_folder"] / experiment_configuration["experiment_name"])
+
+    return experiment_configuration
 
 
 def to_modelcif(atom_positions, atom_mask, sequence):

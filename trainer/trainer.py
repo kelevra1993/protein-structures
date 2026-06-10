@@ -26,7 +26,7 @@ class Trainer:
     is tracked systematically.
     """
 
-    def __init__(self, project_root: Path, configuration_path: Path, data_folder: Path,
+    def __init__(self, project_root: Path, model_configuration: Dict[str, Any], data_folder: Path,
                  train_split_file: Path, validation_split_file: Path, test_split_file: Path,
                  number_iterations: int, weight_saving_iterations: int,
                  compute_validation_iteration: bool,
@@ -39,7 +39,7 @@ class Trainer:
 
         Args:
             project_root (Path): The root directory where training outputs (weights, logs) will be saved.
-            configuration_path (Path): Path to the YAML configuration file defining model and data parameters.
+            model_configuration (Dict[str, Any]): Dictionary containing model and data parameters.
             data_folder (Path): Root directory containing the processed protein data (structures, records, msa).
             train_split_file (Path): Path to the JSON file defining the training dataset split.
             validation_split_file (Path): Path to the JSON file defining the validation dataset split.
@@ -76,8 +76,7 @@ class Trainer:
         self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
 
         # Load Training Configuration containing all the training parameters
-        self.configuration_path = configuration_path
-        self.model_configuration = load_configuration(configuration_path=str(self.configuration_path))
+        self.model_configuration = model_configuration
 
         # Setting up dataloaders
         self.data_folder = data_folder

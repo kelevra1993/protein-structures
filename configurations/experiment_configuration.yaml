@@ -1,0 +1,15 @@
+ExperimentConfiguration:
+  experiment_parent_folder: "/home/robert_kelevra/Projects/protein-structures/experiments"
+  experiment_name: "test_experiment"
+  data_folder: "/home/robert_kelevra/Projects/protein-structures/data_examples/openfold"
+  configuration_path: "/home/robert_kelevra/Projects/protein-structures/configurations/tiny_configuration.yaml"
+  train_split_file: "/home/robert_kelevra/Projects/protein-structures/dataset_splits/Train_small.json"
+  validation_split_file: "/home/robert_kelevra/Projects/protein-structures/dataset_splits/Validation_small.json"
+  test_split_file: "/home/robert_kelevra/Projects/protein-structures/dataset_splits/Test_small.json"
+  information_dump: 10
+  weight_saving_iterations: 50
+  number_iterations: 501
+  compute_validation_iteration: true
+  learning_rate: 1.0e-4
+  dtype: "float32"
+  resume_training: false
