@@ -5,10 +5,12 @@ from collections import Counter
 from utilities.data.structure import Structure, Residue, Atom
 from utilities.data.msa import load_a3m_file, compute_unique_sequences, one_hot_encode_amino_acid_types
 from feature_extraction.extractor import FeatureExtractor
-from utilities.constants import x_to_xxx, all_amino_acid_dictionary
+from utilities.constants import x_to_xxx, all_amino_acid_dictionary, atom_types, canonical_amino_acid_residues, \
+    index_to_xxx
 from utilities.geometry_utilities import (create_alternative_truth_positions,
                                           create_alternative_truth_angles,
                                           create_alternative_truth_transformation_matrix)
+from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, specialised_one_hot_encoder
 
 
 class ModelInput:
@@ -58,6 +60,13 @@ class ModelInput:
         # Set simple requirements
         self.device = device
         self.dtype = dtype
+
+        # Setup distogram bins and get carbon alpha, beta and glycine index in the atom types and canonical amino acids
+        # Used to compute distogram labels of carbon alpha atoms
+        self.carbon_alpha_index = atom_types.index("CA")
+        self.carbon_beta_index = atom_types.index("CB")
+        self.glycine_index = canonical_amino_acid_residues.index("G")
+        self.distogram_bins = torch.linspace(start=2, end=22, steps=64, device=self.device, dtype=self.dtype)
 
         # Load the core physical structure
         self.structure = Structure(npz_path=structure_path, record_path=record_path,
@@ -320,10 +329,31 @@ class ModelInput:
             ground_truth_angles=ground_truth_angles.unsqueeze(0),
             sequence_amino_acid_labels=batched_labels).squeeze(0)
 
+        # We use carbon beta atoms for all amino acids except for glycine
+        # Pseudo Beta Positions : (..., number_residues, 3)
+        ground_truth_pseudo_carbon_beta_positions = ground_truth_global_positions[..., self.carbon_beta_index, :]
+        ground_truth_carbon_alpha_positions = ground_truth_global_positions[..., self.carbon_alpha_index, :]
+        glycine_indices = sequence_labels == self.glycine_index
+        ground_truth_pseudo_carbon_beta_positions[glycine_indices] = ground_truth_carbon_alpha_positions[
+            glycine_indices]
+
+        # Compute Distogram Labels
+        # Labels: take PseudoCB-PseudoCB distances from ground truth
+        # Compute Distance Matrix of shape: (Batch, number residues, number residues)
+        ground_truth_pseudo_carbon_beta_distance_matrix = torch.cdist(x1=ground_truth_pseudo_carbon_beta_positions,
+                                                                      x2=ground_truth_pseudo_carbon_beta_positions)
+
+        # Discretize: find bin indices
+        ground_truth_pseudo_carbon_beta_distance_matrix = specialised_one_hot_encoder(
+            input_tensor=ground_truth_pseudo_carbon_beta_distance_matrix,
+            bin_tensor=self.distogram_bins)
+
+        distogram_labels = torch.argmax(input=ground_truth_pseudo_carbon_beta_distance_matrix, dim=-1)
+
         # For training, we recycle data by shuffling the msa data
         cycle_data = {"input_msa_feature": [], "input_extra_msa_feature": [],
                       "input_sequence_feature": [], "input_residue_index_feature": [],
-                      "sequence_labels": [],
+                      "sequence_labels": [], "distogram_labels": [],
                       "ground_truth_global_positions": [], "ground_truth_local_positions": [],
                       "ground_truth_frames": [], "ground_truth_angles": [],
                       "alternative_ground_truth_global_positions": [],
@@ -375,6 +405,7 @@ class ModelInput:
 
                 # Ground truth data and labels are identical across cycles, duplicate to match recycle dimension
                 cycle_data["sequence_labels"].append(sequence_labels)
+                cycle_data["distogram_labels"].append(distogram_labels)
                 cycle_data["ground_truth_global_positions"].append(ground_truth_global_positions)
                 cycle_data["ground_truth_local_positions"].append(ground_truth_local_positions)
                 cycle_data["ground_truth_frames"].append(ground_truth_frames)
