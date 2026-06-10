@@ -96,12 +96,12 @@ class EvoformerBlock(nn.Module):
                 MSA Shape: (..., number_sequences, number_residues, msa_embedding)
                 Pair Shape: (..., number_residues, number_residues, pair_representation_embedding)
         """
-        msa_representation += self.msa_row_wise_attention(msa_representation=msa_representation,
+        msa_representation = msa_representation + self.msa_row_wise_attention(msa_representation=msa_representation,
                                                           pair_representation=pair_representation)
-        msa_representation += self.msa_column_wise_attention(msa_representation)
-        msa_representation += self.msa_transition_embedder(msa_representation)
+        msa_representation = msa_representation + self.msa_column_wise_attention(msa_representation)
+        msa_representation = msa_representation + self.msa_transition_embedder(msa_representation)
 
-        pair_representation += self.outer_product_mean(msa_representation)
+        pair_representation = pair_representation + self.outer_product_mean(msa_representation)
         pair_representation = self.pair_stack_embedder(pair_representation)
 
         return msa_representation, pair_representation
