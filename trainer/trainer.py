@@ -11,10 +11,8 @@ from typing import Dict, Any, Optional
 
 from full_model.model import Model
 from utilities.os_utilities import load_configuration, print_red, print_green, print_blue, print_yellow
-from utilities.tensor_utilities import get_device, print_tensor_shape, print_tensor_list
-from utilities.data.dataloader import get_protein_dataloader, get_train_and_validation_dataloader
-from utilities.loss_utilities import compute_distogram_loss
-from utilities.constants import atom_types
+from utilities.tensor_utilities import get_device
+from utilities.data.dataloader import get_train_and_validation_dataloader
 
 
 class Trainer:
@@ -157,7 +155,9 @@ class Trainer:
         validation_dataloader_iterator = iter(self.validation_dataloader)
 
         # Initialize trackers
-        # Todo add small comment to show what trackers look like
+        # Tracker dictionary example:
+        # tracker = {"start_time": 123456789.0, "total_loss": 0.0, "fape_loss": 0.0,
+        #           "auxillary_loss": 0.0, "lddt_loss": 0.0, "distogram_loss": 0.0}
         training_trackers = self.get_loss_trackers()
         if self.compute_validation_iteration:
             validation_trackers = self.get_loss_trackers()
