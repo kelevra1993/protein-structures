@@ -487,9 +487,10 @@ class StructureModule(nn.Module):
             # TODO It would have been better to normalise the output of the invariant point attention before adding it
             #  it is unusually large compared to the incoming single representation.
             #  Very important when we will start training
-            single_representation += self.invariant_point_attention(single_representation=single_representation,
-                                                                    pair_representation=pair_representation,
-                                                                    transformation_matrix=transformation_matrix)
+            single_representation = single_representation + self.invariant_point_attention(
+                single_representation=single_representation,
+                pair_representation=pair_representation,
+                transformation_matrix=transformation_matrix)
             single_representation = self.invariant_point_attention_layer_normalizer(single_representation)
 
             # Transition and it's normalizer(included in the transition layer)
@@ -530,7 +531,7 @@ class StructureModule(nn.Module):
             # Sum up the losses for this iteration and add them to auxillary loss
             # We average them over the batch dimensions before adding them to the auxillary loss
             iteration_auxillary_loss = torch.mean(iteration_fape_loss + iteration_torsion_angle_loss)
-            auxillary_loss += iteration_auxillary_loss
+            auxillary_loss = auxillary_loss + iteration_auxillary_loss
 
             # No rotation gradients between iterations to stabilize training except for the last iteration
             # Using .detach() on rotation_matrix
