@@ -32,7 +32,6 @@ class Trainer:
                  compute_validation_iteration: bool,
                  learning_rate: float,
                  dtype: torch.dtype,
-                 compute_model_size: bool = False,
                  information_dump: int = 100,
                  resume_training: bool = True):
         """
@@ -50,7 +49,6 @@ class Trainer:
             compute_validation_iteration (bool): If True, performs a validation step during each training iteration.
             learning_rate (float): Initial learning rate for the Adam optimizer.
             dtype (torch.dtype): Data type to be used for all model tensors (e.g., torch.float32 or torch.float64).
-            compute_model_size (bool): If True, prints the model size and exits.
             information_dump (int): Interval at which rolling average losses are printed to the console.
             resume_training (bool): If True, restores the model and optimizer state from the last checkpoint.
         """
@@ -134,6 +132,9 @@ class Trainer:
             "lddt_loss": "Local Distance Difference Test Loss",
             "distogram_loss": "Distogram Loss"
         }
+
+        # Print Model Size
+        self.print_model_size()
 
     def setup_training_paths(self):
         """
@@ -375,13 +376,13 @@ class Trainer:
 
         checkpoint_path = model_directory / f"model_{iteration:06}.pt"
         print(f"Saving Checkpoint At : {checkpoint_path}...")
-        
+
         torch.save({
             'iteration': iteration,
             'model_state': self.model.state_dict(),
             'optimizer_state': self.optimizer.state_dict()
         }, checkpoint_path)
-        
+
         print("Checkpoint Successfully Saved.")
 
         # Update the full-checkpoint registry
@@ -431,12 +432,6 @@ class Trainer:
         # Print model size
         message = f"Estimated Model Size Without Optimizer : {size_all_mb:.2f} MB"
         print_yellow(message, add_separators=True)
-
-        # Stop training message
-        if self.compute_model_size:
-            print_red("To Continue Training or Inference: Please Set compute_model_size To False",
-                      add_separators=True)
-            exit()
 
     def extract_last_model_iteration(self):
         """
@@ -493,7 +488,7 @@ class Trainer:
         """
 
         model_path = self.weights_directory / f"Iteration_{iteration}" / f"model_{iteration:06}.pt"
-        
+
         checkpoint = torch.load(model_path, map_location=self.device)
 
         self.model.load_state_dict(checkpoint["model_state"])
@@ -544,12 +539,12 @@ class Trainer:
 
         for loss_key, display_name in self.loss_names_mapping.items():
             train_value = training_tracker_dictionary[loss_key]
-            message = f"Moving Average of Training {display_name:30} : {train_value:.4f}"
+            message = f"Moving Average of Training {display_name:40} : {train_value:.4f}"
             print_blue(message)
 
             if validation_tracker_dictionary is not None:
                 validation_value = validation_tracker_dictionary[loss_key]
-                validation_message = f"Moving Average of Validation {display_name:30} : {validation_value:.4f}"
+                validation_message = f"Moving Average of Validation {display_name:40} : {validation_value:.4f}"
                 print_yellow(validation_message)
 
         duration = time.time() - training_tracker_dictionary['start_time']
