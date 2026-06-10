@@ -1,0 +1,15 @@
+ExperimentConfiguration:
+  experiment_name: ""
+  experiment_parent_folder: ""
+  data_folder: ""
+  configuration_path: ""
+  train_split_file: ""
+  validation_split_file: ""
+  test_split_file: ""
+  information_dump: 10
+  weight_saving_iterations: 50
+  number_iterations: 1e6
+  compute_validation_iteration: true
+  learning_rate: 1e-4
+  dtype: "float32"
+  resume_training: true

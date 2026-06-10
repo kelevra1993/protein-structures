@@ -63,7 +63,6 @@ class Trainer:
         self.training_iterations = number_iterations
         self.weight_saving_iterations = weight_saving_iterations
         self.compute_validation_iteration = compute_validation_iteration
-        self.compute_model_size = compute_model_size
         self.information_dump = information_dump
         self.learning_rate = learning_rate
 

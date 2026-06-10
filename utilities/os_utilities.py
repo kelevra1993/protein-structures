@@ -73,6 +73,22 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
             raise ValueError(f"Error parsing YAML file at {path}:\n{e}")
 
 
+def load_experiment_configuration(configuration_path: str | Path) -> Dict[str, Any]:
+    """
+    Loads and returns the 'ExperimentConfiguration' section from a YAML file.
+
+    Args:
+        configuration_path (str | Path): Path to the experiment YAML file.
+
+    Returns:
+        Dict[str, Any]: The experiment configuration parameters.
+    """
+    config = load_configuration(configuration_path)
+    if "ExperimentConfiguration" not in config:
+        raise KeyError(f"Key 'ExperimentConfiguration' not found in {configuration_path}")
+    return config["ExperimentConfiguration"]
+
+
 def to_modelcif(atom_positions, atom_mask, sequence):
     """
     Converts predicted atom positions to ModelCIF format.
