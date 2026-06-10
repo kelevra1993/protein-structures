@@ -38,8 +38,10 @@ class DistogramModule(nn.Module):
             in_features=self.pair_representation_embedding,
             out_features=64,
             device=self.device,
-            dtype=self.dtype
-        )
+            dtype=self.dtype)
+
+        # Setup distogram bins
+        self.distogram_bins = torch.linspace(start=2, end=22, steps=64, device=self.device, dtype=self.dtype)
 
     def forward(self, pair_representation: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
