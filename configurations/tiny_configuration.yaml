@@ -1,0 +1,77 @@
+TrainDataConfiguration:
+  maximum_cluster_sequences: 16
+  maximum_extra_msa_sequences: 32
+  mask_probability: 0.15
+  acceptance_slope_start: 256
+  acceptance_slope_end: 512
+  residue_crop_size: 256
+  distribution_threshold: 80
+  emphasize_beginning_crops: true
+  number_recycle_cycles: 3
+  use_single_representative: true
+
+ValidationDataConfiguration:
+  maximum_cluster_sequences: 16
+  maximum_extra_msa_sequences: 32
+  mask_probability: 0.0
+  acceptance_slope_start: 256
+  acceptance_slope_end: 512
+  residue_crop_size: null
+  distribution_threshold: 80
+  emphasize_beginning_crops: false
+  number_recycle_cycles: 3
+  use_single_representative: false
+
+GlobalConfiguration:
+  msa_embedding: 16
+  pair_representation_embedding: 32
+  extra_msa_embedding: 16
+  single_representation_embedding: 16
+  input_sequence_feature_dimension: 21
+  input_msa_feature_dimension: 49
+  input_extra_msa_feature_dimension: 25
+
+InputEmbedder:
+  number_neighbouring_amino_acids: 32
+
+ExtraMsaEmbedder:
+  # Uses global configuration for inputs and outputs
+
+RecyclingEmbedder:
+  # Uses global configuration for inputs and outputs
+
+ExtraMsaStack:
+  number_blocks: 4
+  msa_number_heads: 4
+  msa_head_embedding_dimension: 4
+  msa_global_number_heads: 4
+  msa_global_head_embedding_dimension: 4
+  pair_number_heads: 4
+  pair_head_embedding_dimension: 16
+  intermediate_embedding: 16
+  msa_transition_channel_scaler: 2
+  pair_stack_channel_scaler: 2
+  triangle_multiplication_embedding: 16
+
+EvoformerStack:
+  number_blocks: 12
+  msa_number_heads: 4
+  msa_head_embedding_dimension: 16
+  pair_number_heads: 2
+  pair_head_embedding_dimension: 16
+  msa_transition_channel_scaler: 2
+  pair_stack_channel_scaler: 2
+  intermediate_embedding: 16
+  triangle_multiplication_embedding: 16
+
+StructureModule:
+  number_structure_module_iterations: 4
+  angle_representation_embedding: 16
+  number_heads: 4
+  head_embedding_dimension: 8
+  number_query_points: 2
+  number_value_points: 4
+  number_torsion_angles: 7
+
+LddtModule:
+  intermediate_embedding: 32
