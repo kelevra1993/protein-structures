@@ -219,6 +219,9 @@ def rename_symmetric_ground_truth_metrics(predicted_positions: torch.Tensor,
         modified_ground_truth_transformation_matrix: Selected ground truth transformation matrices.
             Shape: (number_residues, 8, 4, 4)
     """
+    # Get device
+    device = sequence_amino_acid_labels.device
+
     # Important : We assume that there is no batch in our inputs
 
     # Get tensors that will be returned
@@ -226,10 +229,10 @@ def rename_symmetric_ground_truth_metrics(predicted_positions: torch.Tensor,
     modified_ground_truth_transformation_matrix = ground_truth_transformation_matrix.clone()
 
     # Get non-ambiguous positions
-    sequence_ambiguous_positions_masks = ambiguous_position_mask[sequence_amino_acid_labels]
+    sequence_ambiguous_positions_masks = ambiguous_position_mask.to(device)[sequence_amino_acid_labels]
     sequence_non_ambiguous_position_masks = ~sequence_ambiguous_positions_masks
 
-    # Gets all the non ambigouous positions : (non_ambiguous_atoms_of_sequence, 3)
+    # Gets all the non ambiguous positions : (non_ambiguous_atoms_of_sequence, 3)
     sequence_unambiguous_predicted_positions = predicted_positions[sequence_non_ambiguous_position_masks]
     sequence_unambiguous_ground_truth_positions = ground_truth_positions[sequence_non_ambiguous_position_masks]
 

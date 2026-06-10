@@ -703,13 +703,13 @@ def compute_all_atom_coordinates(transformation_matrix: torch.Tensor, residue_an
         sequence_amino_acid_labels=sequence_amino_acid_labels)
 
     # (number_residues, 37, 3)
-    local_positions = atom_local_positions[sequence_amino_acid_labels].to(device=device, dtype=dtype)
+    local_positions = atom_local_positions.to(device)[sequence_amino_acid_labels].to(device=device, dtype=dtype)
 
     # (number_residues, 37)
-    frame_indices = atom_frame_indices[sequence_amino_acid_labels]
+    frame_indices = atom_frame_indices.to(device)[sequence_amino_acid_labels]
 
     # (number_residues, 37)
-    all_atom_mask = atom_mask[sequence_amino_acid_labels]
+    all_atom_mask = atom_mask.to(device)[sequence_amino_acid_labels]
 
     # First get the number of missing dimensions in order to properly gather indices
     dim_diff = global_transformation_matrices.ndim - frame_indices.ndim
