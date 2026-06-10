@@ -110,6 +110,7 @@ def test_model():
         'ground_truth_positions': data['ground_truth_global_positions'][:number_residues, ...].unsqueeze(0),
         'alternative_ground_truth_positions': data['alternative_ground_truth_global_positions'][
             :number_residues, ...].unsqueeze(0),
+        'distogram_labels': data['distogram_labels'][:number_residues, :number_residues, ...].unsqueeze(0),
     }
 
     batched_input_dict = {

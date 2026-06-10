@@ -8,7 +8,7 @@ from embedders.extra_msa_embedder import ExtraMsaStack, ExtraMsaEmbedder
 from architecture_modules.evoformer_module.evoformer import EvoformerStack
 from architecture_modules.structure_module.structure_module import StructureModule
 from architecture_modules.distogram_module.distogram_module import DistogramModule
-
+from utilities.loss_utilities import compute_distogram_loss
 
 class Model(nn.Module):
 
@@ -156,7 +156,7 @@ class Model(nn.Module):
 
         # Model outputs emanating from structure module
         model_outputs = {key: [] for key in
-                         ["angles", "frames", "final_positions", "position_mask", "pseudo_beta_positions", 
+                         ["angles", "frames", "final_positions", "position_mask", "pseudo_beta_positions",
                           "overall_fape_loss", "auxillary_loss", "predicted_lddt_loss"]}
 
         # Initialisation of first tensors
@@ -187,12 +187,12 @@ class Model(nn.Module):
 
             # Only the very first sequence of the msa is updated with the recycled msa
             # The recycling embedder just actually normalizes the msa_representation_input using a layer normalizer
-            
+
             # Non-inplace update for msa_representation_tensor
             first_msa_sequence = msa_representation_tensor[..., 0, :, :] + recycled_msa_representation
             msa_representation_tensor = torch.cat([first_msa_sequence.unsqueeze(-3),
                                                    msa_representation_tensor[..., 1:, :, :]], dim=-3)
-            
+
             pair_representation_tensor = pair_representation_tensor + recycled_pair_representation
 
             extra_msa_representation = self.extra_msa_embedder(
@@ -221,7 +221,8 @@ class Model(nn.Module):
                 pair_representation=pair_representation_tensor,
                 sequence_amino_acid_labels=sequence_amino_acid_labels,
                 ground_truth_transformation_matrix=current_cycle_input_batch["ground_truth_transformation_matrix"],
-                alternative_ground_truth_transformation_matrix=current_cycle_input_batch["alternative_ground_truth_transformation_matrix"],
+                alternative_ground_truth_transformation_matrix=current_cycle_input_batch[
+                    "alternative_ground_truth_transformation_matrix"],
                 ground_truth_angles=current_cycle_input_batch["ground_truth_angles"],
                 alternative_ground_truth_angles=current_cycle_input_batch["alternative_ground_truth_angles"],
                 ground_truth_positions=current_cycle_input_batch["ground_truth_positions"],
@@ -243,9 +244,17 @@ class Model(nn.Module):
         # Stack all tensors emanating from different cycles
         model_outputs = {key: torch.stack(value, dim=-1) for key, value in model_outputs.items()}
 
-        # Compute distogram logits from the final pair representation
-        distogram_logits, _ = self.distogram_module(pair_representation_tensor)
+        # Compute distogram logits from the final pair representation and the distogram loss
+        distogram_logits, distogram_probabilities = self.distogram_module(
+            pair_representation=pair_representation_tensor)
+
+        # Distogram labels are identical across cycles, take the last one
+        distogram_labels = batch_input_dictionary['distogram_labels'][..., -1]
+        distogram_loss = compute_distogram_loss(distogram_logits=distogram_logits, distogram_labels=distogram_labels)
+
+        model_outputs["distogram_loss"] = distogram_loss
         model_outputs["distogram_logits"] = distogram_logits
+        model_outputs["distogram_probabilities"] = distogram_probabilities
 
         return model_outputs
 
@@ -254,7 +263,7 @@ if __name__ == "__main__":
     import os
     from pathlib import Path
     from utilities.os_utilities import load_configuration
-    from utilities.tensor_utilities import get_device
+    from utilities.tensor_utilities import get_device, print_tensor_shape
 
     project_folder = Path(os.getcwd()).parent
     configuration_file = project_folder / "configurations" / "template_configuration.yaml"

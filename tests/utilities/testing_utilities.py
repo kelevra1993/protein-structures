@@ -220,7 +220,8 @@ def get_structure_module_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[
         for i, (key, shape) in enumerate(feature_shapes.items())
     }
 
-    test_inputs['sequence_amino_acid_labels'] = torch.arange(test_inputs['sequence_amino_acid_labels'].numel()).reshape(test_inputs['sequence_amino_acid_labels'].shape) % 20
+    test_inputs['sequence_amino_acid_labels'] = torch.arange(test_inputs['sequence_amino_acid_labels'].numel()).reshape(
+        test_inputs['sequence_amino_acid_labels'].shape) % 20
 
     batched_test_inputs = {
         key: tensor.unsqueeze(0).broadcast_to((batch_size,) + tensor.shape)
