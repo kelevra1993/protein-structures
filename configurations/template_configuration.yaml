@@ -26,6 +26,20 @@ ValidationDataConfiguration:
   number_recycle_cycles: 3
   use_single_representative: false
 
+TestDataConfiguration:
+  batch_size: 1
+  shuffle: false
+  maximum_cluster_sequences: 512
+  maximum_extra_msa_sequences: 5120
+  mask_probability: 0.0
+  acceptance_slope_start: 256
+  acceptance_slope_end: 512
+  residue_crop_size: null
+  distribution_threshold: 80
+  emphasize_beginning_crops: false
+  number_recycle_cycles: 3
+  use_single_representative: false
+
 GlobalConfiguration:
   msa_embedding: 256
   pair_representation_embedding: 128
