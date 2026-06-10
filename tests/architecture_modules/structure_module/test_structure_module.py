@@ -102,7 +102,5 @@ def test_structure_module_forward():
         output_tensor_names=output_tensor_names,
         reference_folder=reference_folder,
         batch_size=config["batch_size"],
-        batched_input_tensor_dictionary=batched_input_tensor_dictionary,
-        save_tensors=True
-    )
+        batched_input_tensor_dictionary=batched_input_tensor_dictionary)
     print(" - StructureModule Test Completed Successfuly.")
