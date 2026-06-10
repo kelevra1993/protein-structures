@@ -38,3 +38,4 @@ Thumbs.db
 events.out*
 model_weights*
 model_iteration_*
+model_*.pt
