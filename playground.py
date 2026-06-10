@@ -90,8 +90,15 @@ class Trainer():
         return tensorboard_directory, weights_directory
 
     def setup_tensorboard_writers(self):
-        training_writer = SummaryWriter(log_dir=self.tensorboard_directory)
-        validation_writer = SummaryWriter(log_dir=self.tensorboard_directory)
+        """
+        todo add documentation
+        :return:
+        """
+        training_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Train"))
+        if self.compute_validation_iteration:
+            validation_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Validation"))
+        else:
+            validation_writer = None
 
         return training_writer, validation_writer
 
@@ -100,7 +107,12 @@ class Trainer():
         training_dataloader_iterator = iter(self.train_dataloader)
         validation_dataloader_iterator = iter(self.validation_dataloader)
 
-        for training_iteration in range(self.training_iterations):
+        for training_iteration in range(1, self.training_iterations, 1):
+
+            # Save the model
+            if training_iteration % self.weight_saving_iterations == 0:
+                self.save_model(iteration=training_iteration)
+
             # Get next training elements
             training_batch_dictionary = next(training_dataloader_iterator)
 
@@ -109,16 +121,32 @@ class Trainer():
             self.model.train()
             self.optimizer.zero_grad()
 
-            # Forward pass containing batch dictionary
-            training_loss = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary)
+            # Forward pass containing batch dictionary and tensorboard logger
+            training_loss = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
+                                                     writer=self.training_writer, iteration=training_iteration)
 
             # Backward and Step
             training_loss.backward()
             self.optimizer.step()
 
-            validation_batch_dictionary = next(validation_dataloader_iterator)
+            # Validation phase : No gradient computation
+            if self.compute_validation_iteration:
+                with torch.no_grad():
+                    # Get data
+                    validation_batch_dictionary = next(validation_dataloader_iterator)
 
-    def run_model_iteration(self, batch_input_dictionary):
+                    # Forward pass containing batch dictionary and tensorboard logger
+                    validation_loss = self.run_model_iteration(
+                        batch_input_dictionary=validation_batch_dictionary,
+                        writer=self.validation_writer,
+                        iteration=training_iteration)
+
+        # Close all the summary writers
+        self.training_writer.close()
+        if self.compute_validation_iteration:
+            self.validation_writer.close()
+
+    def run_model_iteration(self, batch_input_dictionary, writer, iteration):
         """
         todo to be documented
         :param batch_input_dictionary:
@@ -137,16 +165,36 @@ class Trainer():
         # Get full training loss
         total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss
 
+        # Log data to tensorboard
+        self.log_losses_to_tensorboard(writer=writer,
+                                       iteration=iteration,
+                                       total_loss=total_loss,
+                                       fape_loss=fape_loss,
+                                       auxillary_loss=auxillary_loss,
+                                       lddt_loss=lddt_loss,
+                                       distogram_loss=distogram_loss)
+
         return total_loss
+
+    def save_model(self, iteration):
+        """
+        todo document
+        :param iteration:
+        :return:
+        """
+        model_directory = self.weights_directory / f"Iteration_{iteration}"
+        print(f"Saving Model At : {model_directory}...")
+        torch.save(self.model.state_dict(), model_directory / f"model_{iteration:06}.pt")
+        print("Model Successfully Saved.")
 
     def log_losses_to_tensorboard(self, writer, iteration,
                                   total_loss, fape_loss, auxillary_loss, lddt_loss, distogram_loss):
-
         writer.add_scalar("Total Loss", total_loss.item(), iteration)
         writer.add_scalar("Frame Aligned Point Error Loss", fape_loss.item(), iteration)
         writer.add_scalar("Auxillary Loss", auxillary_loss.item(), iteration)
         writer.add_scalar("Local Distance Difference Test Loss", lddt_loss.item(), iteration)
         writer.add_scalar("Distogram Loss", distogram_loss.item(), iteration)
+
 
     def dump_training_information(self, iteration):
         pass
