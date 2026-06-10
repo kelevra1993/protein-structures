@@ -2,7 +2,7 @@ import torch
 import unittest
 from pathlib import Path
 from utilities.data.input import ModelInput
-from utilities.constants import (rigid_group_atom_position_map, atom_to_index, 
+from utilities.constants import (rigid_group_atom_position_map, atom_to_index,
                                  index_to_xxx)
 
 current_directory = Path(__file__).parent
@@ -70,7 +70,8 @@ class TestInput(unittest.TestCase):
 
         # Check spatial and feature dimensions (crop_size = 128)
         self.assertEqual(recycled_input_data["input_sequence_feature"].shape, (128, 21, number_recycle_samples))
-        self.assertEqual(recycled_input_data["ground_truth_global_positions"].shape, (128, 37, 3, number_recycle_samples))
+        self.assertEqual(recycled_input_data["ground_truth_global_positions"].shape,
+                         (128, 37, 3, number_recycle_samples))
         self.assertEqual(recycled_input_data["ground_truth_frames"].shape, (128, 8, 4, 4, number_recycle_samples))
 
     def test_batch_mode_formatting(self):
@@ -110,11 +111,11 @@ class TestInput(unittest.TestCase):
         reference_data = torch.load(reference_file_path, weights_only=True)
 
         # Compare critical tensors
-        comparison_keys = ["input_sequence_feature", "sequence_labels", 
+        comparison_keys = ["input_sequence_feature", "sequence_labels",
                            "ground_truth_global_positions", "ground_truth_frames"]
-        
+
         for key in comparison_keys:
-            torch.testing.assert_close(generated_data[key], reference_data[key], 
+            torch.testing.assert_close(generated_data[key], reference_data[key],
                                        msg=f"Parity check failed for tensor: {key}")
 
     def test_cropped_local_coordinate_precision(self):
@@ -124,32 +125,33 @@ class TestInput(unittest.TestCase):
         """
         # Get one crop with recycling=1
         cropped_data = self.model_input.get_data(number_samples=1, seed=123, batch_mode=False)
-        
+
         # Shape: (number_residues_crop, 37, 3, 1)
         local_positions = cropped_data["ground_truth_local_positions"].squeeze(-1)
         # We need the actual names of the cropped residues
         # Residue labels are in "sequence_labels" but we need the 3-letter codes
         sequence_labels = cropped_data["sequence_labels"].squeeze(-1)
-        
+
         for residue_index in range(local_positions.shape[0]):
             amino_acid_label = int(sequence_labels[residue_index].item())
             residue_name = index_to_xxx[amino_acid_label]
-            
+
             if residue_name == "UNK":
-                continue # Skip UNK for exact precision checks if needed, but it has mean values
-                
+                continue  # Skip UNK for exact precision checks if needed, but it has mean values
+
             canonical_map = rigid_group_atom_position_map[residue_name]
-            
+
             for atom_name, canonical_position in canonical_map.items():
                 atom_idx = atom_to_index[atom_name]
                 computed_position = local_positions[residue_index, atom_idx]
-                
+
                 torch.testing.assert_close(
                     computed_position,
                     canonical_position.to(device=self.device, dtype=self.dtype),
                     atol=0.01, rtol=0.01,
                     msg=f"Precision failure in crop at Residue {residue_index} ({residue_name}), Atom {atom_name}"
                 )
+
 
 if __name__ == "__main__":
     unittest.main()
