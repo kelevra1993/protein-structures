@@ -33,5 +33,7 @@ Thumbs.db
 # IDEs
 .idea/
 
-# Tensorboard
+# Tensorboard and Weights
 events.out*
+model_weights*
+model_iteration_*
