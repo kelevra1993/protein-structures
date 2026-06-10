@@ -1,4 +1,6 @@
 TrainDataConfiguration:
+  batch_size: 1
+  shuffle: false
   maximum_cluster_sequences: 16
   maximum_extra_msa_sequences: 32
   mask_probability: 0.15
@@ -11,6 +13,8 @@ TrainDataConfiguration:
   use_single_representative: true
 
 ValidationDataConfiguration:
+  batch_size: 1
+  shuffle: false
   maximum_cluster_sequences: 16
   maximum_extra_msa_sequences: 32
   mask_probability: 0.0
