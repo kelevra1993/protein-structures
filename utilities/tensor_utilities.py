@@ -4,6 +4,8 @@ from typing import Optional
 
 from torch import nn
 
+from utilities.os_utilities import print_blue, print_yellow, print_green
+
 
 def get_device() -> torch.device:
     """
@@ -27,16 +29,30 @@ def get_device() -> torch.device:
 
 def print_tensor_shape(tensor: torch.Tensor, name: Optional[str] = ""):
     """
-    Prints the shape of a given tensor alongside an optional identifying name.
-
-    Used primarily for debugging and verifying architectural transformations. It helps
-    ensure that dimensions align with the expressive naming conventions (e.g., number_residues,
-    msa_embedding_dimension) defined in GEMINI.md during complex operations.
-
-    :param tensor: The torch.Tensor to inspect.
-    :param name: An optional string to identify the tensor in the output.
+    todo add documentation
     """
-    print(f"Tensor {name} Is Of Shape : {list(tensor.shape)}")
+    print_blue(f"Tensor {name} Is Of Shape : {list(tensor.shape)}")
+
+
+def print_tensor_type(tensor: torch.Tensor, name: Optional[str] = ""):
+    """
+    todo add documentation
+    """
+    print_yellow(f"Tensor {name} Is Of Type : {tensor.dtype}")
+
+
+def print_tensor_device(tensor: torch.Tensor, name: Optional[str] = ""):
+    """
+    todo add documentation
+    """
+    print_green(f"Tensor {name} Is On : {tensor.device}")
+
+
+def print_tensor_status(tensor: torch.Tensor, name: Optional[str] = ""):
+    """ todo add documenetation"""
+    print_tensor_shape(tensor=tensor, name=name)
+    print_tensor_type(tensor=tensor, name=name)
+    print_tensor_device(tensor=tensor, name=name)
 
 
 def print_tensor_list(tensor: torch.Tensor, round: int = 4):
@@ -50,20 +66,6 @@ def print_tensor_list(tensor: torch.Tensor, round: int = 4):
     :param round: Number of decimal places for rounding.
     """
     print(np.round(tensor.tolist(), round))
-
-
-def print_tensor_type(tensor: torch.Tensor, name: Optional[str] = ""):
-    """
-    Prints the data type (dtype) of a given tensor alongside an optional identifying name.
-
-    Ensures type consistency across the project, preventing implicit type conversions
-    that could lead to performance degradation or precision errors (e.g., ensuring
-    float32 or float64 is used as intended).
-
-    :param tensor: The torch.Tensor to inspect.
-    :param name: An optional string to identify the tensor in the output.
-    """
-    print(f"Tensor {name} Is Of Type : {tensor.dtype}")
 
 
 def unsqueeze_tensor(input: torch.Tensor, direction: str, number: int = 1) -> torch.Tensor:

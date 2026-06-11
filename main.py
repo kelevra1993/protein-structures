@@ -6,7 +6,7 @@ from utilities.data.data_precomputer.precompute_utilities import precompute_data
 
 def main():
     # Define configuration path
-    experiment_configuration_path = Path(__file__).parent / "configurations" / "experiment_configuration.yaml"
+    experiment_configuration_path = Path(__file__).parent / "configurations" / "mac_configuration.yaml"
 
     # Load configuration
     experiment_configuration, model_configuration = load_experiment_configuration(experiment_configuration_path)

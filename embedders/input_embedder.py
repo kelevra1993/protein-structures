@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from utilities.tensor_utilities import specialised_one_hot_encoder, get_device
+from utilities.tensor_utilities import specialised_one_hot_encoder, get_device, print_tensor_status
 
 
 class InputEmbedder(nn.Module):

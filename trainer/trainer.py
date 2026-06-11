@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 
 from full_model.model import Model
 from utilities.os_utilities import load_configuration, print_red, print_green, print_blue, print_yellow
-from utilities.tensor_utilities import get_device
+from utilities.tensor_utilities import get_device, print_tensor_status
 from utilities.data.dataloader import get_dataloader, get_precomputed_dataloader
 
 
@@ -218,6 +218,13 @@ class Trainer:
 
         return train_dataloader, validation_dataloader, test_dataloader
 
+    def set_input_dictionary_device(self, input_dictionary):
+        """todo to be documented"""
+        for key in list(input_dictionary.keys()):
+            input_dictionary[key] = input_dictionary[key].to(self.device)
+
+        return input_dictionary
+
     def run_training_loop(self):
         """
         Executes the main training loop for the specified number of iterations.
@@ -324,9 +331,11 @@ class Trainer:
         number_batches = len(self.test_dataloader)
 
         with torch.no_grad():
-            for batch in tqdm(self.test_dataloader, total=number_batches,
-                              desc=f"Test Evaluation Iteration {iteration}"):
-                model_outputs = self.model(batch_input_dictionary=batch)
+            for batch_input_dictionary in tqdm(self.test_dataloader, total=number_batches,
+                                               desc=f"Test Evaluation Iteration {iteration}"):
+                # Set input to the right device
+                batch_input_dictionary = self.set_input_dictionary_device(input_dictionary=batch_input_dictionary)
+                model_outputs = self.model(batch_input_dictionary=batch_input_dictionary)
 
                 # Calculate losses (mean over cycles)
                 fape_loss = model_outputs['overall_fape_loss'].mean().item()
@@ -382,6 +391,10 @@ class Trainer:
         Returns:
             torch.Tensor: The total calculated loss for the current iteration (scalar).
         """
+        # Set input to the right device
+        batch_input_dictionary = self.set_input_dictionary_device(input_dictionary=batch_input_dictionary)
+
+        # Run the model
         model_outputs = self.model(batch_input_dictionary=batch_input_dictionary)
 
         # Loss Calculation (Mean over cycles)

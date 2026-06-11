@@ -1,18 +1,18 @@
 ExperimentConfiguration:
-  experiment_parent_folder: "/home/robert_kelevra/Data/protein_project/protein_experiments"
+  experiment_parent_folder: "/Users/Robert/Desktop/protein-experiments"
   experiment_name: "experiment_0"
   data_folder: "/Users/Robert/PycharmProjects/protein-structures/data_examples/openfold"
   configuration_path: "/Users/Robert/PycharmProjects/protein-structures/configurations/tiny_configuration.yaml"
   train_split_file: "/Users/Robert/PycharmProjects/protein-structures/dataset_splits/Train_small.json"
   validation_split_file: "/Users/Robert/PycharmProjects/protein-structures/dataset_splits/Validation_small.json"
   test_split_file: "/Users/Robert/PycharmProjects/protein-structures/dataset_splits/Test_small.json"
-  information_dump: 100
+  information_dump: 10
   weight_saving_iterations: 500
   number_iterations: 50000
   compute_validation_iteration: true
   learning_rate: 1.0e-3
-  dtype: "float64"
-  resume_training: false
+  dtype: "float32"
+  resume_training: true
   precompute_data: true
   precomputed_samples: 5
 
