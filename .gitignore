@@ -39,3 +39,6 @@ events.out*
 model_weights*
 model_iteration_*
 model_*.pt
+
+# Preprocessing input
+*sample_*.pt
