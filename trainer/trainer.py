@@ -246,6 +246,18 @@ class Trainer:
         else:
             validation_trackers = None
 
+        for i in tqdm(range(1000000)):
+            try:
+                training_batch_dictionary = next(training_dataloader_iterator)
+                training_loss = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
+                                                         writer=self.training_writer,
+                                                         iteration=1,
+                                                         tracker_dictionary=training_trackers)
+            except StopIteration:
+                training_dataloader_iterator = iter(self.train_dataloader)
+                training_batch_dictionary = next(training_dataloader_iterator)
+        exit()
+
         training_iteration = self.start_iteration
         try:
             for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
