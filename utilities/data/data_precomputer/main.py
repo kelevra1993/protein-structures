@@ -1,12 +1,10 @@
+"""File used to precompute data so that data retrieval bottleneck can be improved"""
+import os
 import argparse
-import sys
+
 from pathlib import Path
-
-# Add project root to sys.path
-project_root = Path(__file__).resolve().parents[3]
-sys.path.append(str(project_root))
-
 from utilities.data.data_precomputer.precompute_utilities import precompute_dataset
+from utilities.os_utilities import print_blue, globalise_path
 
 
 def main():
@@ -15,17 +13,26 @@ def main():
                         help="Path to the experiment configuration YAML file.")
     parser.add_argument("--output_directory", type=str, required=True,
                         help="Path to save the precomputed datasets.")
-    parser.add_argument("--number_samples", type=int, default=5,
+    parser.add_argument("--number_samples", type=int, default=10,
                         help="Number of random variations to compute per protein.")
 
     args = parser.parse_args()
 
+    # Check if paths exists if not try to make them absolute and try again
+    project_folder = Path(os.getcwd()).parents[2]
+
+    args.configuration_path = globalise_path(
+        absolute_parent_path=project_folder,
+        target_path=Path(args.configuration_path))
+
+    args.output_directory = globalise_path(
+        absolute_parent_path=project_folder,
+        target_path=Path(args.output_directory))
+
     # Precompute datasets
-    precompute_dataset(
-        experiment_configuration_path=args.configuration_path,
-        output_directory=args.output_directory,
-        number_samples=args.number_samples
-    )
+    precompute_dataset(experiment_configuration_path=args.configuration_path,
+                       output_directory=args.output_directory,
+                       number_samples=args.number_samples)
 
     print(f"\nPrecomputation complete. Tensors saved to {args.output_directory}")
 

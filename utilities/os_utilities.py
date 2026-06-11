@@ -1,3 +1,4 @@
+import os
 import json
 import torch
 import numpy as np
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 
-def read_npz_file(path: str):
+def read_npz_file(path: str) -> Any:
     """
     Reads an NPZ file from the specified path.
 
@@ -28,7 +29,7 @@ def read_npz_file(path: str):
     return np.load(path, allow_pickle=True)
 
 
-def read_json(path: str):
+def read_json(path: str) -> dict[str, Any] | list[Any]:
     """
     Reads and parses a JSON file.
 
@@ -121,7 +122,7 @@ def load_experiment_configuration(configuration_path: str | Path) -> Dict[str, A
     return experiment_configuration
 
 
-def to_modelcif(atom_positions, atom_mask, sequence):
+def to_modelcif(atom_positions: torch.Tensor, atom_mask: torch.Tensor, sequence: str | list[str]) -> str:
     """
     Converts predicted atom positions to ModelCIF format.
 
@@ -175,11 +176,18 @@ def to_modelcif(atom_positions, atom_mask, sequence):
     return fh.getvalue()
 
 
-def print_blue(output, add_separators=False):
+def print_blue(output: str, add_separators: bool = False) -> None:
     """
-    Prints the output string in blue color.
-    :param output: The string that we wish to print in a certain color.
-    :param add_separators: If True, prints separators before and after the output.
+    Prints a string to the console in bold blue color.
+
+    This utility is used throughout the project to highlight informational
+    messages, status updates, and progress indicators during model training
+    or data processing.
+
+    Args:
+        output (str): The string to be printed.
+        add_separators (bool): If True, wraps the output with horizontal
+            separators for better visibility.
     """
     if add_separators:
         length = max(len(line) for line in output.split("\n")) + 1
@@ -190,11 +198,18 @@ def print_blue(output, add_separators=False):
         print("\033[94m" + "\033[1m" + output + "\033[0m")
 
 
-def print_green(output, add_separators=False):
+def print_green(output: str, add_separators: bool = False) -> None:
     """
-    Prints the output string in green color.
-    :param output: The string that we wish to print in a certain color.
-    :param add_separators: If True, prints separators before and after the output.
+    Prints a string to the console in bold green color.
+
+    This utility is typically used to indicate successful operations, such
+    as completed training iterations, saved model weights, or successful
+    data extraction.
+
+    Args:
+        output (str): The string to be printed.
+        add_separators (bool): If True, wraps the output with horizontal
+            separators for better visibility.
     """
     if add_separators:
         length = max(len(line) for line in output.split("\n")) + 1
@@ -205,11 +220,18 @@ def print_green(output, add_separators=False):
         print("\033[32m" + "\033[1m" + output + "\033[0m")
 
 
-def print_yellow(output, add_separators=False):
+def print_yellow(output: str, add_separators: bool = False) -> None:
     """
-    Prints the output string in yellow color.
-    :param output: The string that we wish to print in a certain color.
-    :param add_separators: If True, prints separators before and after the output.
+    Prints a string to the console in bold yellow color.
+
+    This utility is used for warnings or important notices that require
+    user attention but are not necessarily critical failures (e.g., missing
+    optional configuration fields).
+
+    Args:
+        output (str): The string to be printed.
+        add_separators (bool): If True, wraps the output with horizontal
+            separators for better visibility.
     """
     if add_separators:
         length = max(len(line) for line in output.split("\n")) + 1
@@ -220,11 +242,17 @@ def print_yellow(output, add_separators=False):
         print("\033[93m" + "\033[1m" + output + "\033[0m")
 
 
-def print_red(output, add_separators=False):
+def print_red(output: str, add_separators: bool = False) -> None:
     """
-    Prints the output string in red color.
-    :param output: The string that we wish to print in a certain color.
-    :param add_separators: If True, prints separators before and after the output.
+    Prints a string to the console in bold red color.
+
+    This utility is reserved for error messages, critical failures, and
+    exceptions that might halt the execution of the model or data pipeline.
+
+    Args:
+        output (str): The string to be printed.
+        add_separators (bool): If True, wraps the output with horizontal
+            separators for better visibility.
     """
     if add_separators:
         length = max(len(line) for line in output.split("\n")) + 1
@@ -235,11 +263,17 @@ def print_red(output, add_separators=False):
         print("\033[91m" + "\033[1m" + output + "\033[0m")
 
 
-def print_bold(output, add_separators=False):
+def print_bold(output: str, add_separators: bool = False) -> None:
     """
-    Prints the output string in bold font.
-    :param output: The string that we wish to print in bold font.
-    :param add_separators: If True, prints separators before and after the output.
+    Prints a string to the console in bold font.
+
+    This utility is used for general emphasis in console output, often for
+    headers or key parameters in the experiment logs.
+
+    Args:
+        output (str): The string to be printed.
+        add_separators (bool): If True, wraps the output with horizontal
+            separators for better visibility.
     """
     if add_separators:
         length = max(len(line) for line in output.split("\n")) + 1
@@ -250,5 +284,45 @@ def print_bold(output, add_separators=False):
         print("\033[1m" + output + "\033[0m")
 
 
-def print_dictionary(dictionary, indent):
-    json.dumps(dictionary, indent=indent)
+def print_dictionary(dictionary: Dict[str, Any], indent: int = 4) -> None:
+    """
+    Prints a dictionary to the console in a formatted JSON-like style.
+
+    This utility is used to display configuration parameters, experiment
+    summaries, or manifest data in a readable format during execution.
+
+    Args:
+        dictionary (Dict[str, Any]): The dictionary to be printed.
+        indent (int): The number of spaces to use for indentation.
+    """
+    print(json.dumps(dictionary, indent=indent))
+
+
+def globalise_path(absolute_parent_path: Path, target_path: Path) -> Path:
+    """
+    Ensures a path is absolute, resolving it relative to a parent if needed.
+
+    In the project's multi-platform environment (DGX, Mac, etc.), file paths
+    in configurations may be specified as relative to the experiment root.
+    This function ensures that the system can always locate these files by
+    falling back to the `absolute_parent_path` if the `target_path` does not
+    exist independently.
+
+    Args:
+        absolute_parent_path (Path): The base directory to use for resolution.
+        target_path (Path): The path to be globalised/resolved.
+
+    Returns:
+        Path: The resolved absolute path.
+    """
+    absolute_path = target_path
+
+    if not absolute_path.exists():
+        print_blue(f"{absolute_path} Not Found... Globalising It")
+        absolute_path = absolute_parent_path / absolute_path
+
+        if not absolute_path.exists():
+            print_red(f"{absolute_path} Still does not exist")
+            return target_path
+
+    return absolute_path
