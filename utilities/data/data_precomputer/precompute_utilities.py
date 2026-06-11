@@ -101,7 +101,7 @@ def precompute_dataset(experiment_configuration_path: str, output_directory: str
                     # We vary the seed to ensure different random crops/masks per sample
                     batch_data = model_input.get_data(
                         number_samples=phase_configuration['number_recycle_cycles'],
-                        seed=42 + sample_index, batch_mode=True)
+                        seed=42 + sample_index, batch_mode=False)
 
                     output_path = phase_output_directory / f"{protein_id}_sample_{sample_index}.pt"
                     torch.save(batch_data, output_path)
