@@ -61,7 +61,7 @@ class TestInput(unittest.TestCase):
         cycle_dependent_keys = ["input_msa_feature", "input_extra_msa_feature"]
         invariant_keys = [
             "input_sequence_feature", "input_residue_index_feature", "sequence_labels", 
-            "ground_truth_global_positions", "ground_truth_local_positions", 
+            "ground_truth_global_positions", 
             "ground_truth_frames", "ground_truth_angles"
         ]
         
@@ -121,44 +121,10 @@ class TestInput(unittest.TestCase):
         for key in comparison_keys:
             # Reference data was generated with the old format where these had a trailing cycle dimension (size 1)
             # So we squeeze the reference data for the comparison.
-            expected_data = reference_data[key].squeeze(-1)
+            expected_data = reference_data[key].squeeze(-1).to(generated_data[key].dtype)
             torch.testing.assert_close(generated_data[key], expected_data,
                                        atol=1e-4, rtol=1e-5,
                                        msg=f"Parity check failed for tensor: {key}")
-
-    def test_cropped_local_coordinate_precision(self):
-        """
-        Verify that even after cropping, the local coordinates match 
-        canonical positions within the 0.01 delta.
-        """
-        # Get one crop with recycling=1
-        cropped_data = self.model_input.get_data(number_samples=1, seed=123, batch_mode=False)
-
-        # Shape: (number_residues_crop, 37, 3)
-        local_positions = cropped_data["ground_truth_local_positions"]
-        # We need the actual names of the cropped residues
-        # Residue labels are in "sequence_labels" but we need the 3-letter codes
-        sequence_labels = cropped_data["sequence_labels"]
-
-        for residue_index in range(local_positions.shape[0]):
-            amino_acid_label = int(sequence_labels[residue_index].item())
-            residue_name = index_to_xxx[amino_acid_label]
-
-            if residue_name == "UNK":
-                continue  # Skip UNK for exact precision checks if needed, but it has mean values
-
-            canonical_map = rigid_group_atom_position_map[residue_name]
-
-            for atom_name, canonical_position in canonical_map.items():
-                atom_idx = atom_to_index[atom_name]
-                computed_position = local_positions[residue_index, atom_idx]
-
-                torch.testing.assert_close(
-                    computed_position,
-                    canonical_position.to(device=self.device, dtype=self.dtype),
-                    atol=0.01, rtol=0.01,
-                    msg=f"Precision failure in crop at Residue {residue_index} ({residue_name}), Atom {atom_name}"
-                )
 
 
 if __name__ == "__main__":

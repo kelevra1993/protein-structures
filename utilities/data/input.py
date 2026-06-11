@@ -318,10 +318,6 @@ class ModelInput:
             ground_truth_positions=ground_truth_global_positions.unsqueeze(0),
             sequence_amino_acid_labels=batched_labels).squeeze(0)
 
-        alternative_ground_truth_local_positions = create_alternative_truth_positions(
-            ground_truth_positions=ground_truth_local_positions.unsqueeze(0),
-            sequence_amino_acid_labels=batched_labels).squeeze(0)
-
         alternative_ground_truth_frames = create_alternative_truth_transformation_matrix(
             transformation_matrix=ground_truth_frames.unsqueeze(0),
             sequence_amino_acid_labels=batched_labels).squeeze(0)
@@ -407,11 +403,9 @@ class ModelInput:
         batch_input_dictionary["sequence_labels"] = sequence_labels.to(torch.int8)
         batch_input_dictionary["distogram_labels"] = distogram_labels.to(torch.int8)
         batch_input_dictionary["ground_truth_global_positions"] = ground_truth_global_positions
-        batch_input_dictionary["ground_truth_local_positions"] = ground_truth_local_positions
         batch_input_dictionary["ground_truth_frames"] = ground_truth_frames
         batch_input_dictionary["ground_truth_angles"] = ground_truth_angles
         batch_input_dictionary["alternative_ground_truth_global_positions"] = alternative_ground_truth_global_positions
-        batch_input_dictionary["alternative_ground_truth_local_positions"] = alternative_ground_truth_local_positions
         batch_input_dictionary["alternative_ground_truth_frames"] = alternative_ground_truth_frames
         batch_input_dictionary["alternative_ground_truth_angles"] = alternative_ground_truth_angles
 
