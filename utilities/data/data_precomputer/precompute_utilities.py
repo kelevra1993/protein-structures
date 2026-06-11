@@ -113,7 +113,7 @@ def precompute_dataset(experiment_configuration_path: str, output_directory: str
 
         print(f"\n--- Precomputing {phase_name} Phase ({len(protein_ids)} proteins, {number_samples} samples each) ---")
 
-        json_tracker_path = phase_output_directory / f"{phase_name}_precomputed_samples.json"
+        json_tracker_path = output_directory_path / f"{phase_name}_precomputed_samples.json"
         processed_proteins = []
 
         if json_tracker_path.exists():
