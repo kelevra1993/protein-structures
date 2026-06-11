@@ -58,29 +58,33 @@ class TestInput(unittest.TestCase):
             number_samples=number_recycle_samples, seed=42, batch_mode=False)
 
         # List of critical feature keys
-        feature_keys = [
-            "input_msa_feature", "input_extra_msa_feature", "input_sequence_feature",
-            "input_residue_index_feature", "sequence_labels", "ground_truth_global_positions",
-            "ground_truth_local_positions", "ground_truth_frames", "ground_truth_angles"
+        cycle_dependent_keys = ["input_msa_feature", "input_extra_msa_feature"]
+        invariant_keys = [
+            "input_sequence_feature", "input_residue_index_feature", "sequence_labels", 
+            "ground_truth_global_positions", "ground_truth_local_positions", 
+            "ground_truth_frames", "ground_truth_angles"
         ]
-        for key in feature_keys:
+        
+        for key in cycle_dependent_keys:
             self.assertIn(key, recycled_input_data)
-            # The last dimension must represent the recycle cycles
             self.assertEqual(recycled_input_data[key].shape[-1], number_recycle_samples)
+            
+        for key in invariant_keys:
+            self.assertIn(key, recycled_input_data)
 
         # Check spatial and feature dimensions (crop_size = 128)
-        self.assertEqual(recycled_input_data["input_sequence_feature"].shape, (128, 21, number_recycle_samples))
+        self.assertEqual(recycled_input_data["input_sequence_feature"].shape, (128, 21))
         self.assertEqual(recycled_input_data["ground_truth_global_positions"].shape,
-                         (128, 37, 3, number_recycle_samples))
-        self.assertEqual(recycled_input_data["ground_truth_frames"].shape, (128, 8, 4, 4, number_recycle_samples))
+                         (128, 37, 3))
+        self.assertEqual(recycled_input_data["ground_truth_frames"].shape, (128, 8, 4, 4))
 
     def test_batch_mode_formatting(self):
         """Check if batch_mode correctly prepends a batch dimension to all tensors."""
         batched_input_data = self.model_input.get_data(number_samples=1, seed=42, batch_mode=True)
         # Check first dimension (Batch)
         self.assertEqual(batched_input_data["input_sequence_feature"].shape[0], 1)
-        # Full shape check: (Batch=1, Residues=128, Atoms=21, Cycles=1)
-        self.assertEqual(batched_input_data["input_sequence_feature"].shape, (1, 128, 21, 1))
+        # Full shape check: (Batch=1, Residues=128, Atoms=21)
+        self.assertEqual(batched_input_data["input_sequence_feature"].shape, (1, 128, 21))
 
     def test_full_length_determinism_parity(self):
         """
@@ -115,7 +119,10 @@ class TestInput(unittest.TestCase):
                            "ground_truth_global_positions", "ground_truth_frames"]
 
         for key in comparison_keys:
-            torch.testing.assert_close(generated_data[key], reference_data[key],
+            # Reference data was generated with the old format where these had a trailing cycle dimension (size 1)
+            # So we squeeze the reference data for the comparison.
+            expected_data = reference_data[key].squeeze(-1)
+            torch.testing.assert_close(generated_data[key], expected_data,
                                        atol=1e-4, rtol=1e-5,
                                        msg=f"Parity check failed for tensor: {key}")
 
@@ -127,11 +134,11 @@ class TestInput(unittest.TestCase):
         # Get one crop with recycling=1
         cropped_data = self.model_input.get_data(number_samples=1, seed=123, batch_mode=False)
 
-        # Shape: (number_residues_crop, 37, 3, 1)
-        local_positions = cropped_data["ground_truth_local_positions"].squeeze(-1)
+        # Shape: (number_residues_crop, 37, 3)
+        local_positions = cropped_data["ground_truth_local_positions"]
         # We need the actual names of the cropped residues
         # Residue labels are in "sequence_labels" but we need the 3-letter codes
-        sequence_labels = cropped_data["sequence_labels"].squeeze(-1)
+        sequence_labels = cropped_data["sequence_labels"]
 
         for residue_index in range(local_positions.shape[0]):
             amino_acid_label = int(sequence_labels[residue_index].item())

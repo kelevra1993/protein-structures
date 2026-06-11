@@ -122,17 +122,18 @@ class Model(nn.Module):
          * input_extra_msa_feature:
          Tensor of shape (*, number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_cycles).
          * input_sequence_feature:
-         Tensor of shape (*, number_residues, input_sequence_feature_dimension, number_cycles).
+         Tensor of shape (*, number_residues, input_sequence_feature_dimension).
          One-hot encoding of the target sequence.
          * input_residue_index_feature:
-         Tensor of shape (*, number_residues, number_cycles).
-         The index of each residue, which is [0,...,number_residues-1].
-         * ground_truth_frames: Shape (*, number_residues, 8, 4, 4, number_cycles)
-         * alternative_ground_truth_frames: Shape (*, number_residues, 8, 4, 4, number_cycles)
-         * ground_truth_angles: Shape (*, number_residues, 7, 2, number_cycles)
-         * alternative_ground_truth_angles: Shape (*, number_residues, 7, 2, number_cycles)
-         * ground_truth_global_positions: Shape (*, number_residues, 37, 3, number_cycles)
-         * alternative_ground_truth_global_positions: Shape (*, number_residues, 37, 3, number_cycles)
+         Tensor of shape (*, number_residues).
+         The absolute index of each residue.
+         * ground_truth_frames: Shape (*, number_residues, 8, 4, 4)
+         * alternative_ground_truth_frames: Shape (*, number_residues, 8, 4, 4)
+         * ground_truth_angles: Shape (*, number_residues, 7, 2)
+         * alternative_ground_truth_angles: Shape (*, number_residues, 7, 2)
+         * ground_truth_global_positions: Shape (*, number_residues, 37, 3)
+         * alternative_ground_truth_global_positions: Shape (*, number_residues, 37, 3)
+         * distogram_labels: Shape (*, number_residues, number_residues)
 
         Returns:
         dict: A dictionary with the following entries:
@@ -171,7 +172,12 @@ class Model(nn.Module):
 
         for cycle in range(number_cycles):
             # Extract Current Input Features For This Cycle
-            current_cycle_input_batch = {key: value[..., cycle] for key, value in batch_input_dictionary.items()}
+            current_cycle_input_batch = {}
+            for key, value in batch_input_dictionary.items():
+                if key in ["input_msa_feature", "input_extra_msa_feature"]:
+                    current_cycle_input_batch[key] = value[..., cycle]
+                else:
+                    current_cycle_input_batch[key] = value
 
             # Get embeddings for msa and pair representation
             msa_representation_tensor, pair_representation_tensor = self.input_embedder(
@@ -249,8 +255,8 @@ class Model(nn.Module):
         distogram_logits, distogram_probabilities = self.distogram_module(
             pair_representation=pair_representation_tensor)
 
-        # Distogram labels are identical across cycles, take the last one
-        distogram_labels = batch_input_dictionary['distogram_labels'][..., -1]
+        # Distogram labels are invariant and do not have a cycle dimension
+        distogram_labels = batch_input_dictionary['distogram_labels']
         distogram_loss = compute_distogram_loss(distogram_logits=distogram_logits, distogram_labels=distogram_labels)
 
         model_outputs["distogram_logits"] = distogram_logits

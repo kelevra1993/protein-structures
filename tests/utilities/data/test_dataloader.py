@@ -49,8 +49,8 @@ class TestDataloader(unittest.TestCase):
         )
         first_sample_data = protein_dataset[0]
         self.assertIsInstance(first_sample_data, dict)
-        # 2 recycle cycles, 21 AA types, 64 residue crop
-        self.assertEqual(first_sample_data["input_sequence_feature"].shape, (64, 21, 2))
+        # 21 AA types, 64 residue crop
+        self.assertEqual(first_sample_data["input_sequence_feature"].shape, (64, 21))
 
     def test_collate_fn_fast_path(self):
         """Test the optimized fast path for batch size 1 in the collate function."""
@@ -97,7 +97,7 @@ class TestDataloader(unittest.TestCase):
         
         # Verify we can successfully iterate and retrieve a batch
         for batch_data in protein_dataloader:
-            self.assertEqual(batch_data["input_sequence_feature"].shape, (1, 64, 21, 2))
+            self.assertEqual(batch_data["input_sequence_feature"].shape, (1, 64, 21))
             break
 
 if __name__ == "__main__":

@@ -53,13 +53,13 @@ def test_structure_module_forward():
     )
 
     # setup ground truth data
-    frames = data["ground_truth_frames"][:target_number_residues, :, :, :, 0]
-    alternative_frames = data["alternative_ground_truth_frames"][:target_number_residues, :, :, :, 0]
-    angles = data["ground_truth_angles"][:target_number_residues, :, :, 0]
-    alternative_angles = data["alternative_ground_truth_angles"][:target_number_residues, :, :, 0]
-    positions = data["ground_truth_global_positions"][:target_number_residues, :, :, 0]
-    alternative_positions = data["alternative_ground_truth_global_positions"][:target_number_residues, :, :, 0]
-    sequence_labels = data["sequence_labels"][:target_number_residues, 0]
+    frames = data["ground_truth_frames"][:target_number_residues, :, :, :]
+    alternative_frames = data["alternative_ground_truth_frames"][:target_number_residues, :, :, :]
+    angles = data["ground_truth_angles"][:target_number_residues, :, :]
+    alternative_angles = data["alternative_ground_truth_angles"][:target_number_residues, :, :]
+    positions = data["ground_truth_global_positions"][:target_number_residues, :, :]
+    alternative_positions = data["alternative_ground_truth_global_positions"][:target_number_residues, :, :]
+    sequence_labels = data["sequence_labels"][:target_number_residues]
 
     input_tensor_dictionary = {
         "single_representation": simple_inputs["single_representation"].to(device),

@@ -350,18 +350,12 @@ class ModelInput:
             input_tensor=ground_truth_pseudo_carbon_beta_distance_matrix,
             bin_tensor=self.distogram_bins)
 
+        # Distogram labels are invariant across cycles
         distogram_labels = torch.argmax(input=ground_truth_pseudo_carbon_beta_distance_matrix, dim=-1)
 
         # For training, we recycle data by shuffling the msa data
-        cycle_data = {"input_msa_feature": [], "input_extra_msa_feature": [],
-                      "input_sequence_feature": [], "input_residue_index_feature": [],
-                      "sequence_labels": [], "distogram_labels": [],
-                      "ground_truth_global_positions": [], "ground_truth_local_positions": [],
-                      "ground_truth_frames": [], "ground_truth_angles": [],
-                      "alternative_ground_truth_global_positions": [],
-                      "alternative_ground_truth_local_positions": [],
-                      "alternative_ground_truth_frames": [],
-                      "alternative_ground_truth_angles": []}
+        # Only MSA features are cycle-dependent (stochastic)
+        cycle_dependent_data = {"input_msa_feature": [], "input_extra_msa_feature": []}
 
         # Generate features for each cycle (number_samples)
         # We wrap this in no_grad to prevent accidental gradient tracking during data prep
@@ -378,6 +372,9 @@ class ModelInput:
 
             # Amino acid distribution : used for masking
             precomputed_total_amino_acid_distribution = msa_sequence_tensor.mean(dim=0, keepdim=True)
+            
+            # Absolute residue indices are also invariant
+            absolute_residue_indices = precomputed_input_residue_index_feature + start_index
 
             for cycle in range(number_samples):
                 # Vary seed per cycle to allow different random masks/shuffles
@@ -397,31 +394,25 @@ class ModelInput:
                     dtype=msa_sequence_tensor.dtype,
                     seed=current_seed)
 
-                # Offset residue indices to be absolute (protein-relative)
-                absolute_residue_indices = extractor.input_residue_index_feature + start_index
+                cycle_dependent_data["input_msa_feature"].append(extractor.input_msa_feature)
+                cycle_dependent_data["input_extra_msa_feature"].append(extractor.input_extra_msa_feature)
 
-                cycle_data["input_msa_feature"].append(extractor.input_msa_feature)
-                cycle_data["input_extra_msa_feature"].append(extractor.input_extra_msa_feature)
-                cycle_data["input_sequence_feature"].append(extractor.input_sequence_feature)
-                cycle_data["input_residue_index_feature"].append(absolute_residue_indices)
-
-                # Ground truth data and labels are identical across cycles, duplicate to match recycle dimension
-                cycle_data["sequence_labels"].append(sequence_labels)
-                cycle_data["distogram_labels"].append(distogram_labels)
-                cycle_data["ground_truth_global_positions"].append(ground_truth_global_positions)
-                cycle_data["ground_truth_local_positions"].append(ground_truth_local_positions)
-                cycle_data["ground_truth_frames"].append(ground_truth_frames)
-                cycle_data["ground_truth_angles"].append(ground_truth_angles)
-
-                # Add alternative truth data, based on symmetries.
-                cycle_data["alternative_ground_truth_global_positions"].append(
-                    alternative_ground_truth_global_positions)
-                cycle_data["alternative_ground_truth_local_positions"].append(alternative_ground_truth_local_positions)
-                cycle_data["alternative_ground_truth_frames"].append(alternative_ground_truth_frames)
-                cycle_data["alternative_ground_truth_angles"].append(alternative_ground_truth_angles)
-
-        # Stack along the last dimension (cycle dimension)
-        batch_input_dictionary = {key: torch.stack(values, dim=-1) for key, values in cycle_data.items()}
+        # Stack cycle-dependent features along the last dimension (cycle dimension)
+        batch_input_dictionary = {key: torch.stack(values, dim=-1) for key, values in cycle_dependent_data.items()}
+        
+        # Add invariant features directly without a cycle dimension
+        batch_input_dictionary["input_sequence_feature"] = precomputed_input_sequence_feature
+        batch_input_dictionary["input_residue_index_feature"] = absolute_residue_indices
+        batch_input_dictionary["sequence_labels"] = sequence_labels
+        batch_input_dictionary["distogram_labels"] = distogram_labels
+        batch_input_dictionary["ground_truth_global_positions"] = ground_truth_global_positions
+        batch_input_dictionary["ground_truth_local_positions"] = ground_truth_local_positions
+        batch_input_dictionary["ground_truth_frames"] = ground_truth_frames
+        batch_input_dictionary["ground_truth_angles"] = ground_truth_angles
+        batch_input_dictionary["alternative_ground_truth_global_positions"] = alternative_ground_truth_global_positions
+        batch_input_dictionary["alternative_ground_truth_local_positions"] = alternative_ground_truth_local_positions
+        batch_input_dictionary["alternative_ground_truth_frames"] = alternative_ground_truth_frames
+        batch_input_dictionary["alternative_ground_truth_angles"] = alternative_ground_truth_angles
 
         # Optional Batch Unsqueeze (for testing/single-sample inference)
         if batch_mode:
