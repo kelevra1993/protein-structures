@@ -2,11 +2,12 @@ from pathlib import Path
 from trainer.trainer import Trainer
 from utilities.os_utilities import load_experiment_configuration, print_yellow
 from utilities.data.data_precomputer.precompute_utilities import precompute_dataset
+from utilities.tensor_utilities import get_device
 
 
 def main():
     # Define configuration path
-    experiment_configuration_path = Path(__file__).parent / "configurations" / "mac_configuration.yaml"
+    experiment_configuration_path = Path(__file__).parent / "configurations" / f"{get_device()}_configuration.yaml"
 
     # Load configuration
     experiment_configuration, model_configuration = load_experiment_configuration(experiment_configuration_path)
