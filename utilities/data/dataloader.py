@@ -297,3 +297,58 @@ def get_dataloader(data_folder: str,
         dtype=dtype)
 
     return dataloader
+
+
+class PrecomputedProteinDataset(Dataset):
+    def __init__(self, precomputed_directory: str, split_file_path: str, phase: str, existing_precomputed_samples: int):
+
+        self.precomputed_directory = Path(precomputed_directory) / phase
+        self.split_file_path = Path(split_file_path)
+        self.existing_precomputed_samples = existing_precomputed_samples
+        self.phase = phase
+
+        # Load split
+        cluster_mapping = read_json(str(self.split_file_path))
+        self.protein_ids = []
+        for members in cluster_mapping.values():
+            self.protein_ids.extend(members)
+
+    def __len__(self) -> int:
+        return len(self.protein_ids)
+
+    def __getitem__(self, index: int) -> dict:
+        protein_id = self.protein_ids[index]
+
+        # Randomly select one of the precomputed samples if in Train phase, otherwise just take 0
+        if self.phase == "Train":
+            sample_index = random.randint(0, self.existing_precomputed_samples - 1)
+        else:
+            sample_index = 0
+
+        file_path = self.precomputed_directory / f"{protein_id}_sample_{sample_index}.pt"
+
+        return torch.load(file_path)
+
+
+def get_precomputed_dataloader(precomputed_directory: str, split_file_path: str,
+                               phase: str, existing_precomputed_samples: int, batch_size: int,
+                               num_workers: int, shuffle: bool) -> DataLoader:
+    """
+
+    :param precomputed_directory:
+    :param split_file_path:
+    :param phase:
+    :param existing_precomputed_samples:
+    :param batch_size:
+    :param num_workers:
+    :param shuffle:
+    :return:
+    """
+
+    dataset = PrecomputedProteinDataset(precomputed_directory=precomputed_directory, split_file_path=split_file_path,
+                                        phase=phase, existing_precomputed_samples=existing_precomputed_samples)
+
+    dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle,
+                            num_workers=num_workers, collate_fn=protein_collate_fn, drop_last=False)
+
+    return dataloader
