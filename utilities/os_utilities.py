@@ -9,7 +9,7 @@ import modelcif.model
 import modelcif.dumper
 import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 
 
 def read_npz_file(path: str) -> Any:
@@ -75,22 +75,32 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
             raise ValueError(f"Error parsing YAML file at {path}:\n{e}")
 
 
-def load_experiment_configuration(configuration_path: str | Path) -> Dict[str, Any]:
+def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Loads and returns the 'ExperimentConfiguration' section from a YAML file,
-    automatically handling type conversions (Path, int, float, torch.dtype).
+    Loads a single YAML configuration file and splits it into experiment
+    and model configurations.
+
+    This function extracts the 'ExperimentConfiguration' section, processes
+    its paths and types, and returns it alongside the rest of the configuration
+    parameters.
 
     Args:
-        configuration_path (str | Path): Path to the experiment YAML file.
+        configuration_path (str | Path): Path to the consolidated YAML file.
 
     Returns:
-        Dict[str, Any]: The processed experiment configuration parameters.
+        Tuple[Dict[str, Any], Dict[str, Any]]: A tuple containing:
+            - experiment_configuration: The processed experiment settings.
+            - model_configuration: The remaining configuration (all other keys).
+
+    Raises:
+        KeyError: If 'ExperimentConfiguration' is missing from the file.
     """
-    config = load_configuration(configuration_path)
-    if "ExperimentConfiguration" not in config:
+    configuration = load_configuration(configuration_path)
+    if "ExperimentConfiguration" not in configuration:
         raise KeyError(f"Key 'ExperimentConfiguration' not found in {configuration_path}")
 
-    experiment_configuration = config["ExperimentConfiguration"]
+    experiment_configuration = configuration.pop("ExperimentConfiguration")
+    model_configuration = configuration
 
     # Convert paths
     path_keys = [
@@ -105,7 +115,7 @@ def load_experiment_configuration(configuration_path: str | Path) -> Dict[str, A
     int_keys = ["information_dump", "weight_saving_iterations", "number_iterations"]
     for key in int_keys:
         if key in experiment_configuration:
-            experiment_configuration[key] = int(experiment_configuration[key])
+            experiment_configuration[key] = int(float(experiment_configuration[key]))
 
     if "learning_rate" in experiment_configuration:
         experiment_configuration["learning_rate"] = float(experiment_configuration["learning_rate"])
@@ -116,10 +126,11 @@ def load_experiment_configuration(configuration_path: str | Path) -> Dict[str, A
         experiment_configuration["dtype"] = dtype_map.get(experiment_configuration["dtype"], torch.float32)
 
     # Set the project root
-    experiment_configuration["project_root"] = (
-            experiment_configuration["experiment_parent_folder"] / experiment_configuration["experiment_name"])
+    if "experiment_parent_folder" in experiment_configuration and "experiment_name" in experiment_configuration:
+        experiment_configuration["project_root"] = (
+                experiment_configuration["experiment_parent_folder"] / experiment_configuration["experiment_name"])
 
-    return experiment_configuration
+    return experiment_configuration, model_configuration
 
 
 def to_modelcif(atom_positions: torch.Tensor, atom_mask: torch.Tensor, sequence: str | list[str]) -> str:

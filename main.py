@@ -1,6 +1,6 @@
 from pathlib import Path
 from trainer.trainer import Trainer
-from utilities.os_utilities import load_experiment_configuration, load_configuration
+from utilities.os_utilities import load_experiment_configuration
 
 
 def main():
@@ -8,12 +8,12 @@ def main():
     experiment_configuration_path = Path(__file__).parent / "configurations" / "experiment_configuration.yaml"
 
     # Load configuration
-    experiment_configuration = load_experiment_configuration(experiment_configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(experiment_configuration_path)
 
     # Initialize Trainer
     trainer = Trainer(
         project_root=experiment_configuration["project_root"],
-        model_configuration=load_configuration(experiment_configuration["configuration_path"]),
+        model_configuration=model_configuration,
         data_folder=experiment_configuration["data_folder"],
         train_split_file=experiment_configuration["train_split_file"],
         validation_split_file=experiment_configuration["validation_split_file"],

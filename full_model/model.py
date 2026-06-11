@@ -263,13 +263,13 @@ class Model(nn.Module):
 if __name__ == "__main__":
     import os
     from pathlib import Path
-    from utilities.os_utilities import load_configuration
+    from utilities.os_utilities import load_experiment_configuration
     from utilities.tensor_utilities import get_device, print_tensor_shape
 
     project_folder = Path(os.getcwd()).parent
     configuration_file = project_folder / "configurations" / "template_configuration.yaml"
 
-    model_configuration = load_configuration(configuration_path=configuration_file)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_file)
     computer_device = get_device()
 
     if str(computer_device) == "mps":

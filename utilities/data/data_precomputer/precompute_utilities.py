@@ -4,7 +4,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 from utilities.data.input import ModelInput
-from utilities.os_utilities import load_configuration, load_experiment_configuration, read_json, print_red, print_green
+from utilities.os_utilities import load_experiment_configuration, read_json, print_red, print_green
 
 
 def precompute_dataset(experiment_configuration_path: str, output_directory: str, number_samples: int):
@@ -16,13 +16,7 @@ def precompute_dataset(experiment_configuration_path: str, output_directory: str
         output_directory: Base directory where the precomputed data will be stored.
         number_samples: Number of random variations to generate per protein.
     """
-    experiment_configuration = load_experiment_configuration(experiment_configuration_path)
-
-    model_configuration_path = experiment_configuration.get("configuration_path")
-    if not model_configuration_path:
-        raise ValueError("Key 'configuration_path' is missing from the experiment configuration.")
-
-    full_configuration = load_configuration(model_configuration_path)
+    experiment_configuration, full_configuration = load_experiment_configuration(experiment_configuration_path)
 
     data_folder = Path(experiment_configuration["data_folder"])
     output_directory_path = Path(output_directory)
@@ -37,7 +31,6 @@ def precompute_dataset(experiment_configuration_path: str, output_directory: str
 
     for phase_name, split_file in phases:
         # if phase file does not exit it should not break.
-        # Typically if we have no test data
         if not split_file or str(split_file) == "":
             print(f"Skipping {phase_name} phase: no split file provided in configuration.")
             continue
