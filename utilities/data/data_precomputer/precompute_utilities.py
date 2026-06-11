@@ -1,10 +1,11 @@
 """File used for precomputation of protein data to speed up training"""
 import torch
+import json
 from pathlib import Path
 from tqdm import tqdm
 
 from utilities.data.input import ModelInput
-from utilities.os_utilities import load_experiment_configuration, read_json, print_red, print_green
+from utilities.os_utilities import load_experiment_configuration, read_json, print_red, print_green, print_blue
 
 
 def precompute_dataset(experiment_configuration_path: str, output_directory: str, number_samples: int):
@@ -61,50 +62,64 @@ def precompute_dataset(experiment_configuration_path: str, output_directory: str
 
         print(f"\n--- Precomputing {phase_name} Phase ({len(protein_ids)} proteins, {number_samples} samples each) ---")
 
+        json_tracker_path = phase_output_directory / f"{phase_name}_precomputed_samples.json"
+
         # Keep Track Of Skipped protein ids
         skipped_proteins = []
         processed_proteins = []
 
-        for protein_id in tqdm(protein_ids, desc=f"Processing {phase_name} proteins"):
-            structure_path = data_folder / "structures" / f"{protein_id}.npz"
-            record_path = data_folder / "records" / f"{protein_id}.json"
-            msa_path = data_folder / "raw_msa" / f"{protein_id}.a3m"
+        # Load the json if it exists
+        if json_tracker_path.exists():
+            print_blue(f"Json Tracker {json_tracker_path} Exists, Fetching Precomputed Data...")
+            processed_proteins = read_json(path=str(json_tracker_path))
 
-            if not all([structure_path.exists(), record_path.exists(), msa_path.exists()]):
-                skipped_proteins.append(protein_id)
-                continue
+        try:
+            for protein_id in tqdm(protein_ids, desc=f"Processing {phase_name} proteins"):
+                if protein_id in processed_proteins:
+                    continue
 
-            try:
-                model_input = ModelInput(
-                    structure_path=str(structure_path),
-                    msa_path=str(msa_path),
-                    record_path=str(record_path),
-                    acceptance_slope_start=phase_configuration['acceptance_slope_start'],
-                    acceptance_slope_end=phase_configuration['acceptance_slope_end'],
-                    residue_crop_size=phase_configuration['residue_crop_size'],
-                    emphasize_beginning_crops=phase_configuration['emphasize_beginning_crops'],
-                    distribution_threshold=phase_configuration['distribution_threshold'],
-                    maximum_cluster_sequences=phase_configuration['maximum_cluster_sequences'],
-                    maximum_extra_msa_sequences=phase_configuration['maximum_extra_msa_sequences'],
-                    mask_probability=phase_configuration['mask_probability'],
-                    device=torch.device("cpu"),
-                    dtype=experiment_configuration.get("dtype", torch.float32))
+                structure_path = data_folder / "structures" / f"{protein_id}.npz"
+                record_path = data_folder / "records" / f"{protein_id}.json"
+                msa_path = data_folder / "raw_msa" / f"{protein_id}.a3m"
 
-                for sample_index in range(number_samples):
-                    # We vary the seed to ensure different random crops/masks per sample
-                    batch_data = model_input.get_data(
-                        number_samples=phase_configuration['number_recycle_cycles'],
-                        seed=42 + sample_index, batch_mode=False)
+                if not all([structure_path.exists(), record_path.exists(), msa_path.exists()]):
+                    skipped_proteins.append(protein_id)
+                    continue
 
-                    output_path = phase_output_directory / f"{protein_id}_sample_{sample_index}.pt"
-                    torch.save(batch_data, output_path)
-                processed_proteins.append(protein_id)
-            except KeyboardInterrupt:
-                exit("KeyboardInterrupt From User, Exiting Script")
-            except Exception as e:
-                # We do not stop the processing
-                skipped_proteins.append(protein_id)
-                continue
+                try:
+                    model_input = ModelInput(
+                        structure_path=str(structure_path),
+                        msa_path=str(msa_path),
+                        record_path=str(record_path),
+                        acceptance_slope_start=phase_configuration['acceptance_slope_start'],
+                        acceptance_slope_end=phase_configuration['acceptance_slope_end'],
+                        residue_crop_size=phase_configuration['residue_crop_size'],
+                        emphasize_beginning_crops=phase_configuration['emphasize_beginning_crops'],
+                        distribution_threshold=phase_configuration['distribution_threshold'],
+                        maximum_cluster_sequences=phase_configuration['maximum_cluster_sequences'],
+                        maximum_extra_msa_sequences=phase_configuration['maximum_extra_msa_sequences'],
+                        mask_probability=phase_configuration['mask_probability'],
+                        device=torch.device("cpu"),
+                        dtype=experiment_configuration.get("dtype", torch.float32))
 
-        print_green(f"For Phase {phase_name}, We Processed {len(processed_proteins)} Proteins")
-        print_red(f"For Phase {phase_name}, We Skipped {len(skipped_proteins)} Proteins")
+                    for sample_index in range(number_samples):
+                        # We vary the seed to ensure different random crops/masks per sample
+                        batch_data = model_input.get_data(
+                            number_samples=phase_configuration['number_recycle_cycles'],
+                            seed=42 + sample_index, batch_mode=False)
+
+                        output_path = phase_output_directory / f"{protein_id}_sample_{sample_index}.pt"
+                        torch.save(batch_data, output_path)
+                    processed_proteins.append(protein_id)
+                except KeyboardInterrupt:
+                    print(f"\nKeyboardInterrupt From User, Exiting Script. Saving progress...")
+                    raise
+                except Exception as e:
+                    # We do not stop the processing
+                    skipped_proteins.append(protein_id)
+                    continue
+        finally:
+            with open(json_tracker_path, "w") as f:
+                json.dump(processed_proteins, f, indent=4)
+            print_green(f"For Phase {phase_name}, We have a total of {len(processed_proteins)} Precomputed Proteins")
+            print_red(f"For Phase {phase_name}, We Skipped {len(skipped_proteins)} Proteins during this run")

@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 from full_model.model import Model
 from utilities.os_utilities import load_configuration, print_red, print_green, print_blue, print_yellow
 from utilities.tensor_utilities import get_device
-from utilities.data.dataloader import get_dataloader
+from utilities.data.dataloader import get_dataloader, get_precomputed_dataloader
 
 
 class Trainer:
@@ -32,8 +32,11 @@ class Trainer:
                  compute_validation_iteration: bool,
                  learning_rate: float,
                  dtype: torch.dtype,
-                 information_dump: int = 100,
-                 resume_training: bool = True):
+                 information_dump: int,
+                 resume_training: bool,
+                 precompute_data: bool,
+                 experiment_name: str,
+                 precomputed_samples: int):
         """
         Initializes the Trainer with all necessary components for a training run.
 
@@ -51,6 +54,9 @@ class Trainer:
             dtype (torch.dtype): Data type to be used for all model tensors (e.g., torch.float32 or torch.float64).
             information_dump (int): Interval at which rolling average losses are printed to the console.
             resume_training (bool): If True, restores the model and optimizer state from the last checkpoint.
+            precompute_data (bool): Whether to use precomputed data loaders.
+            experiment_name (str): The name of the experiment.
+            precomputed_samples (int): Number of precomputed samples available per protein.
         """
         # Get device and dtype
         self.device = get_device()
@@ -84,30 +90,12 @@ class Trainer:
         self.validation_split_file = validation_split_file
         self.test_split_file = test_split_file
 
-        # Setup training, validation, and test dataloaders
-        self.train_dataloader = get_dataloader(
-            data_folder=str(self.data_folder),
-            model_configuration=self.model_configuration,
-            split_path=str(self.train_split_file),
-            phase="Train",
-            device=self.device,
-            dtype=self.dtype)
+        self.precompute_data = precompute_data
+        self.precomputed_directory = self.data_folder / experiment_name if self.precompute_data else None
+        self.precomputed_samples = precomputed_samples
 
-        self.validation_dataloader = get_dataloader(
-            data_folder=str(self.data_folder),
-            model_configuration=self.model_configuration,
-            split_path=str(self.validation_split_file),
-            phase="Validation",
-            device=self.device,
-            dtype=self.dtype)
-
-        self.test_dataloader = get_dataloader(
-            data_folder=str(self.data_folder),
-            model_configuration=self.model_configuration,
-            split_path=str(self.test_split_file),
-            phase="Test",
-            device=self.device,
-            dtype=self.dtype)
+        # Get data loaders depending on the whether we used precomputation or not.
+        self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
 
         # Initialize Model and Optimizer
         self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype)
@@ -165,6 +153,60 @@ class Trainer:
             validation_writer = None
 
         return training_writer, validation_writer
+
+    def get_trainer_data_loaders(self):
+        """
+        Todo add docstring
+        :return:
+        """
+
+        # Setup training, validation, and test dataloaders
+        if self.precompute_data:
+            print_blue("Using Precomputed DataLoaders.", add_separators=True)
+            train_dataloader = get_precomputed_dataloader(
+                precomputed_directory=str(self.precomputed_directory), split_file_path=str(self.train_split_file),
+                phase="Train", existing_precomputed_samples=self.precomputed_samples,
+                batch_size=self.model_configuration["TrainDataConfiguration"]["batch_size"],
+                num_workers=0, shuffle=self.model_configuration["TrainDataConfiguration"]["shuffle"])
+
+            validation_dataloader = get_precomputed_dataloader(
+                precomputed_directory=str(self.precomputed_directory), split_file_path=str(self.validation_split_file),
+                phase="Validation", existing_precomputed_samples=self.precomputed_samples,
+                batch_size=self.model_configuration["ValidationDataConfiguration"]["batch_size"],
+                num_workers=0, shuffle=self.model_configuration["ValidationDataConfiguration"]["shuffle"])
+
+            test_dataloader = get_precomputed_dataloader(
+                precomputed_directory=str(self.precomputed_directory), split_file_path=str(self.test_split_file),
+                phase="Test", existing_precomputed_samples=self.precomputed_samples,
+                batch_size=self.model_configuration["TestDataConfiguration"]["batch_size"],
+                num_workers=0, shuffle=self.model_configuration["TestDataConfiguration"]["shuffle"])
+        else:
+            print_yellow("Using Standard RunTime DataLoaders.", add_separators=True)
+            train_dataloader = get_dataloader(
+                data_folder=str(self.data_folder),
+                model_configuration=self.model_configuration,
+                split_path=str(self.train_split_file),
+                phase="Train",
+                device=self.device,
+                dtype=self.dtype)
+
+            validation_dataloader = get_dataloader(
+                data_folder=str(self.data_folder),
+                model_configuration=self.model_configuration,
+                split_path=str(self.validation_split_file),
+                phase="Validation",
+                device=self.device,
+                dtype=self.dtype)
+
+            test_dataloader = get_dataloader(
+                data_folder=str(self.data_folder),
+                model_configuration=self.model_configuration,
+                split_path=str(self.test_split_file),
+                phase="Test",
+                device=self.device,
+                dtype=self.dtype)
+
+        return train_dataloader, validation_dataloader, test_dataloader
 
     def run_training_loop(self):
         """

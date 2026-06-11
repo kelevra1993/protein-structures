@@ -1,5 +1,7 @@
 import os
 import json
+from json import JSONDecodeError
+
 import torch
 import numpy as np
 import io
@@ -42,10 +44,13 @@ def read_json(path: str) -> dict[str, Any] | list[Any]:
     Returns:
         Dict[str, Any] | List[Any]: The parsed JSON data.
     """
-    with open(path, "r") as file:
-        json_data = json.loads(file.read())
-
-    return json_data
+    json_data = None
+    try:
+        with open(path, "r") as file:
+            json_data = json.loads(file.read())
+        return json_data
+    except JSONDecodeError:
+        return json_data
 
 
 def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
@@ -112,7 +117,7 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
             experiment_configuration[key] = Path(experiment_configuration[key])
 
     # Convert numerics
-    int_keys = ["information_dump", "weight_saving_iterations", "number_iterations"]
+    int_keys = ["information_dump", "weight_saving_iterations", "number_iterations", "precomputed_samples"]
     for key in int_keys:
         if key in experiment_configuration:
             experiment_configuration[key] = int(float(experiment_configuration[key]))
