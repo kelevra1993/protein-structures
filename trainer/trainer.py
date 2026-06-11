@@ -156,8 +156,18 @@ class Trainer:
 
     def get_trainer_data_loaders(self):
         """
-        Todo add docstring
-        :return:
+        Initializes and returns the dataloaders for the training, validation, and test phases.
+
+        This method acts as a factory, deciding whether to load the standard runtime
+        dataloaders (which perform MSA clustering, cropping, and feature extraction dynamically)
+        or the precomputed dataloaders (which load pre-processed `.pt` tensors directly from disk
+        for maximum training speed), based on the `precompute_data` flag.
+
+        Returns:
+            Tuple[DataLoader, DataLoader, DataLoader]: A tuple containing:
+                - train_dataloader: The dataloader for the training split.
+                - validation_dataloader: The dataloader for the validation split.
+                - test_dataloader: The dataloader for the test split.
         """
 
         # Setup training, validation, and test dataloaders
@@ -473,11 +483,16 @@ class Trainer:
         message = f"Estimated Model Size Without Optimizer : {size_all_mb:.2f} MB"
         print_yellow(message, add_separators=True)
 
-    def extract_last_model_iteration(self):
+    def extract_last_model_iteration(self) -> int:
         """
-        Function that is used to get the last model that was saved for a given run. Useful when we are resuming
-        training.
-        :return:
+        Retrieves the iteration number of the most recently saved model checkpoint.
+
+        This method reads the 'full-checkpoint' registry file located in the weights
+        directory to determine the latest available checkpoint. This is crucial for
+        seamlessly resuming training after an interruption without manual intervention.
+
+        Returns:
+            int: The iteration number of the last saved model, or 0 if no checkpoint exists.
         """
         last_iteration = 0
 
@@ -494,12 +509,21 @@ class Trainer:
 
         return last_iteration
 
-    def restore_last_model(self, index_iteration=None):
+    def restore_last_model(self, index_iteration: Optional[int] = None) -> int:
         """
-        Function that is used to restore the last model that was saved, if we are resuming training.
-        If we are dealing with inference for validation or test set, to restore the model at index_iteration for evaluation.
-        :param index_iteration: (int) iteration of interest for the model that we would like to restore
-        :return: (int) The iteration number to start training from.
+        Restores the model and optimizer states to a specific or the most recent checkpoint.
+
+        If `index_iteration` is provided, it restores that exact checkpoint (useful for
+        running isolated evaluation or inference on a specific model state). If not provided,
+        it automatically finds and loads the latest checkpoint to resume training.
+
+        Args:
+            index_iteration (Optional[int]): The specific iteration to restore. If None,
+                it resolves to the last saved iteration.
+
+        Returns:
+            int: The iteration number from which training should commence. If a model was
+                loaded, it returns `loaded_iteration + 1`. If no model was found, it returns 1.
         """
 
         if not index_iteration:
@@ -519,12 +543,15 @@ class Trainer:
             # Resume from the next iteration
             return index_iteration + 1
 
-    def load_model(self, iteration):
+    def load_model(self, iteration: int):
         """
-        Function that is used to restore a model that was previously saved, either in order to continue
-        training or to run inference.
-        :param iteration: (int) iteration at which the model is being saved.
-        :return:
+        Loads the model weights and optimizer state from a specified iteration checkpoint.
+
+        This method reads the serialized `.pt` file from disk and maps the tensors to
+        the currently active device (CPU, CUDA, or MPS).
+
+        Args:
+            iteration (int): The exact iteration number identifying the checkpoint to load.
         """
 
         model_path = self.weights_directory / f"Iteration_{iteration}" / f"model_{iteration:06}.pt"
@@ -534,11 +561,16 @@ class Trainer:
         self.model.load_state_dict(checkpoint["model_state"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state"])
 
-    def dump_in_checkpoint(self, iteration):
+    def dump_in_checkpoint(self, iteration: int):
         """
-        Function that is used to dump information about the saved checkpoint in a file for later retrieval.
-        :param iteration: (int) iteration at which the model is being saved.
-        :return:
+        Updates the checkpoint registry file to track the most recently saved model.
+
+        The `full-checkpoint` file acts as a manifest, keeping a historical record of
+        all saved checkpoints and explicitly marking the latest one. This ensures the
+        resumption logic (`extract_last_model_iteration`) always knows where to start.
+
+        Args:
+            iteration (int): The iteration number of the newly saved checkpoint.
         """
         checkpoint_file = self.weights_directory / "full-checkpoint"
 
