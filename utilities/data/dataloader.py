@@ -1,4 +1,3 @@
-import json
 import torch
 import random
 from pathlib import Path
@@ -11,12 +10,17 @@ class ProteinDataset(Dataset):
     """
     A PyTorch Dataset for loading protein structures and their associated MSAs.
 
-    This dataset reads a split file (e.g., Train.json or Validation.json) which
-    contains clusters of proteins to load. It then constructs `ModelInput` objects
-    for each protein found in the dataset folder.
+    This dataset serves as the primary data source for training and validating the
+    AlphaFold II model. It orchestrates the loading of structural data (.npz),
+    sequence metadata (.json), and multiple sequence alignments (.a3m). It supports
+    stochastic residue cropping, MSA clustering/masking via `ModelInput`, and
+    data balancing through length-based acceptance filtering.
+
+    The dataset is initialized from a split file that defines which clusters or
+    individual proteins belong to the current training phase (Train, Validation, or Test).
     """
 
-    def __init__(self, data_folder: str, split_file_path: str,
+    def __init__(self, data_folder: str | Path, split_file_path: str | Path,
                  acceptance_slope_start: int,
                  acceptance_slope_end: int,
                  residue_crop_size: int | None,
@@ -30,7 +34,7 @@ class ProteinDataset(Dataset):
                  device: torch.device = torch.device("cpu"),
                  dtype: torch.dtype = torch.float32):
         """
-        Initializes the ProteinDataset.
+        Initializes the ProteinDataset with configuration for data loading and processing.
 
         :param data_folder: Path to the root data folder containing 'structures', 'records', and 'raw_msa'.
         :param split_file_path: Path to the JSON file defining the train/validation split (keys are clusters, values are lists of protein IDs).
@@ -83,7 +87,7 @@ class ProteinDataset(Dataset):
         """
         return len(self.protein_ids)
 
-    def __getitem__(self, index: int) -> dict:
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         """
         Todo we actually haven't implemented a mechanism of skipping datapoints
           here might seem the best place to do this but we are dealing with an index that is passed that we do
@@ -126,7 +130,7 @@ class ProteinDataset(Dataset):
         return batch_data
 
 
-def protein_collate_fn(batch: list[dict]) -> dict:
+def protein_collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
     """
     Custom collate function for batching protein dictionaries with potentially 
     different sequence lengths and different numbers of MSA sequences.
@@ -184,8 +188,8 @@ def protein_collate_fn(batch: list[dict]) -> dict:
     return collated_batch
 
 
-def get_protein_dataloader(data_folder: str,
-                           split_file_path: str,
+def get_protein_dataloader(data_folder: str | Path,
+                           split_file_path: str | Path,
                            residue_crop_size: int | None,
                            emphasize_beginning_crops: bool,
                            acceptance_slope_start: int,
@@ -202,26 +206,33 @@ def get_protein_dataloader(data_folder: str,
                            device: torch.device = torch.device("cpu"),
                            dtype: torch.dtype = torch.float32) -> DataLoader:
     """
-    Creates and returns a single PyTorch DataLoader for protein data.
+    Constructs a PyTorch DataLoader for protein data with custom collation.
 
-    :param data_folder: Path to the root data folder.
-    :param split_file_path: Path to the JSON file defining the dataset split.
-    :param residue_crop_size: The number of residues to crop from each sequence.
-    :param emphasize_beginning_crops: If True, applies a stochastic bias to sample crops closer to the N-terminus.
-    :param batch_size: Number of samples per batch.
-    :param num_workers: Number of worker threads for data loading.
-    :param shuffle: Whether to shuffle the data in the DataLoader.
-    :param mask_probability: Probability of masking residues in MSA clusters.
-    :param acceptance_slope_start: Threshold for input filtering probability calculation.
-    :param acceptance_slope_end: Upper threshold for input filtering probability calculation.
-    :param distribution_threshold: Threshold to filter out sequences with biased distributions.
-    :param maximum_cluster_sequences: Max number of sequences for the main MSA clusters.
-    :param maximum_extra_msa_sequences: Max number of sequences for the extra MSA stack.
-    :param number_recycle_cycles: Number of recycling iterations to simulate in the batch.
-    :param use_single_representative: If True, each cluster contributes only one random representative.
-    :param device: The target torch.device.
-    :param dtype: The target torch.dtype.
-    :return: A PyTorch DataLoader configured for the specified dataset.
+    This function abstracts the instantiation of `ProteinDataset` and `DataLoader`,
+    ensuring that the `protein_collate_fn` is correctly applied to handle
+    variable-sized protein features.
+
+    Args:
+        data_folder (str | Path): Path to the root data folder.
+        split_file_path (str | Path): Path to the dataset split JSON file.
+        residue_crop_size (int | None): Number of residues per crop.
+        emphasize_beginning_crops (bool): Whether to bias crops towards the N-terminus.
+        acceptance_slope_start (int): Start of the length-based acceptance ramp.
+        acceptance_slope_end (int): End of the length-based acceptance ramp.
+        distribution_threshold (int): Amino acid distribution filter threshold.
+        maximum_cluster_sequences (int): Max sequences for MSA clusters.
+        maximum_extra_msa_sequences (int): Max sequences for the extra MSA stack.
+        mask_probability (float): MSA masking probability.
+        number_recycle_cycles (int): Number of recycling iterations.
+        use_single_representative (bool): If True, samples one protein per cluster.
+        batch_size (int): Samples per batch.
+        num_workers (int): Parallel worker threads.
+        shuffle (bool): Whether to shuffle the dataset each epoch.
+        device (torch.device): The target device.
+        dtype (torch.dtype): The target data type.
+
+    Returns:
+        DataLoader: A configured PyTorch DataLoader instance.
     """
 
     dataset = ProteinDataset(
@@ -300,8 +311,30 @@ def get_dataloader(data_folder: str,
 
 
 class PrecomputedProteinDataset(Dataset):
-    def __init__(self, precomputed_directory: str, split_file_path: str, phase: str, existing_precomputed_samples: int):
+    """
+    A PyTorch Dataset for loading pre-processed and saved protein tensors.
 
+    This dataset is used when the features (MSA clusters, ground truths, etc.)
+    have already been extracted and saved as `.pt` files. It significantly
+    speeds up the training process by avoiding repetitive feature extraction
+    calculations.
+
+    During training, it can randomly select from multiple precomputed samples
+    (stochastic crops/masks) for each protein.
+    """
+
+    def __init__(self, precomputed_directory: str | Path, split_file_path: str | Path,
+                 phase: str, existing_precomputed_samples: int):
+        """
+        Initializes the PrecomputedProteinDataset.
+
+        Args:
+            precomputed_directory (str | Path): Root directory where `.pt` files are stored.
+            split_file_path (str | Path): Path to the split JSON file.
+            phase (str): The current phase ('Train', 'Validation', or 'Test').
+            existing_precomputed_samples (int): The number of stochastic samples
+                available for each protein in the precomputed directory.
+        """
         self.precomputed_directory = Path(precomputed_directory) / phase
         self.split_file_path = Path(split_file_path)
         self.existing_precomputed_samples = existing_precomputed_samples
@@ -314,13 +347,30 @@ class PrecomputedProteinDataset(Dataset):
             self.protein_ids.extend(members)
 
     def __len__(self) -> int:
+        """
+        Returns the total number of proteins in the precomputed split.
+
+        Returns:
+            int: Total protein count.
+        """
         return len(self.protein_ids)
 
-    def __getitem__(self, index: int) -> dict:
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        """
+        Loads a precomputed tensor dictionary for a specific protein.
+
+        Args:
+            index (int): Index of the protein.
+
+        Returns:
+            dict[str, torch.Tensor]: The loaded features and ground truths.
+                Shapes match those defined in `ProteinDataset.__getitem__`.
+        """
         protein_id = self.protein_ids[index]
 
-        # Randomly select one of the precomputed samples if in Train phase, otherwise just take 0
-        if self.phase == "Train":
+        # Randomly select one of the precomputed samples if in Train and Validation phase,
+        # otherwise just take the first sample (0).
+        if self.phase in ["Train", "Validation"]:
             sample_index = random.randint(0, self.existing_precomputed_samples - 1)
         else:
             sample_index = 0
@@ -330,19 +380,30 @@ class PrecomputedProteinDataset(Dataset):
         return torch.load(file_path)
 
 
-def get_precomputed_dataloader(precomputed_directory: str, split_file_path: str,
-                               phase: str, existing_precomputed_samples: int, batch_size: int,
-                               num_workers: int, shuffle: bool) -> DataLoader:
+def get_precomputed_dataloader(precomputed_directory: str | Path,
+                               split_file_path: str | Path,
+                               phase: str,
+                               existing_precomputed_samples: int,
+                               batch_size: int,
+                               num_workers: int,
+                               shuffle: bool) -> DataLoader:
     """
+    Creates a DataLoader for precomputed protein data.
 
-    :param precomputed_directory:
-    :param split_file_path:
-    :param phase:
-    :param existing_precomputed_samples:
-    :param batch_size:
-    :param num_workers:
-    :param shuffle:
-    :return:
+    This is the fastest way to stream data into the model, as it bypasses
+    all heavy feature extraction (MSA clustering, distogram labeling) at runtime.
+
+    Args:
+        precomputed_directory (str | Path): Path to the precomputed data.
+        split_file_path (str | Path): Path to the split JSON file.
+        phase (str): 'Train', 'Validation', or 'Test'.
+        existing_precomputed_samples (int): Available samples per protein.
+        batch_size (int): Samples per batch.
+        num_workers (int): Parallel worker threads.
+        shuffle (bool): Whether to shuffle the data.
+
+    Returns:
+        DataLoader: A configured PyTorch DataLoader.
     """
 
     dataset = PrecomputedProteinDataset(precomputed_directory=precomputed_directory, split_file_path=split_file_path,
