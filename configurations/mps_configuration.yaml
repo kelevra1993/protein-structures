@@ -13,7 +13,7 @@ ExperimentConfiguration:
   dtype: "float32"
   resume_training: true
   precompute_data: true
-  precomputed_samples: 5
+  precomputed_samples: 2
 
 TrainDataConfiguration:
   batch_size: 1

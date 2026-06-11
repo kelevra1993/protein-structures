@@ -43,7 +43,7 @@ def process_single_protein(protein_id: str,
             maximum_extra_msa_sequences=phase_configuration['maximum_extra_msa_sequences'],
             mask_probability=phase_configuration['mask_probability'],
             device=torch.device("cpu"),
-            dtype=experiment_configuration.get("dtype", torch.float32))
+            dtype=torch.float32)
 
         for sample_index in range(number_samples):
             # We vary the seed to ensure different random crops/masks per sample

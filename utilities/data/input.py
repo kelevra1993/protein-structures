@@ -401,10 +401,11 @@ class ModelInput:
         batch_input_dictionary = {key: torch.stack(values, dim=-1) for key, values in cycle_dependent_data.items()}
         
         # Add invariant features directly without a cycle dimension
+        # Downcast integer labels to save memory and disk space
         batch_input_dictionary["input_sequence_feature"] = precomputed_input_sequence_feature
-        batch_input_dictionary["input_residue_index_feature"] = absolute_residue_indices
-        batch_input_dictionary["sequence_labels"] = sequence_labels
-        batch_input_dictionary["distogram_labels"] = distogram_labels
+        batch_input_dictionary["input_residue_index_feature"] = absolute_residue_indices.to(torch.int16)
+        batch_input_dictionary["sequence_labels"] = sequence_labels.to(torch.int8)
+        batch_input_dictionary["distogram_labels"] = distogram_labels.to(torch.int8)
         batch_input_dictionary["ground_truth_global_positions"] = ground_truth_global_positions
         batch_input_dictionary["ground_truth_local_positions"] = ground_truth_local_positions
         batch_input_dictionary["ground_truth_frames"] = ground_truth_frames
