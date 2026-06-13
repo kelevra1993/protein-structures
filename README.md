@@ -110,4 +110,143 @@ Once complete, the script will generate several files in your `--output_folder`,
 
 These JSON files will be referenced in your project configuration (e.g., `cuda_configuration.yaml`) to instruct the data loaders on which proteins to use during the respective training phases.
 
+## Project Configurations
+<!-- Content will be added here -->
 
+## Project Structure
+
+```bash
+.
+├── README.md
+├── architecture_modules
+│   ├── attention_module
+│   │   └── multi_head_attention.py
+│   ├── distogram_module
+│   │   └── distogram_module.py
+│   ├── evoformer_module
+│   │   ├── evoformer.py
+│   │   ├── msa_stack.py
+│   │   └── pair_stack.py
+│   ├── lddt_module
+│   │   └── lddt_module.py
+│   └── structure_module
+│       ├── invariant_point_attention_module.py
+│       └── structure_module.py
+├── configurations
+│   ├── cuda_configuration.yaml
+│   ├── mps_configuration.yaml
+│   └── template_configuration.yaml
+├── data_examples
+│   ├── open_fold_sequences.fasta
+│   └── openfold
+│       ├── raw_msa
+│       │   ├── P90561.a3m
+│       │   ├── P90662.a3m
+│       │   ├── *** ***
+│       │   ├── P97976.a3m
+│       │   └── P9WI00.a3m
+│       ├── records
+│       │   ├── P90561.json
+│       │   ├── P90662.json
+│       │   ├── *** ***
+│       │   ├── P97976.json
+│       │   └── P9WI00.json
+│       └── structures
+│           ├── P90561.npz
+│           ├── P90662.npz
+│           ├── *** ***
+│           ├── P97976.npz
+│           └── P9WI00.npz
+├── embedders
+│   ├── extra_msa_embedder.py
+│   ├── input_embedder.py
+│   └── recycling_embedder.py
+├── feature_extraction
+│   └── extractor.py
+├── full_model
+│   └── model.py
+├── main.py
+├── trainer
+│   └── trainer.py
+├── utilities
+│   ├── constants.py
+│   ├── data
+│   │   ├── data_precomputer
+│   │   │   ├── main.py
+│   │   │   └── precompute_utilities.py
+│   │   ├── data_splitter
+│   │   │   ├── data_splitting_utilities.py
+│   │   │   └── run_data_splitter.py
+│   │   ├── dataloader.py
+│   │   ├── input.py
+│   │   ├── msa.py
+│   │   └── structure.py
+│   ├── geometry_utilities.py
+│   ├── loss_utilities.py
+│   ├── os_utilities.py
+│   ├── tensor_utilities.py
+│   └── visualization_utilities.py
+├── tests
+│   ├── architecture_modules
+│   │   ├── attention_module
+│   │   │   ├── reference_values
+│   │   │   └── test_multi_head_attention.py
+│   │   ├── distogram_module
+│   │   │   └── test_distogram_module.py
+│   │   ├── evoformer_module
+│   │   │   ├── reference_values
+│   │   │   ├── test_evoformer_module.py
+│   │   │   ├── test_msa_stack.py
+│   │   │   └── test_pair_stack.py
+│   │   ├── lddt_module
+│   │   │   ├── reference_values
+│   │   │   └── test_lddt_module.py
+│   │   └── structure_module
+│   │       ├── reference_values
+│   │       ├── test_invariant_point_attention_module.py
+│   │       └── test_structure_module.py
+│   ├── embedders
+│   │   ├── extra_msa_embedder
+│   │   ├── input_embedder
+│   │   ├── recycling_embedder
+│   │   ├── test_extra_msa_embedder.py
+│   │   ├── test_input_embedder.py
+│   │   └── test_recycling_embedder.py
+│   ├── feature_extraction
+│   │   ├── multiple_sequence_alignement.a3m
+│   │   ├── reference_values
+│   │   │   ├── input_extra_msa_feature.pt
+│   │   │   └── input_msa_feature.pt
+│   │   └── test_extractor.py
+│   ├── full_model
+│   │   ├── reference_values
+│   │   │   ├── raw_msa
+│   │   │   ├── records
+│   │   │   └── structures
+│   │   └── test_model.py
+│   └── utilities
+│       ├── data
+│       │   ├── reference_values
+│       │   │   ├── raw_msa
+│       │   │   ├── records
+│       │   │   └── structures
+│       │   ├── test_dataloader.py
+│       │   ├── test_input.py
+│       │   ├── test_split.json
+│       │   └── test_structure.py
+│       ├── loss_utilities
+│       │   ├── reference_values
+│       │   └── test_loss_utilities.py
+│       └── testing_utilities.py
+├── pyproject.toml
+└── uv.lock
+```
+
+## Running First Training experiment
+<!-- Content will be added here -->
+
+## Visualisation
+<!-- Content will be added here -->
+
+## Tests
+<!-- Content will be added here -->
