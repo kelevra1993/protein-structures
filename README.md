@@ -254,7 +254,29 @@ uv run python main.py
 3. **Training Loop**: The `Trainer` class initializes the AlphaFold model and begins the training loop, periodically running validation and saving model checkpoints according to the intervals defined in your configuration.
 
 ## Visualisation
-<!-- Content will be added here -->
+
+As the model trains, it logs a wealth of information, including the various main and auxiliary losses across all modules. 
+
+You can easily monitor the evolution of these training metrics in real-time using TensorBoard. To visualize the training progress, simply navigate to the folder where your experiment is saving its logs (defined by `experiment_parent_folder` / `experiment_name` in your YAML configuration) and run the following command:
+
+```bash
+tensorboard --logdir=./
+```
+
+Once running, TensorBoard will provide a local web address (usually `http://localhost:6006/`) that you can open in your browser to view the interactive training graphs.
+
+Below are some examples of what the different losses will look like in TensorBoard during training:
+
+### Total Loss
+![Total Loss](Readme/total_loss.png)
+
+### Distogram Loss
+![Distogram Loss](Readme/distogram_loss.png)
+
+### Auxiliary Loss
+![Auxiliary Loss](Readme/auxillary_loss.png)
+
+*Note: You may observe that the validation loss often exhibits a lower value than the training loss. This is expected behavior; during validation, there is no random MSA masking applied to the data, whereas aggressive masking is heavily utilized during training to force the model to learn deep representations.*
 
 ## Tests
 
