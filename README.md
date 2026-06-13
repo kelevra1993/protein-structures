@@ -11,6 +11,7 @@
 6. [Running First Training experiment](#running-first-training-experiment)
 7. [Visualisation](#visualisation)
 8. [Tests](#tests)
+9. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -236,10 +237,41 @@ LddtModule:
 ```
 
 ## Running First Training experiment
-<!-- Content will be added here -->
+
+Once your data is downloaded, clustered, and split, you are ready to launch your first AlphaFold II training experiment. 
+
+The `main.py` entry point is designed to automatically detect your system's hardware capabilities (e.g., `cuda`, `mps`, or `cpu`) and will dynamically load the corresponding YAML configuration file from the `configurations/` directory.
+
+To start training, simply run:
+
+```bash
+uv run python main.py
+```
+
+**What happens under the hood?**
+1. **Configuration Loading**: It loads the appropriate YAML file based on your hardware.
+2. **Data Precomputation**: If `precompute_data: true` is set in your configuration, it will aggressively precompute and cache complex features (like MSAs and rigid group transformations) into memory/disk. This dramatically speeds up the data loading bottleneck during training.
+3. **Training Loop**: The `Trainer` class initializes the AlphaFold model and begins the training loop, periodically running validation and saving model checkpoints according to the intervals defined in your configuration.
 
 ## Visualisation
 <!-- Content will be added here -->
 
 ## Tests
-<!-- Content will be added here -->
+
+Given the immense architectural complexity of AlphaFold II, maintaining the integrity of every tensor shape and dimension across all modules is paramount.
+
+We employ rigorous integration testing to guarantee parity with reference values. The test suite comprehensively checks all modules, including the attention mechanisms, the Evoformer stack, the Structure Module, and the embedding pipelines.
+
+To execute the entire test suite, run:
+
+```bash
+uv run pytest
+```
+
+If you are developing new structures or making alternative implementations to fit the model onto specific devices, it is highly recommended to run this command frequently to catch regressions early.
+
+## Acknowledgments
+
+A special thank you to [Kilian Mandon](https://www.youtube.com/@KilianMandon/videos) for his incredibly insightful "AlphaFold Decoded" series. His detailed breakdowns and explanations were an immense help in understanding the complex architectural nuances and implementation details of AlphaFold II.
+
+Additionally, profound thanks must be given to the incredible **AlphaFold team at DeepMind**. Their decision to openly release the [algorithm's supplementary information paper](https://static-content.springer.com/esm/art%3A10.1038%2Fs41586-021-03819-2/MediaObjects/41586_2021_3819_MOESM1_ESM.pdf) was pivotal. That documentation provided the foundational blueprints necessary for the implementation of the different modules, the main and auxiliary loss functions, as well as the rigorous steps required for data splitting and preprocessing.
