@@ -17,7 +17,7 @@ ExperimentConfiguration:
 
 TrainDataConfiguration:
   batch_size: 1
-  shuffle: false
+  shuffle: true
   maximum_cluster_sequences: 512
   maximum_extra_msa_sequences: 5120
   mask_probability: 0.15
@@ -41,7 +41,7 @@ ValidationDataConfiguration:
   distribution_threshold: 80
   emphasize_beginning_crops: false
   number_recycle_cycles: 3
-  use_single_representative: false
+  use_single_representative: true
 
 TestDataConfiguration:
   batch_size: 1
@@ -55,7 +55,7 @@ TestDataConfiguration:
   distribution_threshold: 80
   emphasize_beginning_crops: false
   number_recycle_cycles: 3
-  use_single_representative: false
+  use_single_representative: true
 
 GlobalConfiguration:
   msa_embedding: 256

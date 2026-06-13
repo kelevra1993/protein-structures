@@ -5,9 +5,9 @@ ExperimentConfiguration:
   train_split_file: "/Users/Robert/PycharmProjects/protein-structures/dataset_splits/Train_small.json"
   validation_split_file: "/Users/Robert/PycharmProjects/protein-structures/dataset_splits/Validation_small.json"
   test_split_file: "/Users/Robert/PycharmProjects/protein-structures/dataset_splits/Test_small.json"
-  information_dump: 100
-  weight_saving_iterations: 500
-  number_iterations: 1e10
+  information_dump: 5
+  weight_saving_iterations: 10
+  number_iterations: 100
   compute_validation_iteration: true
   learning_rate: 1.0e-3
   dtype: "float32"
@@ -16,58 +16,58 @@ ExperimentConfiguration:
   precomputed_samples: 2
 
 TrainDataConfiguration:
-  batch_size: 1
-  shuffle: false
-  maximum_cluster_sequences: 64
-  maximum_extra_msa_sequences: 128
-  mask_probability: 0.15
-  acceptance_slope_start: 256
-  acceptance_slope_end: 512
-  residue_crop_size: 256
-  distribution_threshold: 80
-  emphasize_beginning_crops: true
-  number_recycle_cycles: 3
-  use_single_representative: true
+  batch_size: 1  # 1 for alphafold
+  shuffle: false  # false for alphafold
+  maximum_cluster_sequences: 16  # 512 for alphafold
+  maximum_extra_msa_sequences: 32  # 5120 for alphafold
+  mask_probability: 0.15  # 0.15 for alphafold
+  acceptance_slope_start: 256  # 256 for alphafold
+  acceptance_slope_end: 512  # 512 for alphafold
+  residue_crop_size: 256  # 256 for alphafold
+  distribution_threshold: 80  # 80 for alphafold
+  emphasize_beginning_crops: true  # true for alphafold
+  number_recycle_cycles: 3  # 3 for alphafold
+  use_single_representative: true  # true for alphafold
 
 ValidationDataConfiguration:
-  batch_size: 1
-  shuffle: false
-  maximum_cluster_sequences: 64
-  maximum_extra_msa_sequences: 128
-  mask_probability: 0.0
-  acceptance_slope_start: 256
-  acceptance_slope_end: 512
-  residue_crop_size: 256
-  distribution_threshold: 80
-  emphasize_beginning_crops: false
-  number_recycle_cycles: 3
-  use_single_representative: false
+  batch_size: 1  # 1 for alphafold
+  shuffle: false  # false for alphafold
+  maximum_cluster_sequences: 16  # 512 for alphafold
+  maximum_extra_msa_sequences: 32  # 5120 for alphafold
+  mask_probability: 0.0  # 0.0 for alphafold
+  acceptance_slope_start: 256  # 256 for alphafold
+  acceptance_slope_end: 512  # 512 for alphafold
+  residue_crop_size: 256  # null for alphafold
+  distribution_threshold: 80  # 80 for alphafold
+  emphasize_beginning_crops: false  # false for alphafold
+  number_recycle_cycles: 3  # 3 for alphafold
+  use_single_representative: false  # true for alphafold
 
 TestDataConfiguration:
-  batch_size: 1
-  shuffle: false
-  maximum_cluster_sequences: 64
-  maximum_extra_msa_sequences: 128
-  mask_probability: 0.0
-  acceptance_slope_start: 256
-  acceptance_slope_end: 512
-  residue_crop_size: null
-  distribution_threshold: 80
-  emphasize_beginning_crops: false
-  number_recycle_cycles: 3
-  use_single_representative: false
+  batch_size: 1  # 1 for alphafold
+  shuffle: false  # false for alphafold
+  maximum_cluster_sequences: 16  # 512 for alphafold
+  maximum_extra_msa_sequences: 32  # 5120 for alphafold
+  mask_probability: 0.0  # 0.0 for alphafold
+  acceptance_slope_start: 256  # 256 for alphafold
+  acceptance_slope_end: 512  # 512 for alphafold
+  residue_crop_size: null  # null for alphafold
+  distribution_threshold: 80  # 80 for alphafold
+  emphasize_beginning_crops: false  # false for alphafold
+  number_recycle_cycles: 3  # 3 for alphafold
+  use_single_representative: false  # true for alphafold
 
 GlobalConfiguration:
-  msa_embedding: 64
-  pair_representation_embedding: 32
-  extra_msa_embedding: 16
-  single_representation_embedding: 96
-  input_sequence_feature_dimension: 21
-  input_msa_feature_dimension: 49
-  input_extra_msa_feature_dimension: 25
+  msa_embedding: 16  # 256 for alphafold
+  pair_representation_embedding: 16  # 128 for alphafold
+  extra_msa_embedding: 16  # 64 for alphafold
+  single_representation_embedding: 16  # 384 for alphafold
+  input_sequence_feature_dimension: 21  # 21 for alphafold
+  input_msa_feature_dimension: 49  # 49 for alphafold
+  input_extra_msa_feature_dimension: 25  # 25 for alphafold
 
 InputEmbedder:
-  number_neighbouring_amino_acids: 32
+  number_neighbouring_amino_acids: 32  # 32 for alphafold
 
 ExtraMsaEmbedder:
   # Uses global configuration for inputs and outputs
@@ -76,37 +76,37 @@ RecyclingEmbedder:
   # Uses global configuration for inputs and outputs
 
 ExtraMsaStack:
-  number_blocks: 2
-  msa_number_heads: 4
-  msa_head_embedding_dimension: 4
-  msa_global_number_heads: 4
-  msa_global_head_embedding_dimension: 4
-  pair_number_heads: 2
-  pair_head_embedding_dimension: 16
-  intermediate_embedding: 16
-  msa_transition_channel_scaler: 2
-  pair_stack_channel_scaler: 2
-  triangle_multiplication_embedding: 64
+  number_blocks: 2  # 4 for alphafold
+  msa_number_heads: 4  # 8 for alphafold
+  msa_head_embedding_dimension: 4  # 8 for alphafold
+  msa_global_number_heads: 4  # 8 for alphafold
+  msa_global_head_embedding_dimension: 4  # 8 for alphafold
+  pair_number_heads: 2  # 4 for alphafold
+  pair_head_embedding_dimension: 16  # 32 for alphafold
+  intermediate_embedding: 16  # 32 for alphafold
+  msa_transition_channel_scaler: 2  # 4 for alphafold
+  pair_stack_channel_scaler: 2  # 4 for alphafold
+  triangle_multiplication_embedding: 64  # 128 for alphafold
 
 EvoformerStack:
-  number_blocks: 12
-  msa_number_heads: 4
-  msa_head_embedding_dimension: 16
-  pair_number_heads: 2
-  pair_head_embedding_dimension: 16
-  msa_transition_channel_scaler: 2
-  pair_stack_channel_scaler: 2
-  intermediate_embedding: 16
-  triangle_multiplication_embedding: 64
+  number_blocks: 12  # 48 for alphafold
+  msa_number_heads: 4  # 8 for alphafold
+  msa_head_embedding_dimension: 16  # 32 for alphafold
+  pair_number_heads: 2  # 4 for alphafold
+  pair_head_embedding_dimension: 16  # 32 for alphafold
+  msa_transition_channel_scaler: 2  # 4 for alphafold
+  pair_stack_channel_scaler: 2  # 4 for alphafold
+  intermediate_embedding: 16  # 32 for alphafold
+  triangle_multiplication_embedding: 64  # 128 for alphafold
 
 StructureModule:
-  number_structure_module_iterations: 4
-  angle_representation_embedding: 64
-  number_heads: 6
-  head_embedding_dimension: 8
-  number_query_points: 4
-  number_value_points: 8
-  number_torsion_angles: 7
+  number_structure_module_iterations: 4  # 8 for alphafold
+  angle_representation_embedding: 64  # 128 for alphafold
+  number_heads: 6  # 12 for alphafold
+  head_embedding_dimension: 8  # 16 for alphafold
+  number_query_points: 4  # 4 for alphafold
+  number_value_points: 8  # 8 for alphafold
+  number_torsion_angles: 7  # 7 for alphafold
 
 LddtModule:
-  intermediate_embedding: 32
+  intermediate_embedding: 32  # 128 for alphafold
