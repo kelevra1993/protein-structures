@@ -76,3 +76,38 @@ tar -xf openfold_raw_msa.tar
 rm openfold_raw_msa.tar
 ```
 
+### Data Splitting
+
+To ensure the model learns generalized representations and to prevent data leakage during training, we must split our dataset into training and validation sets carefully. Randomly splitting individual proteins is not sufficient, as highly similar sequences (homologs) could end up in both sets, causing the model to overfit and perform poorly on truly unseen data.
+
+To solve this, we use a custom pipeline that leverages **MMseqs2** to cluster the proteins before splitting them.
+
+#### The Splitting Pipeline
+
+The end-to-end splitting process is handled by `utilities/data/data_splitter/run_data_splitter.py`. It performs the following steps:
+
+1. **Sequence Extraction**: It iterates through all the `.a3m` Multiple Sequence Alignment files and extracts the query sequence (the main protein structure we want to predict).
+2. **Clustering (MMseqs2)**: It groups these query sequences into clusters based on sequence identity. By default, we use a **40% sequence identity threshold** (`--min_identity 0.4`). This means that any two proteins sharing more than 40% of their sequence are grouped into the same cluster.
+3. **Data Splitting**: It splits the data at the *cluster level*, rather than the individual protein level. By default, **80% of the clusters** are assigned to the training set, and the remaining **20%** are assigned to the validation set (`--train_ratio 0.8`).
+
+#### Running the Data Splitter
+
+You can run the data splitter using the following bash command. Make sure to provide the paths to your extracted `.a3m` files and the desired output folder:
+
+```bash
+uv run python utilities/data/data_splitter/run_data_splitter.py \
+    --a3m_folder path/to/openfold/raw_msa \
+    --output_folder path/to/output_dataset_splits \
+    --min_identity 0.4 \
+    --train_ratio 0.8 \
+    --seed 42
+```
+
+**Outputs:**
+Once complete, the script will generate several files in your `--output_folder`, most importantly:
+- `Train.json`: Contains the mapping of clusters to sequence IDs for the training set.
+- `Validation.json`: Contains the mapping of clusters to sequence IDs for the validation set.
+
+These JSON files will be referenced in your project configuration (e.g., `cuda_configuration.yaml`) to instruct the data loaders on which proteins to use during the respective training phases.
+
+
