@@ -276,22 +276,21 @@ class ModelInput:
             batch_mode (bool): If True, prepends a batch dimension of size 1 to all tensors.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary of stacked features. All tensors follow the
-                (..., number_samples) shape, or (1, ..., number_samples) if batch_mode is True.
+            Dict[str, torch.Tensor]: A dictionary of stacked features.
                 - input_msa_feature: (number_clusters, number_residues, msa_feature_dimension, number_samples)
                 - input_extra_msa_feature:
                   (number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_samples)
-                - input_sequence_feature: (number_residues, input_sequence_feature_dimension, number_samples)
-                - input_residue_index_feature: (number_residues, number_samples)
-                - sequence_labels: (number_residues, number_samples)
-                - ground_truth_global_positions: (number_residues, 37, 3, number_samples)
-                - ground_truth_local_positions: (number_residues, 37, 3, number_samples)
-                - ground_truth_frames: (number_residues, 8, 4, 4, number_samples)
-                - ground_truth_angles: (number_residues, 7, 2, number_samples)
-                - alternative_ground_truth_global_positions: (number_residues, 37, 3, number_samples)
-                - alternative_ground_truth_local_positions: (number_residues, 37, 3, number_samples)
-                - alternative_ground_truth_frames: (number_residues, 8, 4, 4, number_samples)
-                - alternative_ground_truth_angles: (number_residues, 7, 2, number_samples)
+                - input_sequence_feature: (number_residues, input_sequence_feature_dimension)
+                - input_residue_index_feature: (number_residues)
+                - sequence_labels: (number_residues)
+                - ground_truth_global_positions: (number_residues, 37, 3)
+                - ground_truth_local_positions: (number_residues, 37, 3)
+                - ground_truth_frames: (number_residues, 8, 4, 4)
+                - ground_truth_angles: (number_residues, 7, 2)
+                - alternative_ground_truth_global_positions: (number_residues, 37, 3)
+                - alternative_ground_truth_local_positions: (number_residues, 37, 3)
+                - alternative_ground_truth_frames: (number_residues, 8, 4, 4)
+                - alternative_ground_truth_angles: (number_residues, 7, 2)
         """
 
         # Determine the residue range (Cropping)
