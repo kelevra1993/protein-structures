@@ -103,8 +103,8 @@ def plot_transformation_frames(frames: torch.Tensor,
     ax.set_ylim(mid[1] - max_range, mid[1] + max_range)
     ax.set_zlim(mid[2] - max_range, mid[2] + max_range)
 
-    ax.set_xlabel('X');
-    ax.set_ylabel('Y');
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
     ax.set_zlabel('Z')
     ax.set_title(title)
 
@@ -152,8 +152,7 @@ def plot_transformation_frames_plotly(frames: torch.Tensor,
             mode='lines+markers',
             line=dict(color='gray', width=2, dash='dash'),
             marker=dict(size=3, color='black'),
-            name='Trace'
-        ))
+            name='Trace'))
 
     for i, frame in enumerate(frames_np):
         origin = frame[:3, 3]
@@ -166,8 +165,7 @@ def plot_transformation_frames_plotly(frames: torch.Tensor,
                 mode='lines',
                 line=dict(color=color, width=4),
                 name=f'Frame {i} - {"XYZ"[j]}',
-                showlegend=False
-            ))
+                showlegend=False))
 
         # Add labels
         fig.add_trace(go.Scatter3d(
@@ -175,17 +173,14 @@ def plot_transformation_frames_plotly(frames: torch.Tensor,
             mode='text',
             text=[str(i)],
             textposition="top center",
-            showlegend=False
-        ))
+            showlegend=False))
 
     fig.update_layout(
         title=title,
-        scene=dict(
-            xaxis_title='X', yaxis_title='Y', zaxis_title='Z',
-            aspectmode='data'
-        ),
-        margin=dict(l=0, r=0, b=0, t=40)
-    )
+        scene=dict(xaxis_title='X',
+                   yaxis_title='Y',
+                   zaxis_title='Z',
+                   aspectmode='data'), margin=dict(l=0, r=0, b=0, t=40))
     fig.show()
 
 
@@ -246,7 +241,7 @@ def visualization(method: Literal["matplotlib", "plotly"] = "matplotlib", frames
         Shape: (number_frames, 4, 4)
     """
 
-    if not frames_tensor:
+    if frames_tensor is None:
         frames_tensor = generate_random_frames()
 
     if method == "matplotlib":
