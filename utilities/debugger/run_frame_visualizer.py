@@ -19,7 +19,7 @@ def main():
                         help=f"Path to the .npz structure file (default: {DEFAULT_NPZ}).")
     parser.add_argument("--record", type=str,
                         help="Path to the corresponding .json record file (optional).")
-    parser.add_argument("--num_residues", type=int, default=60,
+    parser.add_argument("--num_residues", type=int, default=50,
                         help="Number of residues to visualize.")
     parser.add_argument("--frame_index", type=int, default=0,
                         help="Index of the frame to visualize (0 for backbone).")
@@ -48,8 +48,9 @@ def main():
     num_to_show = min(args.num_residues, selected_frames.shape[0])
     frames_to_visualize = selected_frames[:num_to_show]
 
+    title = f"Protein Structure - Frame {args.frame_index} ({num_to_show} residues)"
     print(f"Visualizing {num_to_show} residues (Frame {args.frame_index}) using Matplotlib...")
-    visualization(frames_tensor=frames_to_visualize)
+    visualization(frames_tensor=frames_to_visualize, title=title)
 
 
 if __name__ == "__main__":

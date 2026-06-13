@@ -11,7 +11,8 @@
 6. [Running First Training experiment](#running-first-training-experiment)
 7. [Visualisation](#visualisation)
 8. [Tests](#tests)
-9. [Acknowledgments](#acknowledgments)
+9. [Debugging](#debugging)
+10. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -293,6 +294,24 @@ uv run pytest
 ![Passed Tests](Readme/passed_tests.png)
 
 If you are developing new structures or making alternative implementations to fit the model onto specific devices, it is highly recommended to run this command frequently to catch regressions early.
+
+## Debugging
+
+### Frame Debugging
+
+To ensure that the mathematical backbone frames and rigid groups are correctly extracted and transformed from the raw protein coordinates, a small utility has been provided. You can find these tools in the `utilities/debugger/` directory.
+
+This script leverages Matplotlib to render the 3D local coordinate frames (X, Y, and Z axes) alongside the protein's trace, allowing you to visually verify the structural integrity of the parsed `.npz` files.
+
+You can launch the visualizer using the following command:
+
+```bash
+uv run python utilities/debugger/run_frame_visualizer.py
+```
+
+Here is an example of what you can expect the frame visualizer to output:
+
+![Backbone Frames Debugger](Readme/backbone_frames.png)
 
 ## Acknowledgments
 
