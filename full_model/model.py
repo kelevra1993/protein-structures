@@ -218,8 +218,7 @@ class Model(nn.Module):
             # - selecting backbones
             # - computing atom coordinates
             # - computing masks
-            sequence_amino_acid_labels = torch.argmax(
-                current_cycle_input_batch["input_sequence_feature"], dim=-1)
+            sequence_amino_acid_labels = current_cycle_input_batch["sequence_labels"]
 
             (angles, frames, final_positions, position_mask, pseudo_beta_positions,
              overall_fape_loss, auxillary_loss, predicted_lddt_loss) = self.structure_module(

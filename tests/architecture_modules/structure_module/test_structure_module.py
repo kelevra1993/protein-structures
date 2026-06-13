@@ -59,7 +59,7 @@ def test_structure_module_forward():
     alternative_angles = data["alternative_ground_truth_angles"][:target_number_residues, :, :]
     positions = data["ground_truth_global_positions"][:target_number_residues, :, :]
     alternative_positions = data["alternative_ground_truth_global_positions"][:target_number_residues, :, :]
-    sequence_labels = data["sequence_labels"][:target_number_residues]
+    sequence_labels = data["sequence_labels"][:target_number_residues].long()
 
     input_tensor_dictionary = {
         "single_representation": simple_inputs["single_representation"].to(device),

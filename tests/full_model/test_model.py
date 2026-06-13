@@ -109,7 +109,9 @@ def test_model():
         'ground_truth_global_positions': data['ground_truth_global_positions'][:number_residues, ...].unsqueeze(0),
         'alternative_ground_truth_global_positions': data['alternative_ground_truth_global_positions'][
             :number_residues, ...].unsqueeze(0),
-        'distogram_labels': data['distogram_labels'][:number_residues, :number_residues, ...].unsqueeze(0),}
+        'distogram_labels': data['distogram_labels'][:number_residues, :number_residues, ...].unsqueeze(0).long(),
+        'sequence_labels': data['sequence_labels'][:number_residues, ...].unsqueeze(0).long()
+    }
 
     batched_input_dict = {
         key: tensor.repeat(batch_size, *([1] * len(tensor.shape[1:]))) for key, tensor in simple_input_dict.items()
