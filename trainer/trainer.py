@@ -283,6 +283,7 @@ class Trainer:
             input_dictionary[key] = input_dictionary[key].to(self.dtype)
 
         input_dictionary["sequence_labels"] = input_dictionary["sequence_labels"].to(torch.int64)
+        input_dictionary["distogram_labels"] = input_dictionary["distogram_labels"].to(torch.int64)
 
         return input_dictionary
 
