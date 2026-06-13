@@ -1,10 +1,10 @@
 ExperimentConfiguration:
   experiment_parent_folder: "/home/robert_kelevra/Data/protein_project/protein_experiments"
-  experiment_name: "experiment_1"
+  experiment_name: "experiment_2"
   data_folder: "/home/robert_kelevra/Data/protein_project/protein_data/openfold_data"
-  train_split_file: "/home/robert_kelevra/Projects/protein-structures/dataset_splits/cuda_train_truncated.json"
-  validation_split_file: "/home/robert_kelevra/Projects/protein-structures/dataset_splits/cuda_validation_truncated.json"
-  test_split_file: "/home/robert_kelevra/Projects/protein-structures/dataset_splits/cuda_test_truncated.json"
+  train_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_train_truncated.json"
+  validation_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_validation_truncated.json"
+  test_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_test_truncated.json"
   information_dump: 500
   weight_saving_iterations: 20000
   number_iterations: 1e10
