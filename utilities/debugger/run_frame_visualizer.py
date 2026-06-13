@@ -10,12 +10,17 @@ from utilities.debugger.visualization_utilities import visualization
 
 DEFAULT_NPZ = "data_examples/openfold/structures/P90561.npz"
 
+
 def main():
     parser = argparse.ArgumentParser(description="Visualize protein transformation frames from an NPZ file.")
-    parser.add_argument("--npz", type=str, default=DEFAULT_NPZ, help=f"Path to the .npz structure file (default: {DEFAULT_NPZ}).")
-    parser.add_argument("--record", type=str, help="Path to the corresponding .json record file (optional).")
-    parser.add_argument("--num_residues", type=int, default=50, help="Number of residues to visualize.")
-    parser.add_argument("--method", type=str, choices=["matplotlib", "plotly"], default="matplotlib",
+    parser.add_argument("--npz", type=str, default=DEFAULT_NPZ,
+                        help=f"Path to the .npz structure file (default: {DEFAULT_NPZ}).")
+    parser.add_argument("--record", type=str,
+                        help="Path to the corresponding .json record file (optional).")
+    parser.add_argument("--num_residues", type=int, default=50,
+                        help="Number of residues to visualize.")
+    parser.add_argument("--method", type=str, choices=["matplotlib", "plotly"],
+                        default="matplotlib",
                         help="Visualization method to use.")
     parser.add_argument("--frame_index", type=int, default=0,
                         help="Index of the frame to visualize (0 for backbone).")
