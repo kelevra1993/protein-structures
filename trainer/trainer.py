@@ -222,15 +222,22 @@ class Trainer:
         """
         Moves all tensors within the input feature dictionary to the target computation device.
 
-        This method iterates through the input dictionary and ensures that every tensor,
-        representing various protein features (MSA, pair, sequences, etc.), is correctly
-        allocated to the device specified in the trainer's configuration (CPU, CUDA, or MPS).
-        This is a critical preprocessing step before feeding data into the model.
+        This ensures that all input data (features, ground truth labels, masks) 
+        are loaded onto the correct computation device (e.g., CPU, CUDA, MPS) prior 
+        to being passed to the model for forward propagation, keeping it consistent 
+        with the model's location.
 
         Args:
-            input_dictionary (Dict[str, torch.Tensor]): A dictionary containing input features
-                as tensors. Common keys include 'input_msa_feature', 'input_extra_msa_feature',
-                'input_sequence_feature', etc.
+            input_dictionary (Dict[str, torch.Tensor]): A dictionary containing input features and labels.
+                Contains tensors with shapes such as:
+                - input_msa_feature: (batch_size, number_clusters, number_residues, msa_feature_dimension, number_cycles)
+                - input_extra_msa_feature: (batch_size, number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_cycles)
+                - input_sequence_feature: (batch_size, number_residues, input_sequence_feature_dimension)
+                - input_residue_index_feature: (batch_size, number_residues)
+                - ground_truth_frames: (batch_size, number_residues, 8, 4, 4)
+                - ground_truth_angles: (batch_size, number_residues, 7, 2)
+                - ground_truth_global_positions: (batch_size, number_residues, 37, 3)
+                - distogram_labels: (batch_size, number_residues, number_residues)
 
         Returns:
             Dict[str, torch.Tensor]: The same dictionary with all its tensor values moved to
@@ -238,6 +245,44 @@ class Trainer:
         """
         for key in list(input_dictionary.keys()):
             input_dictionary[key] = input_dictionary[key].to(self.device)
+
+        return input_dictionary
+
+    def set_input_dictionary_dtype(self, input_dictionary):
+        """
+        Casts specific continuous-valued tensors within the input dictionary to the configured dtype.
+
+        While discrete indices (like residue or token indices) remain as integers, continuous 
+        features and coordinates must be explicitly cast to the model's configured floating-point 
+        type (e.g., torch.float32, torch.float64) to ensure cross-platform compatibility and 
+        prevent type mismatch errors during computation. The 'sequence_labels' are explicitly 
+        cast to torch.int64.
+
+        Args:
+            input_dictionary (Dict[str, torch.Tensor]): A dictionary containing input features and labels.
+                Contains tensors with shapes such as:
+                - input_msa_feature: (batch_size, number_clusters, number_residues, msa_feature_dimension, number_cycles)
+                - input_extra_msa_feature: (batch_size, number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_cycles)
+                - input_sequence_feature: (batch_size, number_residues, input_sequence_feature_dimension)
+                - ground_truth_global_positions: (batch_size, number_residues, 37, 3)
+                - ground_truth_frames: (batch_size, number_residues, 8, 4, 4)
+                - ground_truth_angles: (batch_size, number_residues, 7, 2)
+                - alternative_ground_truth_global_positions: (batch_size, number_residues, 37, 3)
+                - alternative_ground_truth_frames: (batch_size, number_residues, 8, 4, 4)
+                - alternative_ground_truth_angles: (batch_size, number_residues, 7, 2)
+                - sequence_labels: (batch_size, number_residues)
+
+        Returns:
+            Dict[str, torch.Tensor]: The dictionary with targeted tensors cast to the correct dtype.
+                Output tensor shapes remain identical to the input tensor shapes.
+        """
+        for key in ["input_msa_feature", "input_extra_msa_feature", "input_sequence_feature",
+                    "ground_truth_global_positions", "ground_truth_frames", "ground_truth_angles",
+                    "alternative_ground_truth_global_positions", "alternative_ground_truth_frames",
+                    "alternative_ground_truth_angles"]:
+            input_dictionary[key] = input_dictionary[key].to(self.dtype)
+
+        input_dictionary["sequence_labels"] = input_dictionary["sequence_labels"].to(torch.int64)
 
         return input_dictionary
 
@@ -290,6 +335,8 @@ class Trainer:
                 except StopIteration:
                     training_dataloader_iterator = iter(self.train_dataloader)
                     training_batch_dictionary = next(training_dataloader_iterator)
+                except FileNotFoundError as e:
+                    continue
 
                 # Set the module in training mode.
                 # Reset the gradients of all optimized classes :`torch.Tensor` s.
@@ -317,7 +364,8 @@ class Trainer:
                         except StopIteration:
                             validation_dataloader_iterator = iter(self.validation_dataloader)
                             validation_batch_dictionary = next(validation_dataloader_iterator)
-
+                        except FileNotFoundError as e:
+                            continue
                         # Forward pass containing batch dictionary and tensorboard logger
                         _ = self.run_model_iteration(
                             batch_input_dictionary=validation_batch_dictionary,
@@ -336,11 +384,14 @@ class Trainer:
 
         except KeyboardInterrupt:
             print_red(f"\nTraining Interrupted by User at iteration {training_iteration}.", add_separators=True)
+
+        except FileNotFoundError:
+            print_red(f"\nFile Not Found at iteration {training_iteration}.", add_separators=True)
+
+        finally:
             self.save_model(iteration=training_iteration)
             print_green(f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
                         add_separators=True)
-
-        finally:
             # Close all the summary writers
             self.training_writer.close()
             if self.compute_validation_iteration:
@@ -363,6 +414,7 @@ class Trainer:
                                                desc=f"Test Evaluation Iteration {iteration}"):
                 # Set input to the right device
                 batch_input_dictionary = self.set_input_dictionary_device(input_dictionary=batch_input_dictionary)
+                batch_input_dictionary = self.set_input_dictionary_dtype(input_dictionary=batch_input_dictionary)
                 model_outputs = self.model(batch_input_dictionary=batch_input_dictionary)
 
                 # Calculate losses (mean over cycles)
@@ -406,12 +458,12 @@ class Trainer:
                 Key shapes:
                 - input_msa_feature: (batch_size, number_clusters, number_residues, msa_feature_dimension, number_cycles)
                 - input_extra_msa_feature: (batch_size, number_extra_sequences, number_residues, input_extra_msa_feature_dimension, number_cycles)
-                - input_sequence_feature: (batch_size, number_residues, input_sequence_feature_dimension, number_cycles)
-                - input_residue_index_feature: (batch_size, number_residues, number_cycles)
-                - ground_truth_frames: (batch_size, number_residues, 8, 4, 4, number_cycles)
-                - ground_truth_angles: (batch_size, number_residues, 7, 2, number_cycles)
-                - ground_truth_global_positions: (batch_size, number_residues, 37, 3, number_cycles)
-                - distogram_labels: (batch_size, number_residues, number_residues, number_cycles)
+                - input_sequence_feature: (batch_size, number_residues, input_sequence_feature_dimension)
+                - input_residue_index_feature: (batch_size, number_residues)
+                - ground_truth_frames: (batch_size, number_residues, 8, 4, 4)
+                - ground_truth_angles: (batch_size, number_residues, 7, 2)
+                - ground_truth_global_positions: (batch_size, number_residues, 37, 3)
+                - distogram_labels: (batch_size, number_residues, number_residues)
             writer (SummaryWriter): The TensorBoard writer to use for logging.
             iteration (int): The current training iteration index.
             tracker_dictionary (Dict[str, Any]): Dictionary to accumulate rolling average losses.
@@ -421,6 +473,7 @@ class Trainer:
         """
         # Set input to the right device
         batch_input_dictionary = self.set_input_dictionary_device(input_dictionary=batch_input_dictionary)
+        batch_input_dictionary = self.set_input_dictionary_dtype(input_dictionary=batch_input_dictionary)
 
         # Run the model
         model_outputs = self.model(batch_input_dictionary=batch_input_dictionary)
@@ -657,7 +710,7 @@ class Trainer:
 
             if validation_tracker_dictionary is not None:
                 validation_value = validation_tracker_dictionary[loss_key]
-                validation_message = f"Moving Average of Validation {display_name:40} : {validation_value:.4f}"
+                validation_message = f"Moving Average of Validation {display_name:38} : {validation_value:.4f}"
                 print_yellow(validation_message)
 
         duration = time.time() - training_tracker_dictionary['start_time']
