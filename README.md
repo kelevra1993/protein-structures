@@ -152,7 +152,7 @@ Here is a high-level overview of the repository's structure and the purpose of e
 
 The project relies on YAML configuration files (e.g., `mps_configuration.yaml` and `cuda_configuration.yaml`) to dictate data paths, training loop hyperparameters, and the precise architectural dimensions of every AlphaFold II module.
 
-The mps_configuration.yaml was used for testing a small model on an M2 Mac Book Pro, while the cuda_configuration.yaml was the one used for training on the DGX Spark.
+The `mps_configuration.yaml` was used for testing a small model on an M2 Mac Book Pro, while the `cuda_configuration.yaml` was the one used for training on the **NVIDIA DGX Spark**.
 
 **Note** : You can create your own configuration (by copying configurations/template_configuration.yaml file) file and fill it as you wish, you will just have to change the path to the configuration file in the main.py script which is the entrypoint for training.
 
