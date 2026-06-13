@@ -286,6 +286,43 @@ class Trainer:
 
         return input_dictionary
 
+    def run_benchmarking_training_loop(self, number_iterations=100000):
+        """
+        Executes a high-repetition loop to benchmark the model's performance.
+
+        This method is designed for performance profiling and benchmarking. It repeatedly
+        performs a single forward pass (via `run_model_iteration`) for a specified number
+        of iterations, utilizing only the training dataloader. Unlike the standard
+        `run_training_loop`, it does not perform backpropagation, optimizer updates,
+        validation steps, or weight saving, focusing solely on the raw execution
+        speed of the model's forward pass and loss calculation logic.
+
+        The loop will automatically exit the application upon completion.
+
+        Args:
+            number_iterations (int): The total number of benchmark iterations to perform.
+                Defaults to 100,000.
+        """
+        print(f"Running Training Benchmark On {number_iterations}")
+        for _ in tqdm(range(number_iterations)):
+            try:
+                # Convert to iterators
+                training_dataloader_iterator = iter(self.train_dataloader)
+
+                # Initialize trackers
+                training_trackers = self.get_loss_trackers()
+
+                training_batch_dictionary = next(training_dataloader_iterator)
+                _ = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
+                                                         writer=self.training_writer,
+                                                         iteration=1,
+                                                         tracker_dictionary=training_trackers)
+            except StopIteration:
+                training_dataloader_iterator = iter(self.train_dataloader)
+        print("Training Benchmark Completed.")
+        exit()
+
+
     def run_training_loop(self):
         """
         Executes the main training loop for the specified number of iterations.
