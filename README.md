@@ -33,13 +33,13 @@ It will automatically fetch the required Python 3.12.10 version in the backgroun
 
 - **MMseqs2**:
 
-We use MMseqs2 for rapid protein sequence searching and clustering. Generating deep Multiple Sequence Alignments (MSAs) is critical for AlphaFold's accuracy, and MMseqs2 allows us to search massive sequence databases orders of magnitude faster than traditional tools like HHblits.
+We use MMseqs2 to cluster our protein sequence data based on sequence identity. This clustering step is crucial before splitting our data into training, validation, and testing sets, as it prevents data leakage by ensuring closely related sequences are grouped together and not scattered across different splits.
 
 ### Setup Instructions
 
 1. Clone the repository and navigate into it:
    ```bash
-   https://github.com/kelevra1993/protein-structures.git
+   git clone https://github.com/kelevra1993/protein-structures.git
    cd protein-structures
    ```
 
