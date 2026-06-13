@@ -352,15 +352,11 @@ class StructureModule(nn.Module):
                   Shape `(..., number_residues, 8, 4, 4)`.
         """
 
-        # Scale translations before coordinate calculation (nanometers to angstroms)
-        transformation_matrix_clone = transformation_matrix.clone()
-        transformation_matrix_clone[..., :3, -1] = 10 * transformation_matrix_clone[..., :3, -1]
-
         # Final positions : (..., number_residues, 37, 3)
         # Position Masks : (..., number_residues, 37)
         # Global Transformation Matrices : (..., number_residues, 37, 8, 4, 4)
         final_positions, position_mask, global_transformation_matrices = compute_all_atom_coordinates(
-            transformation_matrix=transformation_matrix_clone,
+            transformation_matrix=transformation_matrix,
             residue_angles=residue_angles,
             sequence_amino_acid_labels=sequence_amino_acid_labels)
 
