@@ -218,8 +218,24 @@ class Trainer:
 
         return train_dataloader, validation_dataloader, test_dataloader
 
-    def set_input_dictionary_device(self, input_dictionary):
-        """todo to be documented"""
+    def set_input_dictionary_device(self, input_dictionary: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Moves all tensors within the input feature dictionary to the target computation device.
+
+        This method iterates through the input dictionary and ensures that every tensor,
+        representing various protein features (MSA, pair, sequences, etc.), is correctly
+        allocated to the device specified in the trainer's configuration (CPU, CUDA, or MPS).
+        This is a critical preprocessing step before feeding data into the model.
+
+        Args:
+            input_dictionary (Dict[str, torch.Tensor]): A dictionary containing input features
+                as tensors. Common keys include 'input_msa_feature', 'input_extra_msa_feature',
+                'input_sequence_feature', etc.
+
+        Returns:
+            Dict[str, torch.Tensor]: The same dictionary with all its tensor values moved to
+                the active computation device.
+        """
         for key in list(input_dictionary.keys()):
             input_dictionary[key] = input_dictionary[key].to(self.device)
 

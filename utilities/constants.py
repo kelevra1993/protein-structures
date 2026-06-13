@@ -9,9 +9,11 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=1000, threshold=np.inf)
 torch.set_printoptions(linewidth=1000)
 
-# TODO ADD THREE LETTER ENCODING EASIER FOR FUTURE WORK
-# TODO CONSIDER ADDING INTEGER INDICES TO AMINO ACID RESIDUES DIRECTLY ?
-
+# Canonical Amino Acid Residues (3-letter codes)
+canonical_amino_acid_residues_xxx = [
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE",
+    "LEU", "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"
+]
 # Canonical Amino Acid Residues (20 amino acids)
 # Created by taking 3-letter AA codes and sorting them alphabetically.
 canonical_amino_acid_residues = ["A", "R",
@@ -32,9 +34,9 @@ all_amino_acid_residues = canonical_amino_acid_residues + ["X"]
 # Including Gaps
 gapped_amino_acid_residues = all_amino_acid_residues + ["-"]
 
-# Turn them into dictionaries
-# Todo : Give a simple example for both
+# Mapping of residue to index (e.g. all_amino_acid_dictionary['A'] = 0)
 all_amino_acid_dictionary = {k: index for index, k in enumerate(all_amino_acid_residues)}
+# Mapping with gaps (e.g. gapped_amino_acid_dictionary['-'] = 21)
 gapped_amino_acid_dictionary = {k: index for index, k in enumerate(gapped_amino_acid_residues)}
 
 # Atoms positions relative to the 8 rigid groups/bases/frames, defined by the pre-omega, phi,
@@ -265,8 +267,7 @@ rigid_group_atom_positions = {
     ],
 }
 
-# Todo add small description + example
-# Conversion of the positions to tensors
+# Convert raw coordinate tuples to tensors (e.g., pos['ALA'][0][2] is a tensor([-0.525, 1.363, 0.000]))
 rigid_group_atom_positions = {
     key: [
         [name, index, torch.tensor(pos)]
@@ -275,7 +276,6 @@ rigid_group_atom_positions = {
 
 }
 
-# Todo add small description + example
 # Structure:
 # rigid_group_atom_position_map = {
 #   'ARG': {
@@ -285,7 +285,6 @@ rigid_group_atom_positions = {
 #   }
 #   ...
 # }
-# Todo add small description + example
 rigid_group_atom_position_map = {
     aa: {
         entry[0]: entry[2] for entry in entries
@@ -312,19 +311,19 @@ atom_types = ["N", "CA", "C", "CB", "O",
               "NZ",
               "OXT"]
 
-# Maps atoms to their indices
-# Todo add small description + example
+# Maps atom name to its fixed index 0-36 (e.g. atom_to_index['CA'] = 1)
 atom_to_index = {atom_type: i for i, atom_type in enumerate(atom_types)}
+# Maps fixed index 0-36 to it's atom (e.g. atom_to_index['1'] = 'CA')
 index_to_atom = {i: atom_type for i, atom_type in enumerate(atom_types)}
 number_atom_types = len(atom_types)  # := 37.
 
-# Todo add small description + example
+# Relative coordinates for all 37 atoms across 21 residue types
 atom_local_positions = torch.zeros((21, 37, 3))
 
-# Todo add small description + example
+# Rigid group frame index (0-7) for each atom in all residues
 atom_frame_indices = torch.zeros((21, 37), dtype=torch.int64)
 
-# Todo add small description + example
+# Boolean mask indicating if an atom exists for a given residue type
 atom_mask = torch.zeros((21, 37)).to(torch.bool)
 
 for i, (aa, values) in enumerate(rigid_group_atom_positions.items()):
@@ -468,17 +467,3 @@ for amino_acid, atoms_to_swap in position_symetry_atoms.items():
 
 # Variable containing atoms that might have ambiguous positions
 ambiguous_position_mask = torch.abs(alternative_position_mask - torch.arange(number_atom_types)).to(dtype=torch.bool)
-
-# # todo to be kept for now for testing then removed later
-# import numpy as np
-# np.set_printoptions(linewidth=200, threshold=np.inf)
-# print(alternative_position_mask.numpy())
-# print(ambiguous_position_mask.numpy())
-# print(alternative_position_mask.numpy() - np.array(list(range(37))))
-# print(ambigous_position_mask.numpy())
-# for i in range(21):
-#     print(f"Amino Acid : {index_to_xxx[i]}")
-#     # print(angle_alternative_truth_mask[i].numpy())
-#     print(position_alternative_mask[i].numpy())
-#     print(position_alternative_mask[i].numpy()-np.array(list(range(37))))
-#     print(30 * '-')
