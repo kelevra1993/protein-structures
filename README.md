@@ -290,6 +290,8 @@ To execute the entire test suite, run:
 uv run pytest
 ```
 
+![Passed Tests](Readme/passed_tests.png)
+
 If you are developing new structures or making alternative implementations to fit the model onto specific devices, it is highly recommended to run this command frequently to catch regressions early.
 
 ## Acknowledgments
