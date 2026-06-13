@@ -12,6 +12,7 @@
 7. [Visualisation](#visualisation)
 8. [Tests](#tests)
 9. [Debugging](#debugging)
+   - [Frame Debugging](#frame-debugging)
 10. [Acknowledgments](#acknowledgments)
 
 ---
