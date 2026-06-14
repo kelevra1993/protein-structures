@@ -137,23 +137,64 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
 
     return experiment_configuration, model_configuration
 
+# For visualizing predictions and ground truth data
+class _CIFModel(modelcif.model.AbInitioModel):
+    """
+    A custom ModelCIF AbInitioModel that yields atoms from provided lists.
+    This class avoids nesting within the to_modelcif function.
+    """
+    def __init__(self, assembly, name, atom_list):
+        super().__init__(assembly=assembly, name=name)
+        self._atom_list = atom_list
+
+    def get_atoms(self):
+        """Yields atoms from the pre-computed list."""
+        for atom in self._atom_list:
+            yield atom
+
+
+def _generate_atom_objects(positions: np.ndarray, mask: np.ndarray, asym_unit: modelcif.AsymUnit, number_residues: int) -> list:
+    """
+    Helper function to generate ModelCIF atom objects from raw coordinates.
+    """
+    atoms = []
+    for residue_index in range(number_residues):
+        for atom_name, atom_position, atom_is_valid in zip(atom_types, positions[residue_index], mask[residue_index]):
+            if not atom_is_valid:
+                continue
+            element_symbol = atom_name[0]
+            atoms.append(modelcif.model.Atom(
+                asym_unit=asym_unit,
+                type_symbol=element_symbol,
+                seq_id=residue_index + 1,  # 1-based indexing
+                atom_id=atom_name,
+                x=atom_position[0], y=atom_position[1], z=atom_position[2],
+                het=False,
+                occupancy=1.00
+            ))
+    return atoms
+
 
 def to_modelcif(atom_positions: torch.Tensor, atom_mask: torch.Tensor, sequence: str | list[str],
-                description: str) -> str:
+                description: str = "AlphaFold II Prediction",
+                ground_truth_positions: torch.Tensor | None = None) -> str:
     """
-    Converts predicted atom positions into a ModelCIF-formatted string.
+    Converts predicted atom positions (and optionally ground truth) into a ModelCIF-formatted string.
 
     ModelCIF is an extension of the mmCIF format specifically designed for 
     computational structural models. This function maps raw tensor coordinates
-    to the correct amino acid atoms and generates a file that can be opened 
-    in visualization software like PyMOL or ChimeraX.
+    to the correct amino acid atoms. If ground truth coordinates are provided,
+    they are exported as Chain B, alongside the prediction (Chain A).
 
     Args:
         atom_positions (torch.Tensor): Predicted 3D coordinates for all atoms.
             Expected shape: (number_residues, 37, 3).
-        atom_mask (torch.Tensor): Binary mask indicating valid predicted atoms.
+        atom_mask (torch.Tensor): Binary mask indicating valid atoms. Used for both prediction and ground truth.
             Expected shape: (number_residues, 37).
         sequence (str | List[str]): The amino acid sequence of the protein.
+        description (str): Description for the ModelCIF system.
+        ground_truth_positions (torch.Tensor | None): Optional ground truth 3D coordinates.
+            Expected shape: (number_residues, 37, 3).
 
     Returns:
         str: The complete ModelCIF data as a string.
@@ -161,6 +202,9 @@ def to_modelcif(atom_positions: torch.Tensor, atom_mask: torch.Tensor, sequence:
     # Move to CPU and convert to NumPy for compatibility with the modelcif library
     atom_positions = atom_positions.to('cpu').detach().numpy()
     atom_mask = atom_mask.to('cpu').detach().numpy()
+    
+    if ground_truth_positions is not None:
+        ground_truth_positions = ground_truth_positions.to('cpu').detach().numpy()
 
     number_residues = atom_positions.shape[0]
 
@@ -168,47 +212,31 @@ def to_modelcif(atom_positions: torch.Tensor, atom_mask: torch.Tensor, sequence:
     system = modelcif.System(title=description)
 
     # Define the protein entity and its sequence
-    # If sequence is a list of characters, join it into a string
     if isinstance(sequence, list):
         sequence = "".join(sequence)
 
-    entity = modelcif.Entity(sequence, description='Predicted Protein Chain')
+    entity = modelcif.Entity(sequence, description='Protein Chain')
 
-    # Define the asymmetric unit (the actual chain in the model)
-    asym_unit = modelcif.AsymUnit(entity, details='Model Chain A', id='A')
+    # Define the asymmetric units (chains)
+    asym_units = []
+    asym_unit_pred = modelcif.AsymUnit(entity, details='Predicted Chain', id='A')
+    asym_units.append(asym_unit_pred)
+    
+    if ground_truth_positions is not None:
+        asym_unit_gt = modelcif.AsymUnit(entity, details='Ground Truth Chain', id='B')
+        asym_units.append(asym_unit_gt)
 
     # Group chains into an assembly
-    modeled_assembly = modelcif.Assembly([asym_unit], name='Modeled Assembly')
+    modeled_assembly = modelcif.Assembly(asym_units, name='Modeled Assembly')
 
-    # Define a custom Model class to yield individual atoms to the dumper
-    class _PredictedModel(modelcif.model.AbInitioModel):
-        def get_atoms(self):
-            """
-            Generator that iterates through all residues and atoms, 
-            yielding only those that are valid according to the mask.
-            """
-            for residue_index in range(number_residues):
-                # We iterate through the standard 37 AlphaFold atom types
-                for atom_name, atom_position, mask in zip(atom_types, atom_positions[residue_index],
-                                                          atom_mask[residue_index]):
-                    if not mask:
-                        continue
-
-                    # Get the element symbol (first letter of atom name, e.g., 'C' for 'CA')
-                    element_symbol = atom_name[0]
-
-                    yield modelcif.model.Atom(
-                        asym_unit=asym_unit,
-                        type_symbol=element_symbol,
-                        seq_id=residue_index + 1,  # PDB/CIF uses 1-based indexing for residues
-                        atom_id=atom_name,
-                        x=atom_position[0], y=atom_position[1], z=atom_position[2],
-                        het=False,  # Not a heteroatom
-                        occupancy=1.00  # Standard occupancy for models
-                    )
+    # Generate lists of atoms
+    all_atoms = _generate_atom_objects(atom_positions, atom_mask, asym_unit_pred, number_residues)
+    
+    if ground_truth_positions is not None:
+        all_atoms.extend(_generate_atom_objects(ground_truth_positions, atom_mask, asym_unit_gt, number_residues))
 
     # Create the model instance and add it to the system
-    model = _PredictedModel(assembly=modeled_assembly, name=description)
+    model = _CIFModel(assembly=modeled_assembly, name=description, atom_list=all_atoms)
     model_group = modelcif.model.ModelGroup([model], name='Atomic Models')
     system.model_groups.append(model_group)
 

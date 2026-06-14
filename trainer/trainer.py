@@ -521,9 +521,11 @@ class Trainer:
                 # final_positions shape: (1, number_residues, 37, 3, number_cycles)
                 # position_mask shape: (1, number_residues, 37, number_cycles)
                 predicted_positions = model_outputs["final_positions"][0, ..., -1]
-                ground_truth_positions = batch["ground_truth_global_positions"][0, ...]
+                atom_mask = model_outputs["position_mask"][0, ..., -1]
 
-                predicted_mask = model_outputs["position_mask"][0, ..., -1]
+                # Extract ground truth positions
+                # shape: (1, number_residues, 37, 3)
+                ground_truth_positions = batch["ground_truth_global_positions"][0, ...]
 
                 # Extract sequence labels and convert back to single-letter amino acid string
                 # sequence_labels shape: (1, number_residues)
@@ -531,24 +533,18 @@ class Trainer:
                 sequence = "".join([index_to_x[int(idx)] for idx in sequence_indices])
 
                 # Convert raw coordinates and mask to ModelCIF string format
-                cif_string = to_modelcif(atom_positions=predicted_positions,
-                                         atom_mask=predicted_mask,
-                                         sequence=sequence,
-                                         description="Model Prediction")
-                ground_truth_cif_string = to_modelcif(atom_positions=ground_truth_positions,
-                                                      atom_mask=predicted_mask,
-                                                      sequence=sequence,
-                                                      description="Ground Truth Structure")
+                # passing both prediction and ground truth to be saved as Chain A and Chain B
+                cif_string = to_modelcif(
+                    atom_positions=predicted_positions,
+                    atom_mask=atom_mask,
+                    sequence=sequence,
+                    description=f"AlphaFold II Prediction for {protein_id}",
+                    ground_truth_positions=ground_truth_positions)
 
-                # Save the predicted structural model to disk
-                output_path = output_directory / f"{protein_id}_prediction.cif"
+                # Save the structural model to disk (contains both chains)
+                output_path = output_directory / f"{protein_id}.cif"
                 with open(output_path, "w") as f:
                     f.write(cif_string)
-
-                # Save the ground truth structural model to disk
-                ground_truth_output_path = output_directory / f"{protein_id}_ground_truth.cif"
-                with open(ground_truth_output_path, "w") as f:
-                    f.write(ground_truth_cif_string)
 
                 samples_processed += 1
 
