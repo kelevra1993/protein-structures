@@ -129,6 +129,7 @@ def test_model():
                              "model_overall_fape_loss",
                              "model_auxillary_loss",
                              "model_predicted_lddt_loss",
+                             "model_true_lddt",
                              "model_distogram_logits"],
         reference_folder=reference_folder,
         batch_size=batch_size,

@@ -216,7 +216,7 @@ def get_structure_module_test_inputs() -> Tuple[Dict[str, int], Dict[str, Tuple[
     }
 
     test_inputs = {
-        key: torch.linspace(-2-i/5, 2+i/5, math.prod(shape)).reshape(shape).double()
+        key: torch.linspace(-2 - i / 5, 2 + i / 5, math.prod(shape)).reshape(shape).double()
         for i, (key, shape) in enumerate(feature_shapes.items())
     }
 

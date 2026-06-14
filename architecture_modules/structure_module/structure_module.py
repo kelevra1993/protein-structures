@@ -383,7 +383,7 @@ class StructureModule(nn.Module):
                 alternative_ground_truth_angles: torch.Tensor,
                 ground_truth_positions: torch.Tensor,
                 alternative_ground_truth_positions: torch.Tensor) -> tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the iterative Structure Module pipeline to predict 3D protein structure.
 
@@ -416,7 +416,7 @@ class StructureModule(nn.Module):
 
         Returns:
             tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
-                  torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                  torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
                 - angles: Predicted torsion angles as (cos, sin) pairs for all iterations.
                   Shape: `(..., number_layers, number_residues, 7, 2)`.
                 - frames: Global backbone transformation matrices for all iterations.
@@ -433,6 +433,8 @@ class StructureModule(nn.Module):
                   Shape: `()`.
                 - predicted_lddt_loss: Computed predicted Local Distance Difference Test (pLDDT) loss.
                   Shape: `()`.
+                - true_lddt: The actual calculated lDDT score per residue.
+                  Shape: `(..., number_residues)`.
         """
         number_residues = pair_representation.shape[-2]
         batch_dimension = single_representation.shape[:-2]
@@ -620,4 +622,4 @@ class StructureModule(nn.Module):
                                                  lddt_bins=self.lddt_module.lddt_bins)
 
         return (angles, frames, final_positions, position_mask, pseudo_beta_positions, overall_fape_loss,
-                auxillary_loss, predicted_lddt_loss)
+                auxillary_loss, predicted_lddt_loss, local_difference_distance_test)

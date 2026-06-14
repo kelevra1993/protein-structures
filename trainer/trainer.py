@@ -53,7 +53,7 @@ class Trainer:
             compute_validation_iteration (bool): If True, performs a validation step during each training iteration.
             learning_rate (float): Initial learning rate for the Adam optimizer.
             dtype (torch.dtype): Data type to be used for all model tensors (e.g., torch.float32 or torch.float64).
-            information_dump (int): Interval at which rolling average losses are printed to the console.
+            information_dump (int): Interval at which rolling average metrics are printed to the console.
             resume_training (bool): If True, restores the model and optimizer state from the last checkpoint.
             precompute_data (bool): Whether to use precomputed data loaders.
             experiment_name (str): The name of the experiment.
@@ -111,13 +111,14 @@ class Trainer:
         if resume_training:
             self.start_iteration = self.restore_last_model()
 
-        # Loss names mapping for logging and tracking
-        self.loss_names_mapping = {
+        # Metric names mapping for logging and tracking
+        self.tracked_metrics_mapping = {
             "total_loss": "Total Loss",
             "fape_loss": "Frame Aligned Point Error Loss",
             "auxillary_loss": "Auxillary Loss",
             "lddt_loss": "Local Distance Difference Test Loss",
-            "distogram_loss": "Distogram Loss"
+            "distogram_loss": "Distogram Loss",
+            "lddt_metric": "True lDDT Metric"
         }
 
         # Print Model Size
@@ -312,7 +313,7 @@ class Trainer:
                 training_dataloader_iterator = iter(self.train_dataloader)
 
                 # Initialize trackers
-                training_trackers = self.get_loss_trackers()
+                training_trackers = self.get_metric_trackers()
 
                 training_batch_dictionary = next(training_dataloader_iterator)
                 _ = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
@@ -339,9 +340,9 @@ class Trainer:
         # Tracker dictionary example:
         # tracker = {"start_time": 123456789.0, "total_loss": 0.0, "fape_loss": 0.0,
         #           "auxillary_loss": 0.0, "lddt_loss": 0.0, "distogram_loss": 0.0}
-        training_trackers = self.get_loss_trackers()
+        training_trackers = self.get_metric_trackers()
         if self.compute_validation_iteration:
-            validation_trackers = self.get_loss_trackers()
+            validation_trackers = self.get_metric_trackers()
         else:
             validation_trackers = None
 
@@ -406,7 +407,7 @@ class Trainer:
                         training_tracker_dictionary=training_trackers,
                         validation_tracker_dictionary=validation_trackers)
                     if self.compute_validation_iteration:
-                        validation_trackers = self.get_loss_trackers()
+                        validation_trackers = self.get_metric_trackers()
 
         except KeyboardInterrupt:
             print_red(f"\nTraining Interrupted by User at iteration {training_iteration}.", add_separators=True)
@@ -432,7 +433,7 @@ class Trainer:
         """
         print(f"Starting Full Test Evaluation at Iteration {iteration}...")
         self.model.eval()
-        test_trackers = {loss_key: 0.0 for loss_key in self.loss_names_mapping.keys()}
+        test_trackers = {metric_key: 0.0 for metric_key in self.tracked_metrics_mapping.keys()}
         number_batches = len(self.test_dataloader)
 
         with torch.no_grad():
@@ -443,12 +444,13 @@ class Trainer:
                 batch_input_dictionary = self.set_input_dictionary_dtype(input_dictionary=batch_input_dictionary)
                 model_outputs = self.model(batch_input_dictionary=batch_input_dictionary)
 
-                # Calculate losses (mean over cycles)
+                # Calculate metrics (mean over cycles)
                 fape_loss = model_outputs['overall_fape_loss'].mean().item()
                 auxillary_loss = model_outputs['auxillary_loss'].mean().item()
                 lddt_loss = model_outputs['predicted_lddt_loss'].mean().item()
                 distogram_loss = model_outputs["distogram_loss"].item()
                 total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss
+                lddt_metric = model_outputs["true_lddt"].mean().item()
 
                 # Accumulate
                 test_trackers["total_loss"] += total_loss
@@ -456,10 +458,11 @@ class Trainer:
                 test_trackers["auxillary_loss"] += auxillary_loss
                 test_trackers["lddt_loss"] += lddt_loss
                 test_trackers["distogram_loss"] += distogram_loss
+                test_trackers["lddt_metric"] += lddt_metric
 
         # Calculate means
-        for loss_key in test_trackers.keys():
-            test_trackers[loss_key] /= number_batches
+        for metric_key in test_trackers.keys():
+            test_trackers[metric_key] /= number_batches
 
         # Log to file
         evaluation_file = self.project_root / "test_evaluation_results.txt"
@@ -467,8 +470,8 @@ class Trainer:
             f.write("+" + "-" * 50 + "+\n")
             f.write(f"| Iteration: {iteration:<38} |\n")
             f.write("+" + "-" * 50 + "+\n")
-            for loss_key, display_name in self.loss_names_mapping.items():
-                f.write(f"| {display_name:<35} : {test_trackers[loss_key]:<8.4f} |\n")
+            for metric_key, display_name in self.tracked_metrics_mapping.items():
+                f.write(f"| {display_name:<35} : {test_trackers[metric_key]:<8.4f} |\n")
             f.write("+" + "-" * 50 + "+\n\n")
 
         print(f"Full Test Evaluation Completed. Results appended to {evaluation_file}")
@@ -554,7 +557,7 @@ class Trainer:
                             writer: SummaryWriter, iteration: int,
                             tracker_dictionary: Dict[str, Any] | None) -> torch.Tensor:
         """
-        Performs a single forward pass of the model, calculates losses, and logs metrics.
+        Performs a single forward pass of the model, calculates metrics, and logs metrics.
 
         Args:
             batch_input_dictionary (Dict[str, torch.Tensor]): A dictionary of input features.
@@ -569,7 +572,7 @@ class Trainer:
                 - distogram_labels: (batch_size, number_residues, number_residues)
             writer (SummaryWriter): The TensorBoard writer to use for logging.
             iteration (int): The current training iteration index.
-            tracker_dictionary (Dict[str, Any]): Dictionary to accumulate rolling average losses.
+            tracker_dictionary (Dict[str, Any]): Dictionary to accumulate rolling average metrics.
 
         Returns:
             torch.Tensor: The total calculated loss for the current iteration (scalar).
@@ -592,22 +595,26 @@ class Trainer:
         # Get full training loss
         total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss
 
-        # Store losses in a dictionary
-        loss_dictionary = {
+        # Get the true lDDT metric (mean over residues and cycles)
+        lddt_metric = model_outputs["true_lddt"].mean()
+
+        # Store losses and other metrics in a dictionary
+        metric_dictionary = {
             "total_loss": total_loss,
             "fape_loss": fape_loss,
             "auxillary_loss": auxillary_loss,
             "lddt_loss": lddt_loss,
-            "distogram_loss": distogram_loss}
+            "distogram_loss": distogram_loss,
+            "lddt_metric": lddt_metric}
 
         # Update tracker dictionary (rolling average accumulation)
-        for loss_key, loss_value in loss_dictionary.items():
-            tracker_dictionary[loss_key] += loss_value.item() / self.information_dump
+        for metric_key, metric_value in metric_dictionary.items():
+            tracker_dictionary[metric_key] += metric_value.item() / self.information_dump
 
         # Log data to tensorboard (per-iteration)
-        self.log_losses_to_tensorboard(writer=writer,
+        self.log_metrics_to_tensorboard(writer=writer,
                                        iteration=iteration,
-                                       loss_dictionary=loss_dictionary)
+                                       metric_dictionary=metric_dictionary)
 
         return total_loss
 
@@ -635,18 +642,18 @@ class Trainer:
         # Update the full-checkpoint registry
         self.dump_in_checkpoint(iteration=iteration)
 
-    def log_losses_to_tensorboard(self, writer: SummaryWriter, iteration: int,
-                                  loss_dictionary: Dict[str, torch.Tensor]):
+    def log_metrics_to_tensorboard(self, writer: SummaryWriter, iteration: int,
+                                  metric_dictionary: Dict[str, torch.Tensor]):
         """
-        Logs individual loss components and total loss to TensorBoard.
+        Logs individual metric components and total loss to TensorBoard.
 
         Args:
             writer (SummaryWriter): The TensorBoard writer to use.
             iteration (int): The current iteration index.
-            loss_dictionary (Dict[str, torch.Tensor]): Dictionary containing current iteration losses.
+            metric_dictionary (Dict[str, torch.Tensor]): Dictionary containing current iteration metrics.
         """
-        for loss_key, display_name in self.loss_names_mapping.items():
-            writer.add_scalar(display_name, loss_dictionary[loss_key].item(), iteration)
+        for metric_key, display_name in self.tracked_metrics_mapping.items():
+            writer.add_scalar(display_name, metric_dictionary[metric_key].item(), iteration)
 
     def store_graph_in_tensorboard(self):
         """
@@ -704,7 +711,7 @@ class Trainer:
         # Ensure model is in training mode
         self.model.train()
         training_dataloader_iterator = iter(self.train_dataloader)
-        tracker_dictionary = self.get_loss_trackers()
+        tracker_dictionary = self.get_metric_trackers()
 
         # Initialize the profiler context manager.
         # - schedule: Determines when the profiler is active based on step counts.
@@ -876,7 +883,7 @@ class Trainer:
                                    training_tracker_dictionary: Dict[str, Any],
                                    validation_tracker_dictionary: Optional[Dict[str, Any]] = None):
         """
-        Prints the rolling average of losses to the console.
+        Prints the rolling average of metrics to the console.
 
         Args:
             iterations (int): Current global training iteration.
@@ -890,13 +897,13 @@ class Trainer:
         print("-" * print_length)
         print(f"Iteration: {iterations}")
 
-        for loss_key, display_name in self.loss_names_mapping.items():
-            train_value = training_tracker_dictionary[loss_key]
+        for metric_key, display_name in self.tracked_metrics_mapping.items():
+            train_value = training_tracker_dictionary[metric_key]
             message = f"Moving Average of Training {display_name:40} : {train_value:.4f}"
             print_blue(message)
 
             if validation_tracker_dictionary is not None:
-                validation_value = validation_tracker_dictionary[loss_key]
+                validation_value = validation_tracker_dictionary[metric_key]
                 validation_message = f"Moving Average of Validation {display_name:38} : {validation_value:.4f}"
                 print_yellow(validation_message)
 
@@ -904,17 +911,17 @@ class Trainer:
         print(f"These {self.information_dump} iterations took {duration:.2f} seconds")
         print("-" * print_length)
 
-        return self.get_loss_trackers()
+        return self.get_metric_trackers()
 
-    def get_loss_trackers(self) -> Dict[str, Any]:
+    def get_metric_trackers(self) -> Dict[str, Any]:
         """
-        Initializes a dictionary to track rolling averages of losses.
+        Initializes a dictionary to track rolling averages of metrics.
 
         Returns:
-            Dict[str, Any]: A dictionary with loss keys set to 0.0 and a start_time.
+            Dict[str, Any]: A dictionary with metric keys set to 0.0 and a start_time.
         """
         tracker_dictionary = {"start_time": time.time()}
-        for loss_key in self.loss_names_mapping.keys():
-            tracker_dictionary[loss_key] = 0.0
+        for metric_key in self.tracked_metrics_mapping.keys():
+            tracker_dictionary[metric_key] = 0.0
 
         return tracker_dictionary

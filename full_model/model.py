@@ -10,6 +10,7 @@ from architecture_modules.structure_module.structure_module import StructureModu
 from architecture_modules.distogram_module.distogram_module import DistogramModule
 from utilities.loss_utilities import compute_distogram_loss
 
+
 class Model(nn.Module):
 
     def __init__(self, configuration: dict, device: torch.device = None, dtype: torch.dtype = None):
@@ -148,6 +149,7 @@ class Model(nn.Module):
             * overall_fape_loss: FAPE loss.
             * auxillary_loss: Auxiliary loss.
             * predicted_lddt_loss: Predicted LDDT loss.
+            * true_lddt: Actual calculated lDDT score per residue.
             * distogram_logits: Distance bin logits of shape (*, number_residues, number_residues, 64).
         """
 
@@ -158,7 +160,7 @@ class Model(nn.Module):
         # Model outputs emanating from structure module
         model_outputs = {key: [] for key in
                          ["angles", "frames", "final_positions", "position_mask", "pseudo_beta_positions",
-                          "overall_fape_loss", "auxillary_loss", "predicted_lddt_loss"]}
+                          "overall_fape_loss", "auxillary_loss", "predicted_lddt_loss", "true_lddt"]}
 
         # Initialisation of first tensors
         msa_shape = (batch_shape + (number_clusters, number_residues, self.msa_embedding))
@@ -221,7 +223,7 @@ class Model(nn.Module):
             sequence_amino_acid_labels = current_cycle_input_batch["sequence_labels"]
 
             (angles, frames, final_positions, position_mask, pseudo_beta_positions,
-             overall_fape_loss, auxillary_loss, predicted_lddt_loss) = self.structure_module(
+             overall_fape_loss, auxillary_loss, predicted_lddt_loss, true_lddt) = self.structure_module(
                 single_representation=single_representation_tensor,
                 pair_representation=pair_representation_tensor,
                 sequence_amino_acid_labels=sequence_amino_acid_labels,
@@ -246,6 +248,7 @@ class Model(nn.Module):
             model_outputs["overall_fape_loss"].append(overall_fape_loss)
             model_outputs["auxillary_loss"].append(auxillary_loss)
             model_outputs["predicted_lddt_loss"].append(predicted_lddt_loss)
+            model_outputs["true_lddt"].append(true_lddt)
 
         # Stack all tensors emanating from different cycles
         model_outputs = {key: torch.stack(value, dim=-1) for key, value in model_outputs.items()}
@@ -263,26 +266,3 @@ class Model(nn.Module):
         model_outputs["distogram_probabilities"] = distogram_probabilities
 
         return model_outputs
-
-
-if __name__ == "__main__":
-    import os
-    from pathlib import Path
-    from utilities.os_utilities import load_experiment_configuration
-    from utilities.tensor_utilities import get_device, print_tensor_shape
-
-    project_folder = Path(os.getcwd()).parent
-    configuration_file = project_folder / "configurations" / "template_configuration.yaml"
-
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_file)
-    computer_device = get_device()
-
-    if str(computer_device) == "mps":
-        tensor_dtype = torch.float32
-    else:
-        tensor_dtype = torch.float64
-
-    # Test the alphafold model with template configuration
-    alphafold_model = Model(configuration=model_configuration, device=computer_device, dtype=tensor_dtype)
-
-    # TODO We have not implemented the run forward

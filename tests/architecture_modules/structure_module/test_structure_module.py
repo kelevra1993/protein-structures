@@ -75,7 +75,7 @@ def test_structure_module_forward():
     batched_input_tensor_dictionary = {
         "single_representation": batched_inputs["single_representation"].to(device),
         "pair_representation": batched_inputs["pair_representation"].to(device),
-        "sequence_amino_acid_labels":  sequence_labels.unsqueeze(0).repeat(config["batch_size"], 1),
+        "sequence_amino_acid_labels": sequence_labels.unsqueeze(0).repeat(config["batch_size"], 1),
         "ground_truth_transformation_matrix": frames.unsqueeze(0).repeat(config["batch_size"], 1, 1, 1, 1),
         "alternative_ground_truth_transformation_matrix": alternative_frames.unsqueeze(0).repeat(config["batch_size"],
                                                                                                  1, 1, 1, 1),
@@ -93,7 +93,8 @@ def test_structure_module_forward():
         "structure_module_pseudo_beta_positions",
         "structure_module_overall_fape_loss",
         "structure_module_auxillary_loss",
-        "structure_module_predicted_lddt_loss"
+        "structure_module_predicted_lddt_loss",
+        "structure_module_true_lddt"
     ]
 
     check_nn_module_method(
