@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from full_model.model import Model
-from utilities.os_utilities import load_configuration, print_red, print_green, print_blue, print_yellow
+from utilities.os_utilities import load_configuration, print_red, print_green, print_blue, print_yellow, to_modelcif
 from utilities.tensor_utilities import get_device, print_tensor_status
 from utilities.data.dataloader import get_dataloader, get_precomputed_dataloader
+from utilities.constants import index_to_x
 
 
 class Trainer:
@@ -315,14 +316,13 @@ class Trainer:
 
                 training_batch_dictionary = next(training_dataloader_iterator)
                 _ = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
-                                                         writer=self.training_writer,
-                                                         iteration=1,
-                                                         tracker_dictionary=training_trackers)
+                                             writer=self.training_writer,
+                                             iteration=1,
+                                             tracker_dictionary=training_trackers)
             except StopIteration:
                 training_dataloader_iterator = iter(self.train_dataloader)
         print("Training Benchmark Completed.")
         exit()
-
 
     def run_training_loop(self):
         """
@@ -472,6 +472,87 @@ class Trainer:
             f.write("+" + "-" * 50 + "+\n\n")
 
         print(f"Full Test Evaluation Completed. Results appended to {evaluation_file}")
+
+        # Run sample predictions for visualization
+        self.run_sample_predictions(iteration=iteration, number_samples=50)
+
+    def run_sample_predictions(self, iteration: int, number_samples: int = 50):
+        """
+        Runs inference on a subset of the test dataset and saves the predicted
+        protein structures as ModelCIF files.
+
+        This method facilitates visual inspection of the model's predictions by
+        converting raw coordinate outputs into standard protein structure files (.cif).
+        The files are saved in a dedicated 'test_sample_predictions' subdirectory
+        within the current iteration's weight folder.
+
+        Args:
+            iteration (int): The current training iteration index, used for output organization.
+            number_samples (int): The maximum number of test proteins to process for visualization.
+                Defaults to 50.
+        """
+        print(f"Running {number_samples} Sample Predictions for Iteration {iteration}...")
+
+        # Create output directory within the iteration's weight folder
+        output_directory = self.weights_directory / f"Iteration_{iteration}" / "test_sample_predictions"
+        output_directory.mkdir(exist_ok=True, parents=True)
+
+        self.model.eval()
+        samples_processed = 0
+
+        # We iterate directly through the dataset to easily access protein IDs
+        # and avoid complex collation for non-tensor metadata.
+        dataset = self.test_dataloader.dataset
+
+        with torch.no_grad():
+            for i in range(min(number_samples, len(dataset))):
+                protein_id = dataset.protein_ids[i]
+                batch = dataset[i]
+
+                # Add batch dimension and move to device/dtype
+                batch = {k: v.unsqueeze(0) for k, v in batch.items()}
+                batch = self.set_input_dictionary_device(batch)
+                batch = self.set_input_dictionary_dtype(batch)
+
+                # Run inference
+                model_outputs = self.model(batch_input_dictionary=batch)
+
+                # Extract predicted positions and mask for the last cycle
+                # final_positions shape: (1, number_residues, 37, 3, number_cycles)
+                # position_mask shape: (1, number_residues, 37, number_cycles)
+                predicted_positions = model_outputs["final_positions"][0, ..., -1]
+                ground_truth_positions = batch["ground_truth_global_positions"][0, ...]
+
+                predicted_mask = model_outputs["position_mask"][0, ..., -1]
+
+                # Extract sequence labels and convert back to single-letter amino acid string
+                # sequence_labels shape: (1, number_residues)
+                sequence_indices = batch["sequence_labels"][0].cpu().numpy()
+                sequence = "".join([index_to_x[int(idx)] for idx in sequence_indices])
+
+                # Convert raw coordinates and mask to ModelCIF string format
+                cif_string = to_modelcif(atom_positions=predicted_positions,
+                                         atom_mask=predicted_mask,
+                                         sequence=sequence,
+                                         description="Model Prediction")
+                ground_truth_cif_string = to_modelcif(atom_positions=ground_truth_positions,
+                                                      atom_mask=predicted_mask,
+                                                      sequence=sequence,
+                                                      description="Ground Truth Structure")
+
+                # Save the predicted structural model to disk
+                output_path = output_directory / f"{protein_id}_prediction.cif"
+                with open(output_path, "w") as f:
+                    f.write(cif_string)
+
+                # Save the ground truth structural model to disk
+                ground_truth_output_path = output_directory / f"{protein_id}_ground_truth.cif"
+                with open(ground_truth_output_path, "w") as f:
+                    f.write(ground_truth_cif_string)
+
+                samples_processed += 1
+
+        print_green(f"Successfully saved {samples_processed} sample predictions to {output_directory}")
 
     def run_model_iteration(self, batch_input_dictionary: Dict[str, torch.Tensor],
                             writer: SummaryWriter, iteration: int,

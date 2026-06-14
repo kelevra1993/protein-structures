@@ -138,58 +138,85 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     return experiment_configuration, model_configuration
 
 
-def to_modelcif(atom_positions: torch.Tensor, atom_mask: torch.Tensor, sequence: str | list[str]) -> str:
+def to_modelcif(atom_positions: torch.Tensor, atom_mask: torch.Tensor, sequence: str | list[str],
+                description: str) -> str:
     """
-    Converts predicted atom positions to ModelCIF format.
+    Converts predicted atom positions into a ModelCIF-formatted string.
 
-    ModelCIF is an extension of the PDBx/mmCIF format used for macromolecular
-    structural models. This function prepares the predicted structure for
-    export and visualization.
+    ModelCIF is an extension of the mmCIF format specifically designed for 
+    computational structural models. This function maps raw tensor coordinates
+    to the correct amino acid atoms and generates a file that can be opened 
+    in visualization software like PyMOL or ChimeraX.
 
     Args:
-        atom_positions (torch.Tensor): Tensor containing the 3D coordinates
-            for all atoms in the protein.
-            Shape: (number_residues, number_atom_types, 3)
-        atom_mask (torch.Tensor): Binary mask indicating which atoms are
-            present/valid.
-            Shape: (number_residues, number_atom_types)
+        atom_positions (torch.Tensor): Predicted 3D coordinates for all atoms.
+            Expected shape: (number_residues, 37, 3).
+        atom_mask (torch.Tensor): Binary mask indicating valid predicted atoms.
+            Expected shape: (number_residues, 37).
         sequence (str | List[str]): The amino acid sequence of the protein.
 
     Returns:
-        str: A string containing the ModelCIF data in mmCIF format.
+        str: The complete ModelCIF data as a string.
     """
-    atom_positions = atom_positions.to('cpu').numpy()
-    atom_mask = atom_mask.to('cpu').numpy()
-    n = atom_positions.shape[0]
-    system = modelcif.System(title='AlphaFold prediction')
-    entity = modelcif.Entity(sequence, description='Model subunit')
-    asym_unit = modelcif.AsymUnit(entity, details='Model subunit A', id='A')
-    modeled_assembly = modelcif.Assembly([asym_unit], name='Modeled assembly')
+    # Move to CPU and convert to NumPy for compatibility with the modelcif library
+    atom_positions = atom_positions.to('cpu').detach().numpy()
+    atom_mask = atom_mask.to('cpu').detach().numpy()
 
-    class _MyModel(modelcif.model.AbInitioModel):
+    number_residues = atom_positions.shape[0]
+
+    # Initialize the ModelCIF system
+    system = modelcif.System(title=description)
+
+    # Define the protein entity and its sequence
+    # If sequence is a list of characters, join it into a string
+    if isinstance(sequence, list):
+        sequence = "".join(sequence)
+
+    entity = modelcif.Entity(sequence, description='Predicted Protein Chain')
+
+    # Define the asymmetric unit (the actual chain in the model)
+    asym_unit = modelcif.AsymUnit(entity, details='Model Chain A', id='A')
+
+    # Group chains into an assembly
+    modeled_assembly = modelcif.Assembly([asym_unit], name='Modeled Assembly')
+
+    # Define a custom Model class to yield individual atoms to the dumper
+    class _PredictedModel(modelcif.model.AbInitioModel):
         def get_atoms(self):
-            for i in range(n):
-                for atom_name, pos, mask in zip(atom_types, atom_positions[i], atom_mask[i]):
+            """
+            Generator that iterates through all residues and atoms, 
+            yielding only those that are valid according to the mask.
+            """
+            for residue_index in range(number_residues):
+                # We iterate through the standard 37 AlphaFold atom types
+                for atom_name, atom_position, mask in zip(atom_types, atom_positions[residue_index],
+                                                          atom_mask[residue_index]):
                     if not mask:
                         continue
-                    element = atom_name[0]
+
+                    # Get the element symbol (first letter of atom name, e.g., 'C' for 'CA')
+                    element_symbol = atom_name[0]
+
                     yield modelcif.model.Atom(
                         asym_unit=asym_unit,
-                        type_symbol=element,
-                        seq_id=i + 1,
+                        type_symbol=element_symbol,
+                        seq_id=residue_index + 1,  # PDB/CIF uses 1-based indexing for residues
                         atom_id=atom_name,
-                        x=pos[0], y=pos[1], z=pos[2],
-                        het=False,
-                        occupancy=1.00
+                        x=atom_position[0], y=atom_position[1], z=atom_position[2],
+                        het=False,  # Not a heteroatom
+                        occupancy=1.00  # Standard occupancy for models
                     )
 
-    model = _MyModel(assembly=modeled_assembly, name='Model')
-    model_group = modelcif.model.ModelGroup([model], name='All models')
+    # Create the model instance and add it to the system
+    model = _PredictedModel(assembly=modeled_assembly, name=description)
+    model_group = modelcif.model.ModelGroup([model], name='Atomic Models')
     system.model_groups.append(model_group)
-    fh = io.StringIO()
-    modelcif.dumper.write(fh, [system])
 
-    return fh.getvalue()
+    # Dump the system to a string buffer
+    string_buffer = io.StringIO()
+    modelcif.dumper.write(string_buffer, [system])
+
+    return string_buffer.getvalue()
 
 
 def print_blue(output: str, add_separators: bool = False) -> None:
