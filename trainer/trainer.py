@@ -347,13 +347,22 @@ class Trainer:
             validation_trackers = None
 
         training_iteration = self.start_iteration
+
+        # Periodic checkpointing for safety (backup)
+        # We save the model every 1/4 of the weight_saving_iterations to prevent significant
+        # data loss in case of an unexpected shutdown.
+        backup_interval = max(1, self.weight_saving_iterations // 4)
+
         try:
             for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
 
-                # Save the model and test it.
-                if training_iteration % self.weight_saving_iterations == 0:
+                # Periodic checkpointing for safety (backup)
+                if training_iteration % backup_interval == 0:
                     self.save_model(iteration=training_iteration)
-                    self.run_test_evaluation(iteration=training_iteration)
+
+                    # Only run the full test evaluation at the main weight_saving_iterations interval
+                    if training_iteration % self.weight_saving_iterations == 0:
+                        self.run_test_evaluation(iteration=training_iteration)
 
                 # Get next training elements
                 # Ensure that in case of stopIteration, just relaunch iterator
