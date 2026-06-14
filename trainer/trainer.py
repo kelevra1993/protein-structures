@@ -648,15 +648,99 @@ class Trainer:
         for loss_key, display_name in self.loss_names_mapping.items():
             writer.add_scalar(display_name, loss_dictionary[loss_key].item(), iteration)
 
-    def dump_training_information(self, iteration: int):
+    def store_graph_in_tensorboard(self):
         """
-        Dumps additional training metadata or intermediate results for debugging.
-        Currently a placeholder for future implementation.
+        Traces the model's forward pass using a sample batch and logs the resulting 
+        computational graph to TensorBoard. This provides a visual representation of 
+        the model architecture, which can be viewed in the "Graphs" tab.
+        """
+        print_yellow("Attempting to store model graph in TensorBoard...", add_separators=True)
+        try:
+            # Get a single batch of data to trace the graph
+            training_dataloader_iterator = iter(self.train_dataloader)
+            batch_input_dictionary = next(training_dataloader_iterator)
+
+            # Prepare the batch exactly as we would during training
+            batch_input_dictionary = self.set_input_dictionary_device(input_dictionary=batch_input_dictionary)
+            batch_input_dictionary = self.set_input_dictionary_dtype(input_dictionary=batch_input_dictionary)
+
+            # The add_graph function runs a forward pass through the model using the provided inputs.
+            # PyTorch's JIT tracer records operations during this pass to construct the graph.
+            # When passing keyword arguments (like our dictionary), they must be wrapped in a tuple.
+            self.training_writer.add_graph(self.model, (batch_input_dictionary,))
+
+            print_green("Successfully stored model graph in TensorBoard.")
+        except Exception as e:
+            # Tracing complex models with control flow or heavily nested dictionaries 
+            # can sometimes fail. We catch and print the error rather than crashing.
+            print_red(f"Failed to store model graph in TensorBoard. Error: {e}")
+
+    def run_profiling_loop(self, number_iterations: int = 10, wait: int = 1, warmup: int = 1,
+                           active: int = 3, repeat: int = 2, record_shapes: bool = True,
+                           profile_memory: bool = True, with_stack: bool = True):
+        """
+        Executes a localized training loop explicitly wrapped in the PyTorch Profiler.
+        This captures hardware-level metrics (GPU/CPU execution time, memory allocation)
+        and exports them to TensorBoard for performance bottleneck analysis.
 
         Args:
-            iteration (int): The current iteration index.
+            number_iterations (int): Total iterations for the profiling loop.
+            wait (int): Number of steps to skip before starting the profiler.
+            warmup (int): Number of steps to run the profiler but discard data 
+                          (allows caches/CUDA kernels to settle).
+            active (int): Number of steps to actively record tracing data.
+            repeat (int): Number of times to repeat the (wait -> warmup -> active) cycle.
+            record_shapes (bool): If True, captures tensor shapes (helps identify memory hogs).
+            profile_memory (bool): If True, tracks memory allocation/deallocation timelines.
+            with_stack (bool): If True, records the Python call stack alongside operations.
         """
-        pass
+        print_blue(f"Starting Profiling Loop for {number_iterations} iterations...", add_separators=True)
+
+        # Define where the profiler trace files (.pt.trace.json) should be saved.
+        # These files are natively read by the TensorBoard Profiler plugin.
+        profiler_directory = self.tensorboard_directory / "Profiler"
+        profiler_directory.mkdir(exist_ok=True, parents=True)
+
+        # Ensure model is in training mode
+        self.model.train()
+        training_dataloader_iterator = iter(self.train_dataloader)
+        tracker_dictionary = self.get_loss_trackers()
+
+        # Initialize the profiler context manager.
+        # - schedule: Determines when the profiler is active based on step counts.
+        # - on_trace_ready: A callback executed when a cycle completes; here we export to TensorBoard.
+        with torch.profiler.profile(
+                schedule=torch.profiler.schedule(wait=wait, warmup=warmup, active=active, repeat=repeat),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(str(profiler_directory)),
+                record_shapes=record_shapes, profile_memory=profile_memory, with_stack=with_stack) as profiler:
+
+            for iteration in tqdm(range(1, number_iterations + 1), desc="Profiling Iterations"):
+
+                try:
+                    batch_input_dictionary = next(training_dataloader_iterator)
+                except StopIteration:
+                    training_dataloader_iterator = iter(self.train_dataloader)
+                    batch_input_dictionary = next(training_dataloader_iterator)
+
+                # Reset gradients
+                self.optimizer.zero_grad()
+
+                # Forward pass: We use the existing iteration method which handles device 
+                # mapping and returns the calculated loss.
+                training_loss = self.run_model_iteration(batch_input_dictionary=batch_input_dictionary,
+                                                         writer=self.training_writer,
+                                                         iteration=iteration,
+                                                         tracker_dictionary=tracker_dictionary)
+
+                # Standard backward pass and optimizer step
+                training_loss.backward()
+                self.optimizer.step()
+
+                # Crucial step: Tells the profiler that one logical step (iteration) has completed.
+                # This advances the state machine (wait -> warmup -> active) defined in the schedule.
+                profiler.step()
+
+        print_green(f"Profiling completed. Trace data saved to: {profiler_directory}", add_separators=True)
 
     # Functions that have been added
     def print_model_size(self):
