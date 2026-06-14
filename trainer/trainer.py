@@ -527,10 +527,10 @@ class Trainer:
                 # shape: (1, number_residues, 37, 3)
                 ground_truth_positions = batch["ground_truth_global_positions"][0, ...]
 
-                # Extract sequence labels and convert back to single-letter amino acid string
+                # Extract sequence labels and convert back to single-letter amino acid list, replacing 'X' with 'UNK'
                 # sequence_labels shape: (1, number_residues)
                 sequence_indices = batch["sequence_labels"][0].cpu().numpy()
-                sequence = "".join([index_to_x[int(idx)] for idx in sequence_indices])
+                sequence = [index_to_x[int(idx)] if index_to_x[int(idx)] != 'X' else 'UNK' for idx in sequence_indices]
 
                 # Convert raw coordinates and mask to ModelCIF string format
                 # passing both prediction and ground truth to be saved as Chain A and Chain B

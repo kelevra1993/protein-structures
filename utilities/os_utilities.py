@@ -212,9 +212,6 @@ def to_modelcif(atom_positions: torch.Tensor, atom_mask: torch.Tensor, sequence:
     system = modelcif.System(title=description)
 
     # Define the protein entity and its sequence
-    if isinstance(sequence, list):
-        sequence = "".join(sequence)
-
     entity = modelcif.Entity(sequence, description='Protein Chain')
 
     # Define the asymmetric units (chains)
