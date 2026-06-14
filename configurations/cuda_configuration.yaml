@@ -1,6 +1,6 @@
 ExperimentConfiguration:
   experiment_parent_folder: "/home/robert_kelevra/Data/protein_project/protein_experiments"
-  experiment_name: "experiment_2"
+  experiment_name: "experiment_3"
   data_folder: "/home/robert_kelevra/Data/protein_project/protein_data/openfold_data"
   train_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_train_truncated.json"
   validation_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_validation_truncated.json"
@@ -8,8 +8,8 @@ ExperimentConfiguration:
   information_dump: 500
   weight_saving_iterations: 20000
   number_iterations: 1e10
-  compute_validation_iteration: true
-  learning_rate: 1.0e-3
+  compute_validation_iteration: false
+  learning_rate: 1.0e-4
   dtype: "float64"
   resume_training: true
   precompute_data: true
@@ -23,9 +23,9 @@ TrainDataConfiguration:
   mask_probability: 0.15  # 0.15 for alphafold
   acceptance_slope_start: 256  # 256 for alphafold
   acceptance_slope_end: 512  # 512 for alphafold
-  residue_crop_size: 64  # 256 for alphafold
+  residue_crop_size: 96  # 256 for alphafold
   distribution_threshold: 80  # 80 for alphafold
-  emphasize_beginning_crops: true  # true for alphafold
+  emphasize_beginning_crops: false  # true for alphafold
   number_recycle_cycles: 3  # 3 for alphafold
   use_single_representative: true  # true for alphafold
 
@@ -37,7 +37,7 @@ ValidationDataConfiguration:
   mask_probability: 0.0  # 0.0 for alphafold
   acceptance_slope_start: 256  # 256 for alphafold
   acceptance_slope_end: 512  # 512 for alphafold
-  residue_crop_size: 64  # null for alphafold
+  residue_crop_size: 96  # 256 for alphafold
   distribution_threshold: 80  # 80 for alphafold
   emphasize_beginning_crops: false  # false for alphafold
   number_recycle_cycles: 3  # 3 for alphafold
@@ -51,17 +51,17 @@ TestDataConfiguration:
   mask_probability: 0.0  # 0.0 for alphafold
   acceptance_slope_start: 256  # 256 for alphafold
   acceptance_slope_end: 512  # 512 for alphafold
-  residue_crop_size: 64  # null for alphafold
+  residue_crop_size: 96  # 256 for alphafold
   distribution_threshold: 80  # 80 for alphafold
   emphasize_beginning_crops: false  # false for alphafold
   number_recycle_cycles: 3  # 3 for alphafold
   use_single_representative: false  # true for alphafold
 
 GlobalConfiguration:
-  msa_embedding: 8  # 256 for alphafold
-  pair_representation_embedding: 8  # 128 for alphafold
-  extra_msa_embedding: 8  # 64 for alphafold
-  single_representation_embedding: 8  # 384 for alphafold
+  msa_embedding: 32  # 256 for alphafold
+  pair_representation_embedding: 32  # 128 for alphafold
+  extra_msa_embedding: 32  # 64 for alphafold
+  single_representation_embedding: 32  # 384 for alphafold
   input_sequence_feature_dimension: 21  # 21 for alphafold
   input_msa_feature_dimension: 49  # 49 for alphafold
   input_extra_msa_feature_dimension: 25  # 25 for alphafold
