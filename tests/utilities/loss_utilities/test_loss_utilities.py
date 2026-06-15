@@ -129,7 +129,7 @@ def test_compute_fape_loss_known_values():
         (torch.arange(number_residues + 1, 1, -1)).unsqueeze(dim=-1)).to(torch.float64).unsqueeze(0).repeat(batch_size,
                                                                                                             1, 1)
 
-    fape_loss = compute_fape_loss(predicted_transformation_matrix=pred_tr_m,
+    fape_loss, _ = compute_fape_loss(predicted_transformation_matrix=pred_tr_m,
                                   predicted_positions=pred_carbon_alpha_positions,
                                   ground_truth_transformation_matrix=gt_tr_m,
                                   ground_truth_positions=gt_carbon_alpha_positions,
@@ -154,7 +154,7 @@ def test_compute_fape_loss_identical_inputs():
     pred_tr_m = torch.eye(4).unsqueeze(dim=0).repeat(batch_size, number_residues, 1, 1)
     pred_pos = torch.randn(batch_size, number_residues, 3)
 
-    fape_loss = compute_fape_loss(predicted_transformation_matrix=pred_tr_m,
+    fape_loss, _ = compute_fape_loss(predicted_transformation_matrix=pred_tr_m,
                                   predicted_positions=pred_pos,
                                   ground_truth_transformation_matrix=pred_tr_m.clone(),
                                   ground_truth_positions=pred_pos.clone(),
@@ -176,7 +176,7 @@ def test_compute_fape_loss_batch_shapes():
     tr_m_no_batch = torch.eye(4).unsqueeze(0).repeat(number_residues, 1, 1)
     pos_no_batch = torch.randn(number_residues, 3)
 
-    loss_no_batch = compute_fape_loss(predicted_transformation_matrix=tr_m_no_batch,
+    loss_no_batch, _ = compute_fape_loss(predicted_transformation_matrix=tr_m_no_batch,
                                       predicted_positions=pos_no_batch,
                                       ground_truth_transformation_matrix=tr_m_no_batch.clone(),
                                       ground_truth_positions=pos_no_batch.clone(),
@@ -188,7 +188,7 @@ def test_compute_fape_loss_batch_shapes():
     tr_m_1d = tr_m_no_batch.unsqueeze(0).repeat(batch_size_1d, 1, 1, 1)
     pos_1d = pos_no_batch.unsqueeze(0).repeat(batch_size_1d, 1, 1)
 
-    loss_1d = compute_fape_loss(predicted_transformation_matrix=tr_m_1d,
+    loss_1d, _ = compute_fape_loss(predicted_transformation_matrix=tr_m_1d,
                                 predicted_positions=pos_1d,
                                 ground_truth_transformation_matrix=tr_m_1d.clone(),
                                 ground_truth_positions=pos_1d.clone(),
@@ -200,7 +200,7 @@ def test_compute_fape_loss_batch_shapes():
     tr_m_2d = tr_m_no_batch.unsqueeze(0).unsqueeze(0).repeat(batch_size_2d_1, batch_size_2d_2, 1, 1, 1)
     pos_2d = pos_no_batch.unsqueeze(0).unsqueeze(0).repeat(batch_size_2d_1, batch_size_2d_2, 1, 1)
 
-    loss_2d = compute_fape_loss(predicted_transformation_matrix=tr_m_2d,
+    loss_2d, _ = compute_fape_loss(predicted_transformation_matrix=tr_m_2d,
                                 predicted_positions=pos_2d,
                                 ground_truth_transformation_matrix=tr_m_2d.clone(),
                                 ground_truth_positions=pos_2d.clone(),
@@ -222,7 +222,7 @@ def test_compute_fape_loss_clamping():
     pred_pos = torch.zeros(batch_size, number_residues, 3)
     gt_pos = torch.ones(batch_size, number_residues, 3) * 100.0  # Far away
 
-    fape_loss = compute_fape_loss(predicted_transformation_matrix=tr_m,
+    fape_loss, _ = compute_fape_loss(predicted_transformation_matrix=tr_m,
                                   predicted_positions=pred_pos,
                                   ground_truth_transformation_matrix=tr_m,
                                   ground_truth_positions=gt_pos,

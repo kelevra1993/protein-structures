@@ -8,7 +8,7 @@ from utilities.geometry_utilities import invert_4x4_transform_matrix, apply_tran
 def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_positions: torch.Tensor,
                       ground_truth_transformation_matrix: torch.Tensor, ground_truth_positions: torch.Tensor,
                       mask: torch.Tensor = None,
-                      length_scaler: int = 10, epsilon: float = 1e-8, distance_clamp: float = 10.0):
+                      length_scaler: int = 10, epsilon: float = 1e-8, distance_clamp: float = 10.0) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Computes the Frame Aligned Point Error (FAPE) loss between predicted and ground truth structures.
 
@@ -36,6 +36,8 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
 
     Returns:
         fape_loss: The computed FAPE loss value for each batch.
+            Shape: (*batch_dims)
+        unclamped_fape: The computed unclamped FAPE loss value for each batch (scaled by 1.0).
             Shape: (*batch_dims)
     """
     batch_shape = predicted_transformation_matrix.shape[:-3]
@@ -66,25 +68,30 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
 
     # Compute distance (while adding a small epsilon to avoid derivatives at 0)
     # Clamp the distance accordingly and compute the mean on the width and height.
-    squared_norm_tensor = torch.linalg.vector_norm((transformed_predictions - transformed_ground_truths), dim=-1) ** 2
-    distance_matrix = torch.clamp(torch.sqrt(squared_norm_tensor + epsilon), max=distance_clamp)
+    unclamped_distance_matrix = torch.sqrt(
+        torch.linalg.vector_norm((transformed_predictions - transformed_ground_truths), dim=-1) ** 2 + epsilon)
+    clamped_distance_matrix = torch.clamp(unclamped_distance_matrix, max=distance_clamp)
 
     if mask is not None:
         # A pair (i, j) is valid only if both residue i and residue j are valid
         pair_mask = mask.unsqueeze(dim=-1) * mask.unsqueeze(dim=-2)
 
         # Apply mask to distance matrix
-        distance_matrix = distance_matrix * pair_mask
+        clamped_distance_matrix = clamped_distance_matrix * pair_mask
+        unclamped_distance_matrix = unclamped_distance_matrix * pair_mask
 
         # Compute the mean over valid pairs
         # Add epsilon to the denominator to prevent division by zero if mask is entirely empty
-        fape_loss = torch.sum(distance_matrix, dim=[-2, -1]) / (torch.sum(pair_mask, dim=[-2, -1]) + epsilon)
+        pair_mask_sum = torch.sum(pair_mask, dim=[-2, -1]) + epsilon
+        fape_loss = torch.sum(clamped_distance_matrix, dim=[-2, -1]) / pair_mask_sum
+        unclamped_fape = torch.sum(unclamped_distance_matrix, dim=[-2, -1]) / pair_mask_sum
     else:
-        fape_loss = torch.mean(distance_matrix, dim=[-2, -1])
+        fape_loss = torch.mean(clamped_distance_matrix, dim=[-2, -1])
+        unclamped_fape = torch.mean(unclamped_distance_matrix, dim=[-2, -1])
 
     fape_loss = fape_loss / length_scaler
 
-    return fape_loss
+    return fape_loss, unclamped_fape
 
 
 def compute_distogram_loss(distogram_logits: torch.Tensor, distogram_labels: torch.Tensor) -> torch.Tensor:

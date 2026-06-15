@@ -518,7 +518,7 @@ class StructureModule(nn.Module):
 
             # Note we are only using the backbone transformation matrices
             # Note we are only using carbon alpha global positions as inputs
-            iteration_fape_loss = compute_fape_loss(
+            iteration_fape_loss, _ = compute_fape_loss(
                 predicted_transformation_matrix=transformation_matrix,
                 predicted_positions=translation_matrix,
                 ground_truth_transformation_matrix=ground_truth_backbone_transformation_matrix,
@@ -605,23 +605,13 @@ class StructureModule(nn.Module):
                 # We use the configured distance_clamp. For AlphaFold II, the final FAPE 
                 # should be unclamped (distance_clamp=1e10), but we keep it configurable 
                 # to maintain backward compatibility with existing tests.
-                frame_atom_fape_loss = compute_fape_loss(
+                frame_atom_fape_loss, frame_atom_unclamped_fape = compute_fape_loss(
                     predicted_transformation_matrix=current_predicted_frame,
                     predicted_positions=current_predicted_positions,
                     mask=current_position_masks,
                     ground_truth_transformation_matrix=current_ground_truth_frame,
                     ground_truth_positions=current_ground_truth_positions,
                     distance_clamp=self.clamp_fape_threshold if self.clamp_fape_loss else 1e10)
-
-                # Track physical FAPE (unclamped, scaler=1.0)
-                frame_atom_unclamped_fape = compute_fape_loss(
-                    predicted_transformation_matrix=current_predicted_frame,
-                    predicted_positions=current_predicted_positions,
-                    mask=current_position_masks,
-                    ground_truth_transformation_matrix=current_ground_truth_frame,
-                    ground_truth_positions=current_ground_truth_positions,
-                    length_scaler=1,
-                    distance_clamp=1e10)
 
                 overall_fape_loss = overall_fape_loss + torch.mean(frame_atom_fape_loss)
                 unclamped_fape_metric = unclamped_fape_metric + torch.mean(frame_atom_unclamped_fape)
