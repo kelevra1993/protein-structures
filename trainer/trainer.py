@@ -629,8 +629,8 @@ class Trainer:
 
         # Log data to tensorboard (per-iteration)
         self.log_metrics_to_tensorboard(writer=writer,
-                                       iteration=iteration,
-                                       metric_dictionary=metric_dictionary)
+                                        iteration=iteration,
+                                        metric_dictionary=metric_dictionary)
 
         return total_loss
 
@@ -659,7 +659,7 @@ class Trainer:
         self.dump_in_checkpoint(iteration=iteration)
 
     def log_metrics_to_tensorboard(self, writer: SummaryWriter, iteration: int,
-                                  metric_dictionary: Dict[str, torch.Tensor]):
+                                   metric_dictionary: Dict[str, torch.Tensor]):
         """
         Logs individual metric components and total loss to TensorBoard.
 
@@ -670,33 +670,6 @@ class Trainer:
         """
         for metric_key, display_name in self.tracked_metrics_mapping.items():
             writer.add_scalar(display_name, metric_dictionary[metric_key].item(), iteration)
-
-    def store_graph_in_tensorboard(self):
-        """
-        Traces the model's forward pass using a sample batch and logs the resulting 
-        computational graph to TensorBoard. This provides a visual representation of 
-        the model architecture, which can be viewed in the "Graphs" tab.
-        """
-        print_yellow("Attempting to store model graph in TensorBoard...", add_separators=True)
-        try:
-            # Get a single batch of data to trace the graph
-            training_dataloader_iterator = iter(self.train_dataloader)
-            batch_input_dictionary = next(training_dataloader_iterator)
-
-            # Prepare the batch exactly as we would during training
-            batch_input_dictionary = self.set_input_dictionary_device(input_dictionary=batch_input_dictionary)
-            batch_input_dictionary = self.set_input_dictionary_dtype(input_dictionary=batch_input_dictionary)
-
-            # The add_graph function runs a forward pass through the model using the provided inputs.
-            # PyTorch's JIT tracer records operations during this pass to construct the graph.
-            # When passing keyword arguments (like our dictionary), they must be wrapped in a tuple.
-            self.training_writer.add_graph(self.model, (batch_input_dictionary,))
-
-            print_green("Successfully stored model graph in TensorBoard.")
-        except Exception as e:
-            # Tracing complex models with control flow or heavily nested dictionaries 
-            # can sometimes fail. We catch and print the error rather than crashing.
-            print_red(f"Failed to store model graph in TensorBoard. Error: {e}")
 
     def run_profiling_loop(self, number_iterations: int = 10, wait: int = 1, warmup: int = 1,
                            active: int = 3, repeat: int = 2, record_shapes: bool = True,
