@@ -16,6 +16,7 @@ dependencies = [
     "matplotlib >= 3.10.9",
     "plotly >= 6.8.0",
     "tensorboard >= 2.20.0",
+    "torch-tb-profiler>=0.4.3",
 ]
 
 [tool.pytest.ini_options]
