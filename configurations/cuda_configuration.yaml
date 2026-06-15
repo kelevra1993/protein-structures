@@ -5,7 +5,7 @@ ExperimentConfiguration:
   train_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_train_truncated.json"
   validation_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_validation_truncated.json"
   test_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_test_truncated.json"
-  information_dump: 500
+  information_dump: 2000
   weight_saving_iterations: 20000
   number_iterations: 1e10
   compute_validation_iteration: false
@@ -58,6 +58,8 @@ TestDataConfiguration:
   use_single_representative: false  # true for alphafold
 
 GlobalConfiguration:
+  clamp_fape_loss: true                                 # Clamp intermediate FAPE loss to improve stability
+  clamp_fape_threshold: 10.0                            # Distance threshold in Angstroms for FAPE clamping
   msa_embedding: 32  # 256 for alphafold
   pair_representation_embedding: 32  # 128 for alphafold
   extra_msa_embedding: 32  # 64 for alphafold

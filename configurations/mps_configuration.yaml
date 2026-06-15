@@ -58,6 +58,8 @@ TestDataConfiguration:
   use_single_representative: false  # true for alphafold
 
 GlobalConfiguration:
+  clamp_fape_loss: true                                 # Clamp intermediate FAPE loss to improve stability
+  clamp_fape_threshold: 10.0                            # Distance threshold in Angstroms for FAPE clamping
   msa_embedding: 4  # 256 for alphafold
   pair_representation_embedding: 4  # 128 for alphafold
   extra_msa_embedding: 4  # 64 for alphafold

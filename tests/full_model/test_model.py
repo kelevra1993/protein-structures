@@ -52,7 +52,9 @@ def test_model():
             'single_representation_embedding': single_representation_embedding,
             'input_sequence_feature_dimension': input_sequence_feature_dimension,
             'input_msa_feature_dimension': msa_feature_dimension,
-            'input_extra_msa_feature_dimension': input_extra_msa_feature_dimension
+            'input_extra_msa_feature_dimension': input_extra_msa_feature_dimension,
+            'clamp_fape_loss': True,
+            'clamp_fape_threshold': 10.0
         },
         'InputEmbedder': {
             'number_neighbouring_amino_acids': 32
@@ -130,6 +132,7 @@ def test_model():
                              "model_auxillary_loss",
                              "model_predicted_lddt_loss",
                              "model_true_lddt",
+                             "model_unclamped_fape",
                              "model_distogram_logits"],
         reference_folder=reference_folder,
         batch_size=batch_size,

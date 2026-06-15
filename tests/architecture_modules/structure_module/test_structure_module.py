@@ -50,6 +50,8 @@ def test_structure_module_forward():
         number_value_points=8,  # 8
         number_heads=12,  # 12
         head_embedding_dimension=16,  # 16
+        clamp_fape_loss=True,
+        clamp_fape_threshold=10.0
     )
 
     # setup ground truth data
@@ -94,7 +96,8 @@ def test_structure_module_forward():
         "structure_module_overall_fape_loss",
         "structure_module_auxillary_loss",
         "structure_module_predicted_lddt_loss",
-        "structure_module_true_lddt"
+        "structure_module_true_lddt",
+        "structure_module_unclamped_fape"
     ]
 
     check_nn_module_method(

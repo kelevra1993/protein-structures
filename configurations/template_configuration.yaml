@@ -58,6 +58,8 @@ TestDataConfiguration:
   use_single_representative: true
 
 GlobalConfiguration:
+  clamp_fape_loss: true                                 # Clamp intermediate FAPE loss to improve stability
+  clamp_fape_threshold: 10.0                            # Distance threshold in Angstroms for FAPE clamping
   msa_embedding: 256
   pair_representation_embedding: 128
   extra_msa_embedding: 64

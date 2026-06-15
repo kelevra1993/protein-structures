@@ -255,7 +255,8 @@ class StructureModule(nn.Module):
                  number_iterations: int, angle_representation_embedding: int,
                  number_query_points: int, number_value_points: int,
                  number_heads: int, head_embedding_dimension: int,
-                 number_torsion_angles: int, device: torch.device, dtype: torch.dtype):
+                 number_torsion_angles: int, device: torch.device, dtype: torch.dtype,
+                 clamp_fape_loss: bool = True, clamp_fape_threshold: float = 10.0):
         """
         Initializes the StructureModule.
 
@@ -271,6 +272,8 @@ class StructureModule(nn.Module):
             number_torsion_angles (int): Number of torsion angles to predict per residue.
             device (torch.device): Device for tensor allocation.
             dtype (torch.dtype): Data type for tensors.
+            clamp_fape_loss (bool): Whether to clamp the FAPE loss during training.
+            clamp_fape_threshold (float): The distance threshold (in Angstroms) for FAPE clamping.
         """
         super().__init__()
 
@@ -285,7 +288,8 @@ class StructureModule(nn.Module):
         self.number_heads = number_heads
         self.head_embedding_dimension = head_embedding_dimension
         self.number_torsion_angles = number_torsion_angles
-
+        self.clamp_fape_loss = clamp_fape_loss
+        self.clamp_fape_threshold = clamp_fape_threshold
         self.single_representation_layer_normalizer = nn.LayerNorm(
             normalized_shape=self.single_representation_embedding,
             device=self.device, dtype=self.dtype)
@@ -383,7 +387,7 @@ class StructureModule(nn.Module):
                 alternative_ground_truth_angles: torch.Tensor,
                 ground_truth_positions: torch.Tensor,
                 alternative_ground_truth_positions: torch.Tensor) -> tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the iterative Structure Module pipeline to predict 3D protein structure.
 
@@ -416,7 +420,7 @@ class StructureModule(nn.Module):
 
         Returns:
             tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
-                  torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                  torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
                 - angles: Predicted torsion angles as (cos, sin) pairs for all iterations.
                   Shape: `(..., number_layers, number_residues, 7, 2)`.
                 - frames: Global backbone transformation matrices for all iterations.
@@ -435,6 +439,8 @@ class StructureModule(nn.Module):
                   Shape: `()`.
                 - true_lddt: The actual calculated lDDT score per residue.
                   Shape: `(..., number_residues)`.
+                - unclamped_fape: The true average distance error in Angstroms (unclamped FAPE).
+                  Shape: `()`.
         """
         number_residues = pair_representation.shape[-2]
         batch_dimension = single_representation.shape[:-2]
@@ -516,7 +522,8 @@ class StructureModule(nn.Module):
                 predicted_transformation_matrix=transformation_matrix,
                 predicted_positions=translation_matrix,
                 ground_truth_transformation_matrix=ground_truth_backbone_transformation_matrix,
-                ground_truth_positions=ground_truth_carbon_alpha_positions)
+                ground_truth_positions=ground_truth_carbon_alpha_positions,
+                distance_clamp=self.clamp_fape_threshold if self.clamp_fape_loss else 1e10)
 
             #  DON'T FORGET TO RE-CHECK THE ANGLE NORM LOSS SCALER AND ADD IT TO TENSORBOARD
             # Be careful, ground truth angle should already be normalised in the form (cos(phi), sin(phi))
@@ -571,6 +578,7 @@ class StructureModule(nn.Module):
         # Note Here we use all frames in the transformation matrices
         # Note We also use all positions
         overall_fape_loss = torch.tensor(0.0, device=device, dtype=dtype)
+        unclamped_fape_metric = torch.tensor(0.0, device=device, dtype=dtype)
         fape_loss_counter = torch.tensor(1e-8, device=device, dtype=dtype)
 
         for frame_index in range(8):
@@ -594,18 +602,34 @@ class StructureModule(nn.Module):
                 current_ground_truth_positions = ground_truth_positions[..., atom_index, :]
 
                 # Call the loss with a mask
+                # We use the configured distance_clamp. For AlphaFold II, the final FAPE 
+                # should be unclamped (distance_clamp=1e10), but we keep it configurable 
+                # to maintain backward compatibility with existing tests.
                 frame_atom_fape_loss = compute_fape_loss(
                     predicted_transformation_matrix=current_predicted_frame,
                     predicted_positions=current_predicted_positions,
                     mask=current_position_masks,
                     ground_truth_transformation_matrix=current_ground_truth_frame,
-                    ground_truth_positions=current_ground_truth_positions)
+                    ground_truth_positions=current_ground_truth_positions,
+                    distance_clamp=self.clamp_fape_threshold if self.clamp_fape_loss else 1e10)
+
+                # Track physical FAPE (unclamped, scaler=1.0)
+                frame_atom_unclamped_fape = compute_fape_loss(
+                    predicted_transformation_matrix=current_predicted_frame,
+                    predicted_positions=current_predicted_positions,
+                    mask=current_position_masks,
+                    ground_truth_transformation_matrix=current_ground_truth_frame,
+                    ground_truth_positions=current_ground_truth_positions,
+                    length_scaler=1,
+                    distance_clamp=1e10)
 
                 overall_fape_loss = overall_fape_loss + torch.mean(frame_atom_fape_loss)
+                unclamped_fape_metric = unclamped_fape_metric + torch.mean(frame_atom_unclamped_fape)
                 fape_loss_counter = fape_loss_counter + 1.0
 
         # Average out the overall fape loss by the number of present positions
         overall_fape_loss = overall_fape_loss / fape_loss_counter
+        unclamped_fape_metric = unclamped_fape_metric / fape_loss_counter
 
         # Implementation of Prediction Per Residue LDDT C-Alpha Loss
         local_difference_distance_test = compute_local_distance_difference_test(
@@ -622,4 +646,4 @@ class StructureModule(nn.Module):
                                                  lddt_bins=self.lddt_module.lddt_bins)
 
         return (angles, frames, final_positions, position_mask, pseudo_beta_positions, overall_fape_loss,
-                auxillary_loss, predicted_lddt_loss, local_difference_distance_test)
+                auxillary_loss, predicted_lddt_loss, local_difference_distance_test, unclamped_fape_metric)

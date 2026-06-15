@@ -104,6 +104,8 @@ class Model(nn.Module):
             number_heads=structure_module_configuration.get('number_heads'),
             head_embedding_dimension=structure_module_configuration.get('head_embedding_dimension'),
             number_torsion_angles=structure_module_configuration.get('number_torsion_angles'),
+            clamp_fape_loss=global_configuration.get('clamp_fape_loss', True),
+            clamp_fape_threshold=global_configuration.get('clamp_fape_threshold', 10.0),
             device=self.device,
             dtype=self.dtype)
 
@@ -150,6 +152,7 @@ class Model(nn.Module):
             * auxillary_loss: Auxiliary loss.
             * predicted_lddt_loss: Predicted LDDT loss.
             * true_lddt: Actual calculated lDDT score per residue.
+            * unclamped_fape: The true average distance error in Angstroms (unclamped FAPE).
             * distogram_logits: Distance bin logits of shape (*, number_residues, number_residues, 64).
         """
 
@@ -160,7 +163,7 @@ class Model(nn.Module):
         # Model outputs emanating from structure module
         model_outputs = {key: [] for key in
                          ["angles", "frames", "final_positions", "position_mask", "pseudo_beta_positions",
-                          "overall_fape_loss", "auxillary_loss", "predicted_lddt_loss", "true_lddt"]}
+                          "overall_fape_loss", "auxillary_loss", "predicted_lddt_loss", "true_lddt", "unclamped_fape"]}
 
         # Initialisation of first tensors
         msa_shape = (batch_shape + (number_clusters, number_residues, self.msa_embedding))
@@ -223,7 +226,7 @@ class Model(nn.Module):
             sequence_amino_acid_labels = current_cycle_input_batch["sequence_labels"]
 
             (angles, frames, final_positions, position_mask, pseudo_beta_positions,
-             overall_fape_loss, auxillary_loss, predicted_lddt_loss, true_lddt) = self.structure_module(
+             overall_fape_loss, auxillary_loss, predicted_lddt_loss, true_lddt, unclamped_fape) = self.structure_module(
                 single_representation=single_representation_tensor,
                 pair_representation=pair_representation_tensor,
                 sequence_amino_acid_labels=sequence_amino_acid_labels,
@@ -249,6 +252,7 @@ class Model(nn.Module):
             model_outputs["auxillary_loss"].append(auxillary_loss)
             model_outputs["predicted_lddt_loss"].append(predicted_lddt_loss)
             model_outputs["true_lddt"].append(true_lddt)
+            model_outputs["unclamped_fape"].append(unclamped_fape)
 
         # Stack all tensors emanating from different cycles
         model_outputs = {key: torch.stack(value, dim=-1) for key, value in model_outputs.items()}
