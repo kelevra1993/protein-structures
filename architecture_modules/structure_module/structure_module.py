@@ -256,7 +256,7 @@ class StructureModule(nn.Module):
                  number_query_points: int, number_value_points: int,
                  number_heads: int, head_embedding_dimension: int,
                  number_torsion_angles: int, device: torch.device, dtype: torch.dtype,
-                 clamp_fape_loss: bool = True, clamp_fape_threshold: float = 10.0):
+                 unclamp_fape_ratio: float = 0.1, enable_side_chain_fape_loss: bool = True, clamp_fape_threshold: float = 10.0):
         """
         Initializes the StructureModule.
 
@@ -272,7 +272,8 @@ class StructureModule(nn.Module):
             number_torsion_angles (int): Number of torsion angles to predict per residue.
             device (torch.device): Device for tensor allocation.
             dtype (torch.dtype): Data type for tensors.
-            clamp_fape_loss (bool): Whether to clamp the FAPE loss during training.
+            unclamp_fape_ratio (float): The probability to unclamp the FAPE loss.
+            enable_side_chain_fape_loss (bool): Whether to compute the all-atom/side-chain FAPE loss.
             clamp_fape_threshold (float): The distance threshold (in Angstroms) for FAPE clamping.
         """
         super().__init__()
@@ -288,7 +289,8 @@ class StructureModule(nn.Module):
         self.number_heads = number_heads
         self.head_embedding_dimension = head_embedding_dimension
         self.number_torsion_angles = number_torsion_angles
-        self.clamp_fape_loss = clamp_fape_loss
+        self.unclamp_fape_ratio = unclamp_fape_ratio
+        self.enable_side_chain_fape_loss = enable_side_chain_fape_loss
         self.clamp_fape_threshold = clamp_fape_threshold
         self.single_representation_layer_normalizer = nn.LayerNorm(
             normalized_shape=self.single_representation_embedding,
@@ -482,6 +484,13 @@ class StructureModule(nn.Module):
         transformation_matrix = (torch.eye(4, device=device, dtype=dtype).
                                  broadcast_to(batch_dimension + (number_residues, 4, 4)))
 
+        # Determine backbone clamping for this batch based on AlphaFold II paper:
+        # "In 90% of training mini-batches the FAPE backbone loss is clamped by emax = 10 A, 
+        # in the remaining 10% it is not clamped, emax = +inf. For side-chains it is always clamped by emax = 10 A."
+        clamp_current_backbone = torch.rand(1).item() >= self.unclamp_fape_ratio
+        backbone_distance_clamp = self.clamp_fape_threshold if clamp_current_backbone else 1e10
+        sidechain_distance_clamp = self.clamp_fape_threshold
+
         # Losses
         auxillary_loss = torch.tensor(0.0, dtype=self.dtype, device=self.device)
 
@@ -523,7 +532,7 @@ class StructureModule(nn.Module):
                 predicted_positions=translation_matrix,
                 ground_truth_transformation_matrix=ground_truth_backbone_transformation_matrix,
                 ground_truth_positions=ground_truth_carbon_alpha_positions,
-                distance_clamp=self.clamp_fape_threshold if self.clamp_fape_loss else 1e10)
+                distance_clamp=backbone_distance_clamp)
 
             #  DON'T FORGET TO RE-CHECK THE ANGLE NORM LOSS SCALER AND ADD IT TO TENSORBOARD
             # Be careful, ground truth angle should already be normalised in the form (cos(phi), sin(phi))
@@ -581,45 +590,50 @@ class StructureModule(nn.Module):
         unclamped_fape_metric = torch.tensor(0.0, device=device, dtype=dtype)
         fape_loss_counter = torch.tensor(1e-8, device=device, dtype=dtype)
 
-        for frame_index in range(8):
-
-            # Get the Current Frame Matrix from (..., number_residues, 8, 4, 4) -> (..., number_residues, 4, 4)`
-            current_predicted_frame = global_transformation_matrices[..., frame_index, :, :]
-            current_ground_truth_frame = ground_truth_transformation_matrix[..., frame_index, :, :]
-
-            # Go through all atom types
-            for atom_index in range(37):
-
-                # Implementation of the mask of size (batch, number_residues)
-                current_position_masks = position_mask[..., atom_index]
-
-                # If all the atom is not present for any residue in the batch, do not compute fape loss
-                if not current_position_masks.any():
-                    continue
-
-                # Get ground truth current positions
-                current_predicted_positions = final_positions[..., atom_index, :]
-                current_ground_truth_positions = ground_truth_positions[..., atom_index, :]
-
-                # Call the loss with a mask
-                # We use the configured distance_clamp. For AlphaFold II, the final FAPE 
-                # should be unclamped (distance_clamp=1e10), but we keep it configurable 
-                # to maintain backward compatibility with existing tests.
-                frame_atom_fape_loss, frame_atom_unclamped_fape = compute_fape_loss(
-                    predicted_transformation_matrix=current_predicted_frame,
-                    predicted_positions=current_predicted_positions,
-                    mask=current_position_masks,
-                    ground_truth_transformation_matrix=current_ground_truth_frame,
-                    ground_truth_positions=current_ground_truth_positions,
-                    distance_clamp=self.clamp_fape_threshold if self.clamp_fape_loss else 1e10)
-
-                overall_fape_loss = overall_fape_loss + torch.mean(frame_atom_fape_loss)
-                unclamped_fape_metric = unclamped_fape_metric + torch.mean(frame_atom_unclamped_fape)
-                fape_loss_counter = fape_loss_counter + 1.0
-
-        # Average out the overall fape loss by the number of present positions
-        overall_fape_loss = overall_fape_loss / fape_loss_counter
-        unclamped_fape_metric = unclamped_fape_metric / fape_loss_counter
+        # The computation of the side chain fape loss takes alot of time
+        # We might initially want to ingore it and only launch it at later stages of refining structure.
+        if self.enable_side_chain_fape_loss:
+            for frame_index in range(8):
+    
+                # Get the Current Frame Matrix from (..., number_residues, 8, 4, 4) -> (..., number_residues, 4, 4)`
+                current_predicted_frame = global_transformation_matrices[..., frame_index, :, :]
+                current_ground_truth_frame = ground_truth_transformation_matrix[..., frame_index, :, :]
+    
+                # Go through all atom types
+                for atom_index in range(37):
+    
+                    # Implementation of the mask of size (batch, number_residues)
+                    current_position_masks = position_mask[..., atom_index]
+    
+                    # If all the atom is not present for any residue in the batch, do not compute fape loss
+                    if not current_position_masks.any():
+                        continue
+    
+                    # Get ground truth current positions
+                    current_predicted_positions = final_positions[..., atom_index, :]
+                    current_ground_truth_positions = ground_truth_positions[..., atom_index, :]
+    
+                    # In AlphaFold 2, backbone FAPE uses backbone frames (frame 0) and backbone atoms (N, CA, C, CB, O)
+                    # Atom types list indices: 0:N, 1:CA, 2:C, 3:CB, 4:O
+                    is_backbone_fape = (frame_index == 0) and (atom_index in [0, 1, 2, 3, 4])
+                    side_chain_distance_clamp = backbone_distance_clamp if is_backbone_fape else sidechain_distance_clamp
+    
+                    # Call the loss with a mask
+                    frame_atom_fape_loss, frame_atom_unclamped_fape = compute_fape_loss(
+                        predicted_transformation_matrix=current_predicted_frame,
+                        predicted_positions=current_predicted_positions,
+                        mask=current_position_masks,
+                        ground_truth_transformation_matrix=current_ground_truth_frame,
+                        ground_truth_positions=current_ground_truth_positions,
+                        distance_clamp=side_chain_distance_clamp)
+    
+                    overall_fape_loss = overall_fape_loss + torch.mean(frame_atom_fape_loss)
+                    unclamped_fape_metric = unclamped_fape_metric + torch.mean(frame_atom_unclamped_fape)
+                    fape_loss_counter = fape_loss_counter + 1.0
+    
+            # Average out the overall fape loss by the number of present positions
+            overall_fape_loss = overall_fape_loss / fape_loss_counter
+            unclamped_fape_metric = unclamped_fape_metric / fape_loss_counter
 
         # Implementation of Prediction Per Residue LDDT C-Alpha Loss
         local_difference_distance_test = compute_local_distance_difference_test(

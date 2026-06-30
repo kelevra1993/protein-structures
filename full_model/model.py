@@ -104,7 +104,8 @@ class Model(nn.Module):
             number_heads=structure_module_configuration.get('number_heads'),
             head_embedding_dimension=structure_module_configuration.get('head_embedding_dimension'),
             number_torsion_angles=structure_module_configuration.get('number_torsion_angles'),
-            clamp_fape_loss=global_configuration.get('clamp_fape_loss', True),
+            unclamp_fape_ratio=global_configuration.get('unclamp_fape_ratio', 0.1),
+            enable_side_chain_fape_loss=global_configuration.get('enable_side_chain_fape_loss', True),
             clamp_fape_threshold=global_configuration.get('clamp_fape_threshold', 10.0),
             device=self.device,
             dtype=self.dtype)
