@@ -53,7 +53,8 @@ def test_model():
             'input_sequence_feature_dimension': input_sequence_feature_dimension,
             'input_msa_feature_dimension': msa_feature_dimension,
             'input_extra_msa_feature_dimension': input_extra_msa_feature_dimension,
-            'clamp_fape_loss': True,
+            'unclamp_fape_ratio': 0.0,
+            'enable_side_chain_fape_loss': True,
             'clamp_fape_threshold': 10.0
         },
         'InputEmbedder': {

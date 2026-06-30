@@ -50,7 +50,8 @@ def test_structure_module_forward():
         number_value_points=8,  # 8
         number_heads=12,  # 12
         head_embedding_dimension=16,  # 16
-        clamp_fape_loss=True,
+        unclamp_fape_ratio=0.0,
+        enable_side_chain_fape_loss=True,
         clamp_fape_threshold=10.0
     )
 

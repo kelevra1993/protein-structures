@@ -1,11 +1,11 @@
 ExperimentConfiguration:
   experiment_parent_folder: "/home/robert_kelevra/Data/protein_project/protein_experiments"
-  experiment_name: "experiment_3"
+  experiment_name: "experiment_1"
   data_folder: "/home/robert_kelevra/Data/protein_project/protein_data/openfold_data"
-  train_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_train_truncated.json"
+  train_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_train.json"
   validation_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_validation_truncated.json"
   test_split_file: "/home/robert_kelevra/Projects/protein-structures/data_examples/data_splits/cuda_test_truncated.json"
-  information_dump: 2000
+  information_dump: 5000
   weight_saving_iterations: 20000
   number_iterations: 1e10
   compute_validation_iteration: false
@@ -23,7 +23,7 @@ TrainDataConfiguration:
   mask_probability: 0.15  # 0.15 for alphafold
   acceptance_slope_start: 256  # 256 for alphafold
   acceptance_slope_end: 512  # 512 for alphafold
-  residue_crop_size: 96  # 256 for alphafold
+  residue_crop_size: 128  # 256 for alphafold
   distribution_threshold: 80  # 80 for alphafold
   emphasize_beginning_crops: false  # true for alphafold
   number_recycle_cycles: 3  # 3 for alphafold
@@ -37,7 +37,7 @@ ValidationDataConfiguration:
   mask_probability: 0.0  # 0.0 for alphafold
   acceptance_slope_start: 256  # 256 for alphafold
   acceptance_slope_end: 512  # 512 for alphafold
-  residue_crop_size: 96  # 256 for alphafold
+  residue_crop_size: 128  # 256 for alphafold
   distribution_threshold: 80  # 80 for alphafold
   emphasize_beginning_crops: false  # false for alphafold
   number_recycle_cycles: 3  # 3 for alphafold
@@ -51,15 +51,16 @@ TestDataConfiguration:
   mask_probability: 0.0  # 0.0 for alphafold
   acceptance_slope_start: 256  # 256 for alphafold
   acceptance_slope_end: 512  # 512 for alphafold
-  residue_crop_size: 96  # 256 for alphafold
+  residue_crop_size: 128  # 256 for alphafold
   distribution_threshold: 80  # 80 for alphafold
   emphasize_beginning_crops: false  # false for alphafold
   number_recycle_cycles: 3  # 3 for alphafold
   use_single_representative: false  # true for alphafold
 
 GlobalConfiguration:
-  clamp_fape_loss: true  # Clamp intermediate FAPE loss to improve stability
-  clamp_fape_threshold: 20.0  # Distance threshold in Angstroms for FAPE clamping
+  unclamp_fape_ratio: 0.1  # Ratio of training batches to unclamp intermediate FAPE loss to improve stability
+  enable_side_chain_fape_loss: true  # Whether to compute the all-atom/side-chain FAPE loss
+  clamp_fape_threshold: 10.0  # Distance threshold in Angstroms for FAPE clamping
   msa_embedding: 32  # 256 for alphafold
   pair_representation_embedding: 32  # 128 for alphafold
   extra_msa_embedding: 32  # 64 for alphafold
