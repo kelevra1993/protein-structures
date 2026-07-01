@@ -706,6 +706,9 @@ class Trainer:
         # - schedule: Determines when the profiler is active based on step counts.
         # - on_trace_ready: A callback executed when a cycle completes; here we export to TensorBoard.
         with torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA],
                 schedule=torch.profiler.schedule(wait=wait, warmup=warmup, active=active, repeat=repeat),
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(str(profiler_directory)),
                 record_shapes=record_shapes, profile_memory=profile_memory, with_stack=with_stack) as profiler:
