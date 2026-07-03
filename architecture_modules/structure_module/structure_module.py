@@ -494,6 +494,12 @@ class StructureModule(nn.Module):
         # Losses
         auxillary_loss = torch.tensor(0.0, dtype=self.dtype, device=self.device)
 
+        # Precompute the angle mask based on the amino acid sequence
+        chi_mask_tensor = torch.tensor(chi_angles_mask, device=device, dtype=dtype)
+        backbone_mask = torch.ones((21, 3), device=device, dtype=dtype)
+        full_angle_mask = torch.cat([backbone_mask, chi_mask_tensor], dim=-1)
+        batch_angle_mask = full_angle_mask[sequence_amino_acid_labels]
+
         # Equivalent to re-usage of layer
         for iteration in range(self.number_iterations):
             # IPA and it's normalizer
@@ -540,6 +546,7 @@ class StructureModule(nn.Module):
                 predicted_unnormalised_angles=residue_angles,
                 ground_truth_angles=ground_truth_angles,
                 alternative_ground_truth_angles=alternative_ground_truth_angles,
+                mask=batch_angle_mask,
                 angle_norm_loss_scaler=0.005)
 
             # Sum up the losses for this iteration and add them to auxillary loss
