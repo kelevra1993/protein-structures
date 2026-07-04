@@ -85,7 +85,7 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
 def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Loads a single YAML configuration file and splits it into experiment
-    and model configurations.
+    and model configurations. Once this is done, the yaml is saved to the project experiment folder.
 
     This function extracts the 'ExperimentConfiguration' section, processes
     its paths and types, and returns it alongside the rest of the configuration

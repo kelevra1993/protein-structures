@@ -256,7 +256,8 @@ class StructureModule(nn.Module):
                  number_query_points: int, number_value_points: int,
                  number_heads: int, head_embedding_dimension: int,
                  number_torsion_angles: int, device: torch.device, dtype: torch.dtype,
-                 unclamp_fape_ratio: float = 0.1, enable_side_chain_fape_loss: bool = True, clamp_fape_threshold: float = 10.0):
+                 unclamp_fape_ratio: float = 0.1, enable_side_chain_fape_loss: bool = True, 
+                 enable_lddt_loss: bool = True, clamp_fape_threshold: float = 10.0):
         """
         Initializes the StructureModule.
 
@@ -274,6 +275,7 @@ class StructureModule(nn.Module):
             dtype (torch.dtype): Data type for tensors.
             unclamp_fape_ratio (float): The probability to unclamp the FAPE loss.
             enable_side_chain_fape_loss (bool): Whether to compute the all-atom/side-chain FAPE loss.
+            enable_lddt_loss (bool): Whether to compute the pLDDT loss.
             clamp_fape_threshold (float): The distance threshold (in Angstroms) for FAPE clamping.
         """
         super().__init__()
@@ -291,6 +293,7 @@ class StructureModule(nn.Module):
         self.number_torsion_angles = number_torsion_angles
         self.unclamp_fape_ratio = unclamp_fape_ratio
         self.enable_side_chain_fape_loss = enable_side_chain_fape_loss
+        self.enable_lddt_loss = enable_lddt_loss
         self.clamp_fape_threshold = clamp_fape_threshold
         self.single_representation_layer_normalizer = nn.LayerNorm(
             normalized_shape=self.single_representation_embedding,
@@ -650,13 +653,16 @@ class StructureModule(nn.Module):
             ground_truth_positions=ground_truth_positions)
 
         # Predict LDDT Logits and Probabilities as well as
-        lddt_logits, lddt_probabilities, predicted_lddt_per_residue = self.lddt_module(
-            single_representation=single_representation)
+        if self.enable_lddt_loss:
+            lddt_logits, lddt_probabilities, predicted_lddt_per_residue = self.lddt_module(
+                single_representation=single_representation)
 
-        # Compute LDDT Loss
-        predicted_lddt_loss = compute_plddt_loss(ground_truth_lddt=local_difference_distance_test,
-                                                 predicted_lddt_logits=lddt_logits,
-                                                 lddt_bins=self.lddt_module.lddt_bins)
+            # Compute LDDT Loss
+            predicted_lddt_loss = compute_plddt_loss(ground_truth_lddt=local_difference_distance_test,
+                                                     predicted_lddt_logits=lddt_logits,
+                                                     lddt_bins=self.lddt_module.lddt_bins)
+        else:
+            predicted_lddt_loss = torch.tensor(0.0, device=device, dtype=dtype)
 
         return (angles, frames, final_positions, position_mask, pseudo_beta_positions, overall_fape_loss,
                 auxillary_loss, predicted_lddt_loss, local_difference_distance_test, unclamped_fape_metric)
