@@ -40,6 +40,10 @@ model_weights*
 model_iteration_*
 model_*.pt
 experiment_*/
+full-checkpoint
+metrics_evolution.csv
+training_configuration.yaml
+*_samples.json
 
 # Preprocessing input
 *sample_*.pt
