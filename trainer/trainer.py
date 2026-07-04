@@ -127,13 +127,20 @@ class Trainer:
         # Print Model Size
         self.print_model_size()
 
-    def setup_training_paths(self):
+    def setup_training_paths(self) -> tuple[Path, Path, Path]:
         """
-        todo update function
-        Sets up the directory structure for training outputs, including TensorBoard logs and model weights.
+        Sets up the directory structure and persistent files for training outputs.
+
+        This method acts as the initialization step for experiment storage, ensuring that 
+        the `Tensorboard` directory, the `Weights` directory, and the `metrics_evolution.csv` 
+        file are properly initialized within the global `project_root` before the training 
+        loop commences.
 
         Returns:
-            Tuple[Path, Path]: A tuple containing the paths to the TensorBoard directory and the weights directory.
+            tuple[Path, Path, Path]: A tuple containing:
+                - tensorboard_directory (Path): Path to the TensorBoard logs folder.
+                - weights_directory (Path): Path to the saved model weights folder.
+                - metric_evolution_csv_file (Path): Path to the metrics evolution CSV file.
         """
         tensorboard_directory = self.project_root / "Tensorboard"
         weights_directory = self.project_root / "Weights"
@@ -589,10 +596,15 @@ class Trainer:
 
     def run_model_iteration(self, batch_input_dictionary: Dict[str, torch.Tensor],
                             writer: SummaryWriter, iteration: int,
-                            tracker_dictionary: Dict[str, Any] | None) -> torch.Tensor:
+                            tracker_dictionary: Dict[str, Any] | None) -> tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        todo update docstring
-        Performs a single forward pass of the model, calculates metrics, and logs metrics.
+        Executes a single forward pass of the AlphaFold II network, computes all structural losses, 
+        and updates performance trackers.
+
+        This function bridges the batched training data and the core model architecture. It passes 
+        the features through `AlphafoldII`, extracts the final predictions, computes the constituent 
+        losses (FAPE, auxiliary torsion, distogram, pLDDT), logs them to TensorBoard, and updates 
+        the console tracking dictionary.
 
         Args:
             batch_input_dictionary (Dict[str, torch.Tensor]): A dictionary of input features.
@@ -603,14 +615,18 @@ class Trainer:
                 - input_residue_index_feature: (batch_size, number_residues)
                 - ground_truth_frames: (batch_size, number_residues, 8, 4, 4)
                 - ground_truth_angles: (batch_size, number_residues, 7, 2)
+                - alternative_ground_truth_angles: (batch_size, number_residues, 7, 2)
                 - ground_truth_global_positions: (batch_size, number_residues, 37, 3)
-                - distogram_labels: (batch_size, number_residues, number_residues)
-            writer (SummaryWriter): The TensorBoard writer to use for logging.
-            iteration (int): The current training iteration index.
-            tracker_dictionary (Dict[str, Any]): Dictionary to accumulate rolling average metrics.
+                - alternative_ground_truth_global_positions: (batch_size, number_residues, 37, 3)
+                - sequence_labels: (batch_size, number_residues)
+            writer (SummaryWriter): TensorBoard writer for logging.
+            iteration (int): The current training iteration step.
+            tracker_dictionary (Dict[str, Any] | None): Dictionary tracking rolling average metrics for console logging.
 
         Returns:
-            torch.Tensor: The total calculated loss for the current iteration (scalar).
+            tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing:
+                - total_loss (torch.Tensor): The aggregated loss to be backward-propagated. Shape: `()`.
+                - model_outputs (Dict[str, torch.Tensor]): The raw predicted tensors (e.g., angles, coordinates).
         """
         # Set input to the right device
         batch_input_dictionary = self.set_input_dictionary_device(input_dictionary=batch_input_dictionary)
