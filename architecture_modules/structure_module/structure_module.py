@@ -9,7 +9,7 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
     turn_quaternion_to_3x3_matrix
 
 # Here we will have to design this explicitly
-from utilities.constants import atom_types, canonical_amino_acid_residues, index_to_xxx
+from utilities.constants import atom_types, canonical_amino_acid_residues, index_to_xxx, chi_angles_mask
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
     rename_symmetric_ground_truth_metrics, compute_local_distance_difference_test, compute_plddt_loss
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
@@ -547,7 +547,7 @@ class StructureModule(nn.Module):
                 ground_truth_angles=ground_truth_angles,
                 alternative_ground_truth_angles=alternative_ground_truth_angles,
                 mask=batch_angle_mask,
-                angle_norm_loss_scaler=0.005)
+                angle_norm_loss_scaler=0.02)
 
             # Sum up the losses for this iteration and add them to auxillary loss
             # We average them over the batch dimensions before adding them to the auxillary loss
@@ -560,7 +560,8 @@ class StructureModule(nn.Module):
                 transformation_matrix = assemble_4x4_transform_matrix(rotation_matrix=rotation_matrix.detach(),
                                                                       translation_vector=translation_matrix)
 
-            outputs['angles'].append(residue_angles)
+            # We normalize angles to [cos(angle),sin(angle)] for model outputs
+            outputs['angles'].append(torch.nn.functional.normalize(residue_angles, dim=-1))
             outputs['frames'].append(transformation_matrix)
 
         # Average Out The Auxillary Loss
@@ -569,6 +570,7 @@ class StructureModule(nn.Module):
         angles = torch.stack(outputs['angles'], dim=-4)
         frames = torch.stack(outputs['frames'], dim=-4)
 
+        # We only use the last residue angles (here they are not yet normalised)
         final_positions, position_mask, pseudo_beta_positions, global_transformation_matrices = self.process_outputs(
             transformation_matrix=transformation_matrix,
             residue_angles=residue_angles,
