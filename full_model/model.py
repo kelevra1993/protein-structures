@@ -38,6 +38,7 @@ class Model(nn.Module):
         self.pair_representation_embedding = global_configuration.get('pair_representation_embedding')
         self.extra_msa_embedding = global_configuration.get('extra_msa_embedding')
         self.single_representation_embedding = global_configuration.get('single_representation_embedding')
+        self.enable_distogram_loss = global_configuration.get('enable_distogram_loss', True)
 
         self.input_embedder = InputEmbedder(
             input_sequence_feature_dimension=global_configuration.get('input_sequence_feature_dimension'),
@@ -264,7 +265,11 @@ class Model(nn.Module):
 
         # Distogram labels are invariant and do not have a cycle dimension
         distogram_labels = batch_input_dictionary['distogram_labels']
-        distogram_loss = compute_distogram_loss(distogram_logits=distogram_logits, distogram_labels=distogram_labels)
+        
+        if self.enable_distogram_loss:
+            distogram_loss = compute_distogram_loss(distogram_logits=distogram_logits, distogram_labels=distogram_labels)
+        else:
+            distogram_loss = torch.tensor(0.0, device=self.device, dtype=self.dtype)
 
         model_outputs["distogram_logits"] = distogram_logits
         model_outputs["distogram_loss"] = distogram_loss
