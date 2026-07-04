@@ -801,7 +801,8 @@ class Trainer:
             None: Prints formatting directly to the standard output.
         """
         self.log_angles(training_model_outputs, training_batch_dictionary, number_residues_to_consider)
-        self.log_distances(training_model_outputs, training_batch_dictionary, reference_residue_index, distance_residues_to_consider)
+        self.log_distances(training_model_outputs, training_batch_dictionary, reference_residue_index,
+                           distance_residues_to_consider)
 
     def log_angles(self, training_model_outputs: Dict[str, torch.Tensor],
                    training_batch_dictionary: Dict[str, torch.Tensor],
@@ -842,6 +843,9 @@ class Trainer:
         amino_acid_labels = []
         angle_counts = []
 
+        # Variable to keep track of mean angle difference
+        angle_differences = []
+
         for i, amino_acid_index in enumerate(sequence_indices):
             # Amino acid string
             amino_acid_name = index_to_xxx.get(int(amino_acid_index), "UNK")
@@ -873,6 +877,9 @@ class Trainer:
         # Compute delta normalized to [-180, 180]
         delta_deg = (predicted_degrees - true_degrees + 180) % 360 - 180
 
+        # Append the angle difference
+        angle_differences.append(np.abs(delta_deg))
+
         # Formatting
         header_string = "Residues  :"
         predicted_string = "Predicted :"
@@ -888,7 +895,9 @@ class Trainer:
                 delta_string += f" {delta_deg[angle_index]:+04.0f} |"
                 angle_index += 1
 
-        print("\nPrediction - Ground Truth Angle Comparison \n" + "=" * len(header_string))
+        print(f"\nPrediction - Ground Truth Angle Comparison : Mean Delta Distance :"
+              f" {np.round(np.mean(angle_differences), 2)} \n")
+        print("=" * len(header_string))
         print(header_string)
         print("-" * len(header_string))
         print(predicted_string)
@@ -925,51 +934,60 @@ class Trainer:
         # Ensure we don't go out of bounds
         sequence_length = training_batch_dictionary["sequence_labels"].shape[1]
         end_index = min(reference_residue_index + number_residues_to_consider + 1, sequence_length)
-        
+
         sequence_indices = training_batch_dictionary["sequence_labels"][0, :end_index].cpu().numpy()
-        
+
         # Predictions: [batch=0, residues, xyz=3, last_cycle=-1]
-        predicted_positions = training_model_outputs["pseudo_beta_positions"][0, :end_index, :, -1].detach().cpu().numpy()
-            
+        predicted_positions = training_model_outputs["pseudo_beta_positions"][
+            0, :end_index, :, -1].detach().cpu().numpy()
+
         # Ground truth: [batch=0, residues, atoms=37, xyz=3]
         true_positions = training_batch_dictionary["ground_truth_global_positions"][0, :end_index, :, :].cpu().numpy()
-            
+
         header_string = "Pairs     :"
         predicted_string = "Predicted :"
         true_string = "Expected  :"
         delta_string = "Delta     :"
-        
+
         reference_amino_acid_index = sequence_indices[reference_residue_index]
         reference_amino_acid_name = index_to_xxx.get(int(reference_amino_acid_index), "UNK")
-        
+
         # Atom index for ground truth: 1 for CA (Glycine), 3 for CB (others)
         reference_atom_index = 1 if reference_amino_acid_name == "GLY" else 3
-        
+
         # Predicted positions already correspond to pseudo C-beta directly
         reference_predicted_position = predicted_positions[reference_residue_index]
         reference_true_position = true_positions[reference_residue_index, reference_atom_index]
-        
+
+        # Variable to keep track of mean distance difference
+        distance_differences = []
+
         for i in range(reference_residue_index + 1, end_index):
             target_amino_acid_index = sequence_indices[i]
             target_amino_acid_name = index_to_xxx.get(int(target_amino_acid_index), "UNK")
-            
+
             target_atom_index = 1 if target_amino_acid_name == "GLY" else 3
-            
+
             target_predicted_position = predicted_positions[i]
             target_true_position = true_positions[i, target_atom_index]
-            
+
             predicted_distance = np.linalg.norm(reference_predicted_position - target_predicted_position)
             true_distance = np.linalg.norm(reference_true_position - target_true_position)
             delta = predicted_distance - true_distance
-            
+
+            # Append the distance difference
+            distance_differences.append(np.abs(delta))
+
             pair_name = f"{reference_amino_acid_name}-{target_amino_acid_name}"
-            
+
             header_string += f" {pair_name:^7} |"
             predicted_string += f" {predicted_distance:>7.2f} |"
             true_string += f" {true_distance:>7.2f} |"
             delta_string += f" {delta:>7.2f} |"
-            
-        print("\nPrediction - Ground Truth Pairwise Distance Comparison \n" + "=" * len(header_string))
+
+        print(f"\nPrediction - Ground Truth Pairwise Distance Comparison : Mean Delta Distance :"
+              f" {np.round(np.mean(distance_differences), 2)} \n")
+        print("=" * len(header_string))
         print(header_string)
         print("-" * len(header_string))
         print(predicted_string)
