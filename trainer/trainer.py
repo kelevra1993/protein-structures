@@ -773,20 +773,58 @@ class Trainer:
 
     def console_log_prediction_comparisons(self, training_model_outputs: Dict[str, torch.Tensor],
                                            training_batch_dictionary: Dict[str, torch.Tensor],
-                                           reference_residue_index:int =0,
+                                           reference_residue_index: int = 0,
                                            number_residues_to_consider: int = 5,
-                                           distance_residues_to_consider: int = 20) -> None:
+                                           distance_residues_to_consider: int = 15) -> None:
         """
-        TODO ADD DOCSTRINGS
+        Master function to log comparisons for debugging convergence.
+        
+        This method acts as the central coordinator for printing console-based visual 
+        summaries during the training loop. It sequentially triggers `log_angles` and 
+        `log_distances` to provide an immediate readout of spatial accuracy on a single 
+        batch, helping developers monitor whether the network is successfully overfitting 
+        a single example or learning correctly.
+        
+        Args:
+            training_model_outputs (Dict[str, torch.Tensor]): Model predictions. 
+                - "angles": Shape `(batch_size, num_layers, number_residues, 7, 2, number_cycles)`
+                - "final_positions": Shape `(batch_size, number_residues, 37, 3, number_cycles)`
+            training_batch_dictionary (Dict[str, torch.Tensor]): Ground truth labels.
+                - "ground_truth_angles": Shape `(batch_size, number_residues, 7, 2)`
+                - "sequence_labels": Shape `(batch_size, number_residues)`
+                - "ground_truth_global_positions": Shape `(batch_size, number_residues, 37, 3)`
+            reference_residue_index (int): Index of the reference residue for distance calculation.
+            number_residues_to_consider (int): Number of residues to analyze for angles (default: 5).
+            distance_residues_to_consider (int): Number of residues to analyze for pairwise distances (default: 15).
+            
+        Returns:
+            None: Prints formatting directly to the standard output.
         """
         self.log_angles(training_model_outputs, training_batch_dictionary, number_residues_to_consider)
-        self.log_distances(training_model_outputs, training_batch_dictionary,reference_residue_index, distance_residues_to_consider)
+        self.log_distances(training_model_outputs, training_batch_dictionary, reference_residue_index, distance_residues_to_consider)
 
     def log_angles(self, training_model_outputs: Dict[str, torch.Tensor],
                    training_batch_dictionary: Dict[str, torch.Tensor],
                    number_residues_to_consider: int = 5) -> None:
         """
-        TODO ADD DOCSTRINGS
+        Logs a comparison between predicted angles and ground truth angles to the console.
+        
+        This method parses the (cos, sin) predictions from the final layer and final 
+        recycling cycle of the Structure Module, converting them into degrees. It aligns 
+        the predictions alongside the ground truth angles from the dataset, skipping 
+        missing side-chain angles based on the amino acid type mask. This provides a 
+        direct, readable view of angular convergence.
+        
+        Args:
+            training_model_outputs (Dict[str, torch.Tensor]): Model predictions. 
+                - "angles" is accessed, expected shape: `(batch_size, num_layers, number_residues, 7, 2, number_cycles)`.
+            training_batch_dictionary (Dict[str, torch.Tensor]): Ground truth labels.
+                - "ground_truth_angles" is accessed, shape: `(batch_size, number_residues, 7, 2)`.
+                - "sequence_labels" is accessed, shape: `(batch_size, number_residues)`.
+            number_residues_to_consider (int): Number of residues starting from index 0 to display (default: 5).
+            
+        Returns:
+            None: Prints alignment formatting directly to standard output.
         """
         # Sequence of amino acid indices (batch=0)
         sequence_indices = training_batch_dictionary["sequence_labels"][0, :number_residues_to_consider].cpu().numpy()
@@ -850,7 +888,7 @@ class Trainer:
                 delta_string += f" {delta_deg[angle_index]:+04.0f} |"
                 angle_index += 1
 
-        print("\n" + "=" * len(header_string))
+        print("\nPrediction - Ground Truth Angle Comparison \n" + "=" * len(header_string))
         print(header_string)
         print("-" * len(header_string))
         print(predicted_string)
@@ -861,11 +899,28 @@ class Trainer:
     def log_distances(self, training_model_outputs: Dict[str, torch.Tensor],
                       training_batch_dictionary: Dict[str, torch.Tensor],
                       reference_residue_index: int = 0,
-                      number_residues_to_consider: int = 20) -> None:
+                      number_residues_to_consider: int = 15) -> None:
         """
-        TODO UPDATE DOCSTRINGS
         Logs pairwise distances between a reference residue and the subsequent residues.
-        Uses pseudo C-beta distances (C-beta for all except Glycine which uses C-alpha).
+        
+        This method extracts physical 3D coordinates from the final output of the 
+        Structure Module (last cycle) and calculates the Euclidean distance between 
+        pseudo C-beta atoms (using C-alpha for Glycine). By displaying the predicted 
+        distances next to the true expected distances in Ångströms, it allows developers 
+        to track the spatial placement and clustering capabilities of the model during 
+        training.
+        
+        Args:
+            training_model_outputs (Dict[str, torch.Tensor]): Model predictions.
+                - "final_positions" is accessed, expected shape: `(batch_size, number_residues, 37, 3, number_cycles)`.
+            training_batch_dictionary (Dict[str, torch.Tensor]): Ground truth labels.
+                - "ground_truth_global_positions" is accessed, shape: `(batch_size, number_residues, 37, 3)`.
+                - "sequence_labels" is accessed, shape: `(batch_size, number_residues)`.
+            reference_residue_index (int): The index of the origin residue for pairwise distance (default: 0).
+            number_residues_to_consider (int): Number of subsequent residues to measure distance to (default: 15).
+            
+        Returns:
+            None: Prints formatting directly to standard output.
         """
         # Ensure we don't go out of bounds
         sequence_length = training_batch_dictionary["sequence_labels"].shape[1]
@@ -873,10 +928,8 @@ class Trainer:
         
         sequence_indices = training_batch_dictionary["sequence_labels"][0, :end_index].cpu().numpy()
         
-        # Predictions: [batch=0, residues, atoms=37, xyz=3, last_cycle=-1]
-        # We need final positions which is output of structure module
-        # todo here we could just have used pseudo_beta_positions be faster since they are in our model outputs
-        predicted_positions = training_model_outputs["final_positions"][0, :end_index, :, :, -1].detach().cpu().numpy()
+        # Predictions: [batch=0, residues, xyz=3, last_cycle=-1]
+        predicted_positions = training_model_outputs["pseudo_beta_positions"][0, :end_index, :, -1].detach().cpu().numpy()
             
         # Ground truth: [batch=0, residues, atoms=37, xyz=3]
         true_positions = training_batch_dictionary["ground_truth_global_positions"][0, :end_index, :, :].cpu().numpy()
@@ -889,10 +942,11 @@ class Trainer:
         reference_amino_acid_index = sequence_indices[reference_residue_index]
         reference_amino_acid_name = index_to_xxx.get(int(reference_amino_acid_index), "UNK")
         
-        # Atom index: 1 for CA (Glycine), 3 for CB (others)
+        # Atom index for ground truth: 1 for CA (Glycine), 3 for CB (others)
         reference_atom_index = 1 if reference_amino_acid_name == "GLY" else 3
         
-        reference_predicted_position = predicted_positions[reference_residue_index, reference_atom_index]
+        # Predicted positions already correspond to pseudo C-beta directly
+        reference_predicted_position = predicted_positions[reference_residue_index]
         reference_true_position = true_positions[reference_residue_index, reference_atom_index]
         
         for i in range(reference_residue_index + 1, end_index):
@@ -901,7 +955,7 @@ class Trainer:
             
             target_atom_index = 1 if target_amino_acid_name == "GLY" else 3
             
-            target_predicted_position = predicted_positions[i, target_atom_index]
+            target_predicted_position = predicted_positions[i]
             target_true_position = true_positions[i, target_atom_index]
             
             predicted_distance = np.linalg.norm(reference_predicted_position - target_predicted_position)
@@ -915,7 +969,7 @@ class Trainer:
             true_string += f" {true_distance:>7.2f} |"
             delta_string += f" {delta:>7.2f} |"
             
-        print("\n" + "=" * len(header_string))
+        print("\nPrediction - Ground Truth Pairwise Distance Comparison \n" + "=" * len(header_string))
         print(header_string)
         print("-" * len(header_string))
         print(predicted_string)
