@@ -11,9 +11,9 @@ from typing import Dict, Any, Optional
 
 from full_model.model import Model
 from utilities.os_utilities import load_configuration, print_red, print_green, print_blue, print_yellow, to_modelcif
-from utilities.tensor_utilities import get_device, print_tensor_status
+from utilities.tensor_utilities import get_device, print_tensor_status, print_tensor_list, extract_angles
 from utilities.data.dataloader import get_dataloader, get_precomputed_dataloader
-from utilities.constants import index_to_x
+from utilities.constants import index_to_x, index_to_xxx, chi_angles_mask
 
 
 class Trainer:
@@ -317,10 +317,10 @@ class Trainer:
                 training_trackers = self.get_metric_trackers()
 
                 training_batch_dictionary = next(training_dataloader_iterator)
-                _ = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
-                                             writer=self.training_writer,
-                                             iteration=1,
-                                             tracker_dictionary=training_trackers)
+                _, _ = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
+                                                writer=self.training_writer,
+                                                iteration=1,
+                                                tracker_dictionary=training_trackers)
             except StopIteration:
                 training_dataloader_iterator = iter(self.train_dataloader)
         print("Training Benchmark Completed.")
@@ -381,10 +381,11 @@ class Trainer:
                 self.optimizer.zero_grad()
 
                 # Forward pass containing batch dictionary and tensorboard logger
-                training_loss = self.run_model_iteration(batch_input_dictionary=training_batch_dictionary,
-                                                         writer=self.training_writer,
-                                                         iteration=training_iteration,
-                                                         tracker_dictionary=training_trackers)
+                training_loss, training_model_outputs = self.run_model_iteration(
+                    batch_input_dictionary=training_batch_dictionary,
+                    writer=self.training_writer,
+                    iteration=training_iteration,
+                    tracker_dictionary=training_trackers)
 
                 # Backward and Step
                 training_loss.backward()
@@ -404,7 +405,7 @@ class Trainer:
                         except FileNotFoundError as e:
                             continue
                         # Forward pass containing batch dictionary and tensorboard logger
-                        _ = self.run_model_iteration(
+                        _, _ = self.run_model_iteration(
                             batch_input_dictionary=validation_batch_dictionary,
                             writer=self.validation_writer,
                             iteration=training_iteration,
@@ -416,6 +417,11 @@ class Trainer:
                         iterations=training_iteration,
                         training_tracker_dictionary=training_trackers,
                         validation_tracker_dictionary=validation_trackers)
+
+                    # Function that will be used to debug convergence
+                    self.console_log_prediction_comparisons(training_model_outputs=training_model_outputs,
+                                                            training_batch_dictionary=training_batch_dictionary)
+
                     if self.compute_validation_iteration:
                         validation_trackers = self.get_metric_trackers()
 
@@ -569,6 +575,7 @@ class Trainer:
                             writer: SummaryWriter, iteration: int,
                             tracker_dictionary: Dict[str, Any] | None) -> torch.Tensor:
         """
+        todo update docstring
         Performs a single forward pass of the model, calculates metrics, and logs metrics.
 
         Args:
@@ -632,7 +639,7 @@ class Trainer:
                                         iteration=iteration,
                                         metric_dictionary=metric_dictionary)
 
-        return total_loss
+        return total_loss, model_outputs
 
     def save_model(self, iteration: int):
         """
@@ -726,10 +733,10 @@ class Trainer:
 
                 # Forward pass: We use the existing iteration method which handles device 
                 # mapping and returns the calculated loss.
-                training_loss = self.run_model_iteration(batch_input_dictionary=batch_input_dictionary,
-                                                         writer=self.training_writer,
-                                                         iteration=iteration,
-                                                         tracker_dictionary=tracker_dictionary)
+                training_loss, _ = self.run_model_iteration(batch_input_dictionary=batch_input_dictionary,
+                                                            writer=self.training_writer,
+                                                            iteration=iteration,
+                                                            tracker_dictionary=tracker_dictionary)
 
                 # Standard backward pass and optimizer step
                 training_loss.backward()
@@ -762,6 +769,88 @@ class Trainer:
         # Print model size
         message = f"Estimated Model Size Without Optimizer : {size_all_mb:.2f} MB"
         print_yellow(message, add_separators=True)
+
+    def console_log_prediction_comparisons(self, training_model_outputs: Dict[str, torch.Tensor],
+                                           training_batch_dictionary: Dict[str, torch.Tensor],
+                                           number_residues_to_consider: int = 5)-> None:
+        """
+        TODO To be documented
+        """
+
+        # Sequence of amino acid indices (batch=0)
+        sequence_indices = training_batch_dictionary["sequence_labels"][0, :number_residues_to_consider].cpu().numpy()
+
+        # Predictions: [batch=0, last_layer=-1, residues, angles, cos_sin, last_cycle=-1]
+        predicted_angles = training_model_outputs["angles"][
+            0, -1, :number_residues_to_consider, :, :, -1].detach().cpu().numpy()
+
+        # Ground truth: [batch=0, residues, angles, cos_sin]
+        true_angles = training_batch_dictionary["ground_truth_angles"][
+            0, :number_residues_to_consider, :, :].cpu().numpy()
+
+        filtered_predictions = []
+        filtered_ground_truths = []
+        amino_acid_labels = []
+        angle_counts = []
+
+        for i, amino_acid_index in enumerate(sequence_indices):
+            # Amino acid string
+            amino_acid_name = index_to_xxx.get(int(amino_acid_index), "UNK")
+            amino_acid_labels.append(amino_acid_name)
+
+            # The first 3 backbone angles are always present
+            present_angles = [0, 1, 2]
+
+            # Check chi angles
+            chi_mask = chi_angles_mask[int(amino_acid_index)]
+            for chi_index in range(4):
+                if chi_mask[chi_index] == 1.0:
+                    present_angles.append(chi_index + 3)
+
+            angle_counts.append(len(present_angles))
+
+            for angle_index in present_angles:
+                filtered_predictions.append(predicted_angles[i, angle_index])
+                filtered_ground_truths.append(true_angles[i, angle_index])
+
+        if not filtered_predictions:
+            return
+
+        # Convert (cos, sin) to degrees using extract_angles
+        # extract_angles returns shape (N, 1)
+        predicted_degrees = extract_angles(filtered_predictions).flatten()
+        true_degrees = extract_angles(filtered_ground_truths).flatten()
+
+        # Compute delta normalized to [-180, 180]
+        delta_deg = (predicted_degrees - true_degrees + 180) % 360 - 180
+
+        # Formatting
+        header_string = "Residues :"
+        predicted_str = "Predicted:"
+        true_string = "Expected :"
+        delta_string = "Delta    :"
+
+        angle_index = 0
+        for count, amino_acid_name in zip(angle_counts, amino_acid_labels):
+            # Each angle takes 7 characters: " +180 |"
+            width = count * 7
+            # Center the amino acid name in the width (minus the final '|' which is already included in the angle string, so width - 1)
+            centered_aa = amino_acid_name.center(width - 1) + "|"
+            header_string += " " + centered_aa
+
+            for _ in range(count):
+                predicted_str += f" {predicted_degrees[angle_index]:+04.0f} |"
+                true_string += f" {true_degrees[angle_index]:+04.0f} |"
+                delta_string += f" {delta_deg[angle_index]:+04.0f} |"
+                angle_index += 1
+
+        print("\n" + "=" * len(header_string))
+        print(header_string)
+        print("-" * len(header_string))
+        print(predicted_str)
+        print(true_string)
+        print(delta_string)
+        print("=" * len(header_string) + "\n")
 
     def extract_last_model_iteration(self) -> int:
         """
