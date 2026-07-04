@@ -5,11 +5,13 @@ from json import JSONDecodeError
 import torch
 import numpy as np
 import io
-from utilities.constants import atom_types
 import modelcif
 import modelcif.model
 import modelcif.dumper
 import yaml
+
+from utilities.constants import atom_types
+from shutil import copyfile
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
@@ -134,6 +136,11 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     if "experiment_parent_folder" in experiment_configuration and "experiment_name" in experiment_configuration:
         experiment_configuration["project_root"] = (
                 experiment_configuration["experiment_parent_folder"] / experiment_configuration["experiment_name"])
+
+    # Save a copy of the configuration file
+    project_root = experiment_configuration["project_root"]
+    project_root.mkdir(parents=True, exist_ok=True)
+    copyfile(src=str(configuration_path), dst=str(project_root / "training_configuration.yaml"))
 
     return experiment_configuration, model_configuration
 
