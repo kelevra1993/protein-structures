@@ -7,8 +7,8 @@ from utilities.geometry_utilities import invert_4x4_transform_matrix, apply_tran
 
 def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_positions: torch.Tensor,
                       ground_truth_transformation_matrix: torch.Tensor, ground_truth_positions: torch.Tensor,
-                      mask: torch.Tensor = None,
-                      length_scaler: int = 10, epsilon: float = 1e-8, distance_clamp: float = 10.0) -> tuple[torch.Tensor, torch.Tensor]:
+                      mask: torch.Tensor = None, epsilon: float = 1e-8,
+                      distance_clamp: float = 10.0) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Computes the Frame Aligned Point Error (FAPE) loss between predicted and ground truth structures.
 
@@ -30,7 +30,6 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
             Expected shape: (*batch_dims, number_residues, 3)
         mask: Optional binary mask indicating valid residues (1 for valid, 0 for padded/missing).
             Expected shape: (*batch_dims, number_residues)
-        length_scaler: A normalization constant, typically 10.0 Angstroms.
         epsilon: Small constant for numerical stability when calculating the square root of distances.
         distance_clamp: A cutoff distance (in Angstroms) above which the error is clamped.
 
@@ -89,7 +88,6 @@ def compute_fape_loss(predicted_transformation_matrix: torch.Tensor, predicted_p
         fape_loss = torch.mean(clamped_distance_matrix, dim=[-2, -1])
         unclamped_fape = torch.mean(unclamped_distance_matrix, dim=[-2, -1])
 
-    fape_loss = fape_loss / length_scaler
 
     return fape_loss, unclamped_fape
 
