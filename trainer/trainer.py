@@ -1,4 +1,5 @@
 import os
+import csv
 import time
 import numpy as np
 
@@ -78,7 +79,7 @@ class Trainer:
         # Will contain tensorboard logs
         # Will contain weights
         # Will contain model outputs for debugging
-        self.tensorboard_directory, self.weights_directory = self.setup_training_paths()
+        self.tensorboard_directory, self.weights_directory, self.metric_evolution_csv_file = self.setup_training_paths()
 
         # Setup writers
         self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
@@ -128,6 +129,7 @@ class Trainer:
 
     def setup_training_paths(self):
         """
+        todo update function
         Sets up the directory structure for training outputs, including TensorBoard logs and model weights.
 
         Returns:
@@ -140,7 +142,14 @@ class Trainer:
         tensorboard_directory.mkdir(exist_ok=True, parents=True)
         weights_directory.mkdir(exist_ok=True, parents=True)
 
-        return tensorboard_directory, weights_directory
+        # CSV Logger for metrics evolution to check how angle prediction and distance predictions are going
+        metric_evolution_csv_file = self.project_root / "metrics_evolution.csv"
+        if not metric_evolution_csv_file.exists():
+            with open(metric_evolution_csv_file, mode='a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["Iteration", "Mean_Angle_Delta", "Mean_Distance_Delta"])
+
+        return tensorboard_directory, weights_directory, metric_evolution_csv_file
 
     def setup_tensorboard_writers(self):
         """
@@ -420,8 +429,12 @@ class Trainer:
                         validation_tracker_dictionary=validation_trackers)
 
                     # Function that will be used to debug convergence
-                    self.console_log_prediction_comparisons(training_model_outputs=training_model_outputs,
-                                                            training_batch_dictionary=training_batch_dictionary)
+                    mean_angle_delta, mean_distance_delta = self.console_log_prediction_comparisons(
+                        training_iteration=training_iteration,
+                        training_model_outputs=training_model_outputs,
+                        training_batch_dictionary=training_batch_dictionary)
+
+                    self.latest_mean_distance_delta = mean_distance_delta
 
                     if self.compute_validation_iteration:
                         validation_trackers = self.get_metric_trackers()
@@ -440,6 +453,8 @@ class Trainer:
             self.training_writer.close()
             if self.compute_validation_iteration:
                 self.validation_writer.close()
+
+            return getattr(self, 'latest_mean_distance_delta', 0.0)
 
     def run_test_evaluation(self, iteration: int):
         """
@@ -771,11 +786,12 @@ class Trainer:
         message = f"Estimated Model Size Without Optimizer : {size_all_mb:.2f} MB"
         print_yellow(message, add_separators=True)
 
-    def console_log_prediction_comparisons(self, training_model_outputs: Dict[str, torch.Tensor],
+    def console_log_prediction_comparisons(self, training_iteration: int,
+                                           training_model_outputs: Dict[str, torch.Tensor],
                                            training_batch_dictionary: Dict[str, torch.Tensor],
                                            reference_residue_index: int = 0,
                                            number_residues_to_consider: int = 5,
-                                           distance_residues_to_consider: int = 15) -> None:
+                                           distance_residues_to_consider: int = 20) -> tuple[float, float]:
         """
         Master function to log comparisons for debugging convergence.
         
@@ -786,6 +802,7 @@ class Trainer:
         a single example or learning correctly.
         
         Args:
+            training_iteration (int): The current training iteration.
             training_model_outputs (Dict[str, torch.Tensor]): Model predictions. 
                 - "angles": Shape `(batch_size, num_layers, number_residues, 7, 2, number_cycles)`
                 - "final_positions": Shape `(batch_size, number_residues, 37, 3, number_cycles)`
@@ -795,18 +812,29 @@ class Trainer:
                 - "ground_truth_global_positions": Shape `(batch_size, number_residues, 37, 3)`
             reference_residue_index (int): Index of the reference residue for distance calculation.
             number_residues_to_consider (int): Number of residues to analyze for angles (default: 5).
-            distance_residues_to_consider (int): Number of residues to analyze for pairwise distances (default: 15).
+            distance_residues_to_consider (int): Number of residues to analyze for pairwise distances (default: 20).
             
         Returns:
-            None: Prints formatting directly to the standard output.
+            tuple[float, float]: The (mean_angle_delta, mean_distance_delta) metrics.
         """
-        self.log_angles(training_model_outputs, training_batch_dictionary, number_residues_to_consider)
-        self.log_distances(training_model_outputs, training_batch_dictionary, reference_residue_index,
-                           distance_residues_to_consider)
+        mean_angle_delta = self.log_angles(training_model_outputs=training_model_outputs,
+                                           training_batch_dictionary=training_batch_dictionary,
+                                           number_residues_to_consider=number_residues_to_consider)
+        mean_distance_delta = self.log_distances(training_model_outputs=training_model_outputs,
+                                                 training_batch_dictionary=training_batch_dictionary,
+                                                 reference_residue_index=reference_residue_index,
+                                                 number_residues_to_consider=distance_residues_to_consider)
+
+        # Log to CSV
+        with open(self.metric_evolution_csv_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([training_iteration, mean_angle_delta, mean_distance_delta])
+
+        return mean_angle_delta, mean_distance_delta
 
     def log_angles(self, training_model_outputs: Dict[str, torch.Tensor],
                    training_batch_dictionary: Dict[str, torch.Tensor],
-                   number_residues_to_consider: int = 5) -> None:
+                   number_residues_to_consider: int = 5) -> float:
         """
         Logs a comparison between predicted angles and ground truth angles to the console.
         
@@ -825,7 +853,7 @@ class Trainer:
             number_residues_to_consider (int): Number of residues starting from index 0 to display (default: 5).
             
         Returns:
-            None: Prints alignment formatting directly to standard output.
+            float: The mean absolute angle delta.
         """
         # Sequence of amino acid indices (batch=0)
         sequence_indices = training_batch_dictionary["sequence_labels"][0, :number_residues_to_consider].cpu().numpy()
@@ -844,7 +872,7 @@ class Trainer:
         angle_counts = []
 
         # Variable to keep track of mean angle difference
-        angle_differences = []
+        all_deltas = []
 
         for i, amino_acid_index in enumerate(sequence_indices):
             # Amino acid string
@@ -867,7 +895,7 @@ class Trainer:
                 filtered_ground_truths.append(true_angles[i, angle_index])
 
         if not filtered_predictions:
-            return
+            return 0.0
 
         # Convert (cos, sin) to degrees using extract_angles
         # extract_angles returns shape (N, 1)
@@ -878,7 +906,7 @@ class Trainer:
         delta_deg = (predicted_degrees - true_degrees + 180) % 360 - 180
 
         # Append the angle difference
-        angle_differences.append(np.abs(delta_deg))
+        all_deltas.extend(np.abs(delta_deg))
 
         # Formatting
         header_string = "Residues  :"
@@ -896,7 +924,7 @@ class Trainer:
                 angle_index += 1
 
         print(f"\nPrediction - Ground Truth Angle Comparison : Mean Delta Distance :"
-              f" {np.round(np.mean(angle_differences), 2)} \n")
+              f" {np.round(np.mean(all_deltas), 2)}")
         print("=" * len(header_string))
         print(header_string)
         print("-" * len(header_string))
@@ -905,10 +933,12 @@ class Trainer:
         print(delta_string)
         print("=" * len(header_string) + "\n")
 
+        return float(np.mean(all_deltas))
+
     def log_distances(self, training_model_outputs: Dict[str, torch.Tensor],
                       training_batch_dictionary: Dict[str, torch.Tensor],
                       reference_residue_index: int = 0,
-                      number_residues_to_consider: int = 15) -> None:
+                      number_residues_to_consider: int = 20) -> float:
         """
         Logs pairwise distances between a reference residue and the subsequent residues.
         
@@ -926,10 +956,10 @@ class Trainer:
                 - "ground_truth_global_positions" is accessed, shape: `(batch_size, number_residues, 37, 3)`.
                 - "sequence_labels" is accessed, shape: `(batch_size, number_residues)`.
             reference_residue_index (int): The index of the origin residue for pairwise distance (default: 0).
-            number_residues_to_consider (int): Number of subsequent residues to measure distance to (default: 15).
+            number_residues_to_consider (int): Number of subsequent residues to measure distance to (default: 20).
             
         Returns:
-            None: Prints formatting directly to standard output.
+            float: The mean absolute distance delta.
         """
         # Ensure we don't go out of bounds
         sequence_length = training_batch_dictionary["sequence_labels"].shape[1]
@@ -959,8 +989,8 @@ class Trainer:
         reference_predicted_position = predicted_positions[reference_residue_index]
         reference_true_position = true_positions[reference_residue_index, reference_atom_index]
 
-        # Variable to keep track of mean distance difference
-        distance_differences = []
+        # Variable to keep track of distance differences
+        all_deltas = []
 
         for i in range(reference_residue_index + 1, end_index):
             target_amino_acid_index = sequence_indices[i]
@@ -976,7 +1006,7 @@ class Trainer:
             delta = predicted_distance - true_distance
 
             # Append the distance difference
-            distance_differences.append(np.abs(delta))
+            all_deltas.append(delta)
 
             pair_name = f"{reference_amino_acid_name}-{target_amino_acid_name}"
 
@@ -986,7 +1016,7 @@ class Trainer:
             delta_string += f" {delta:>7.2f} |"
 
         print(f"\nPrediction - Ground Truth Pairwise Distance Comparison : Mean Delta Distance :"
-              f" {np.round(np.mean(distance_differences), 2)} \n")
+              f" {np.round(np.mean(np.abs(all_deltas)), 2)}")
         print("=" * len(header_string))
         print(header_string)
         print("-" * len(header_string))
@@ -994,6 +1024,8 @@ class Trainer:
         print(true_string)
         print(delta_string)
         print("=" * len(header_string) + "\n")
+
+        return float(np.mean(np.abs(all_deltas))) if all_deltas else 0.0
 
     def extract_last_model_iteration(self) -> int:
         """
