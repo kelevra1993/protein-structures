@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import Optional
+from typing import Optional, Any
 
 from torch import nn
 
@@ -154,3 +154,34 @@ def specialised_one_hot_encoder(input_tensor: torch.Tensor,
     output = nn.functional.one_hot(indices, num_classes=bin_tensor.size(-1))
 
     return output
+
+
+def extract_angles(matrix: Any) -> np.ndarray:
+    """
+    Extracts degrees from an array of (cos, sin) pairs.
+
+    This utility function fits into the global project context by converting the 
+    neural network's continuous unnormalized or normalized (cos, sin) angle predictions 
+    back into discrete degrees. This is commonly used in validation and logging 
+    modules (such as `log_angles` in the Trainer) to provide human-readable angular metrics 
+    for debugging the Structure Module.
+
+    Args:
+        matrix (Any): An array-like object (list, np.ndarray, torch.Tensor) containing pairs of (cos, sin) values.
+            Expected shape: `(number_angles, 2)` where index 0 is cos and index 1 is sin.
+
+    Returns:
+        np.ndarray: A column vector of extracted angles in degrees.
+            Shape: `(number_angles, 1)`.
+    """
+    # Ensure the input is treated as a NumPy array
+    array_matrix = np.asarray(matrix)
+
+    # Calculate angles in radians using arctan2(y, x)
+    angles_radians = np.arctan2(array_matrix[:, 1], array_matrix[:, 0])
+
+    # Convert the angles from radians to degrees
+    angles_degrees = np.degrees(angles_radians)
+
+    # Reshape and return as an n x 1 column vector
+    return angles_degrees.reshape(-1, 1)
