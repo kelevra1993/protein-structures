@@ -1,5 +1,6 @@
 import os
 import time
+import numpy as np
 
 import torch
 import torch.optim as optim
@@ -772,11 +773,21 @@ class Trainer:
 
     def console_log_prediction_comparisons(self, training_model_outputs: Dict[str, torch.Tensor],
                                            training_batch_dictionary: Dict[str, torch.Tensor],
-                                           number_residues_to_consider: int = 5)-> None:
+                                           reference_residue_index:int =0,
+                                           number_residues_to_consider: int = 5,
+                                           distance_residues_to_consider: int = 20) -> None:
         """
-        TODO To be documented
+        TODO ADD DOCSTRINGS
         """
+        self.log_angles(training_model_outputs, training_batch_dictionary, number_residues_to_consider)
+        self.log_distances(training_model_outputs, training_batch_dictionary,reference_residue_index, distance_residues_to_consider)
 
+    def log_angles(self, training_model_outputs: Dict[str, torch.Tensor],
+                   training_batch_dictionary: Dict[str, torch.Tensor],
+                   number_residues_to_consider: int = 5) -> None:
+        """
+        TODO ADD DOCSTRINGS
+        """
         # Sequence of amino acid indices (batch=0)
         sequence_indices = training_batch_dictionary["sequence_labels"][0, :number_residues_to_consider].cpu().numpy()
 
@@ -825,21 +836,16 @@ class Trainer:
         delta_deg = (predicted_degrees - true_degrees + 180) % 360 - 180
 
         # Formatting
-        header_string = "Residues :"
-        predicted_str = "Predicted:"
-        true_string = "Expected :"
-        delta_string = "Delta    :"
+        header_string = "Residues  :"
+        predicted_string = "Predicted :"
+        true_string = "Expected  :"
+        delta_string = "Delta     :"
 
         angle_index = 0
         for count, amino_acid_name in zip(angle_counts, amino_acid_labels):
-            # Each angle takes 7 characters: " +180 |"
-            width = count * 7
-            # Center the amino acid name in the width (minus the final '|' which is already included in the angle string, so width - 1)
-            centered_aa = amino_acid_name.center(width - 1) + "|"
-            header_string += " " + centered_aa
-
             for _ in range(count):
-                predicted_str += f" {predicted_degrees[angle_index]:+04.0f} |"
+                header_string += f" *{amino_acid_name} |"
+                predicted_string += f" {predicted_degrees[angle_index]:+04.0f} |"
                 true_string += f" {true_degrees[angle_index]:+04.0f} |"
                 delta_string += f" {delta_deg[angle_index]:+04.0f} |"
                 angle_index += 1
@@ -847,7 +853,72 @@ class Trainer:
         print("\n" + "=" * len(header_string))
         print(header_string)
         print("-" * len(header_string))
-        print(predicted_str)
+        print(predicted_string)
+        print(true_string)
+        print(delta_string)
+        print("=" * len(header_string) + "\n")
+
+    def log_distances(self, training_model_outputs: Dict[str, torch.Tensor],
+                      training_batch_dictionary: Dict[str, torch.Tensor],
+                      reference_residue_index: int = 0,
+                      number_residues_to_consider: int = 20) -> None:
+        """
+        TODO UPDATE DOCSTRINGS
+        Logs pairwise distances between a reference residue and the subsequent residues.
+        Uses pseudo C-beta distances (C-beta for all except Glycine which uses C-alpha).
+        """
+        # Ensure we don't go out of bounds
+        sequence_length = training_batch_dictionary["sequence_labels"].shape[1]
+        end_index = min(reference_residue_index + number_residues_to_consider + 1, sequence_length)
+        
+        sequence_indices = training_batch_dictionary["sequence_labels"][0, :end_index].cpu().numpy()
+        
+        # Predictions: [batch=0, residues, atoms=37, xyz=3, last_cycle=-1]
+        # We need final positions which is output of structure module
+        # todo here we could just have used pseudo_beta_positions be faster since they are in our model outputs
+        predicted_positions = training_model_outputs["final_positions"][0, :end_index, :, :, -1].detach().cpu().numpy()
+            
+        # Ground truth: [batch=0, residues, atoms=37, xyz=3]
+        true_positions = training_batch_dictionary["ground_truth_global_positions"][0, :end_index, :, :].cpu().numpy()
+            
+        header_string = "Pairs     :"
+        predicted_string = "Predicted :"
+        true_string = "Expected  :"
+        delta_string = "Delta     :"
+        
+        reference_amino_acid_index = sequence_indices[reference_residue_index]
+        reference_amino_acid_name = index_to_xxx.get(int(reference_amino_acid_index), "UNK")
+        
+        # Atom index: 1 for CA (Glycine), 3 for CB (others)
+        reference_atom_index = 1 if reference_amino_acid_name == "GLY" else 3
+        
+        reference_predicted_position = predicted_positions[reference_residue_index, reference_atom_index]
+        reference_true_position = true_positions[reference_residue_index, reference_atom_index]
+        
+        for i in range(reference_residue_index + 1, end_index):
+            target_amino_acid_index = sequence_indices[i]
+            target_amino_acid_name = index_to_xxx.get(int(target_amino_acid_index), "UNK")
+            
+            target_atom_index = 1 if target_amino_acid_name == "GLY" else 3
+            
+            target_predicted_position = predicted_positions[i, target_atom_index]
+            target_true_position = true_positions[i, target_atom_index]
+            
+            predicted_distance = np.linalg.norm(reference_predicted_position - target_predicted_position)
+            true_distance = np.linalg.norm(reference_true_position - target_true_position)
+            delta = predicted_distance - true_distance
+            
+            pair_name = f"{reference_amino_acid_name}-{target_amino_acid_name}"
+            
+            header_string += f" {pair_name:^7} |"
+            predicted_string += f" {predicted_distance:>7.2f} |"
+            true_string += f" {true_distance:>7.2f} |"
+            delta_string += f" {delta:>7.2f} |"
+            
+        print("\n" + "=" * len(header_string))
+        print(header_string)
+        print("-" * len(header_string))
+        print(predicted_string)
         print(true_string)
         print(delta_string)
         print("=" * len(header_string) + "\n")
