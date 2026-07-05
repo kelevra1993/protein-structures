@@ -34,13 +34,14 @@ INFORMATION_DUMP_FREQUENCY = 25
 
 # Sweep configurations
 DATABASE_URL = "sqlite:///sweep_results.db"
-STUDY_NAME = "overfit_sweep"
+# Upgraded to v2 to allow the expanded LEARNING_RATES while keeping the same database file
+STUDY_NAME = "overfit_sweep_v2"
 
 # Explicit Hyperparameter Search Space
-LEARNING_RATES = [1e-4, 2e-4, 1e-3, 2e-3]
-UNCLAMP_FAPE_RATIOS = [0.0, 0.1, 0.2, 0.3, 0.4]
+LEARNING_RATES = [1e-4, 2e-4, 1e-3, 2e-3, 5e-3, 1e-2, 2e-2]
+UNCLAMP_FAPE_RATIOS = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
 SIDE_CHAIN_FAPE_OPTIONS = [True, False]
-CLAMP_FAPE_THRESHOLDS = [10.0, 20.0, 30.0, 40.0]
+CLAMP_FAPE_THRESHOLDS = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
 ENABLE_DISTOGRAM_LOSS_OPTIONS = [True, False]
 ENABLE_LDDT_LOSS_OPTIONS = [True, False]
 
@@ -67,24 +68,54 @@ def set_fixed_seeds() -> None:
     torch.backends.cudnn.benchmark = False
 
 
+# Globally store configs parsed from existing folders to avoid duplicate runs
+EVALUATED_CONFIGS_FROM_FOLDERS = []
+
+def load_previous_configs():
+    """Scans the experiment directory for past runs and records their hyperparameters and final metrics."""
+    global EVALUATED_CONFIGS_FROM_FOLDERS
+    EVALUATED_CONFIGS_FROM_FOLDERS.clear()
+    config_path = PROJECT_ROOT / "configurations" / "cuda_configuration.yaml"
+    if not config_path.exists():
+        return
+        
+    with open(config_path, "r") as file_handle:
+        config = yaml.safe_load(file_handle)
+        
+    experiment_parent = Path(config["ExperimentConfiguration"]["experiment_parent_folder"])
+    experiment_name = config["ExperimentConfiguration"]["experiment_name"]
+    
+    if experiment_parent.exists():
+        for d in experiment_parent.iterdir():
+            if d.is_dir() and f"{experiment_name}_trial_" in d.name:
+                json_path = d / "hyper_parameter_configuration.json"
+                csv_path = d / "metrics_evolution.csv"
+                if json_path.exists() and csv_path.exists():
+                    try:
+                        with open(json_path, "r") as f:
+                            params = json.load(f)
+                            
+                        import pandas as pd
+                        df = pd.read_csv(csv_path)
+                        if "Mean_Distance_Delta" in df.columns:
+                            final_dist = float(df["Mean_Distance_Delta"].iloc[-1])
+                        elif "mean_distance_delta" in df.columns:
+                            final_dist = float(df["mean_distance_delta"].iloc[-1])
+                        else:
+                            continue
+                            
+                        EVALUATED_CONFIGS_FROM_FOLDERS.append({
+                            "params": params,
+                            "value": final_dist
+                        })
+                    except Exception:
+                        pass
+    print(f"Loaded {len(EVALUATED_CONFIGS_FROM_FOLDERS)} previously completed configurations from disk.")
+
+
 def objective(trial: optuna.Trial) -> float:
     """
     The core evaluation function executed by Optuna for every hyperparameter trial.
-
-    This function bridges the Optuna optimization engine with the project's native 
-    training loop. It samples a specific combination of hyperparameters from the 
-    defined search space, dynamically overrides the values in `cuda_configuration.yaml`, 
-    and executes `main.main()`. After training completes, it cleans up and renames 
-    the experiment outputs (Weights, Tensorboard, metrics CSV) to isolate the trial 
-    data before returning the final distance metric to the Optuna engine for evaluation.
-
-    Args:
-        trial (optuna.Trial): The current optimization trial object provided by Optuna, 
-            used to sample hyperparameter values dynamically.
-
-    Returns:
-        float: The final mean distance delta achieved at the end of the training loop.
-            Optuna will attempt to minimize this metric over subsequent trials.
     """
     # Enforce identical starting weights & shuffling for every trial
     set_fixed_seeds()
@@ -97,14 +128,23 @@ def objective(trial: optuna.Trial) -> float:
     enable_distogram_loss = trial.suggest_categorical("enable_distogram_loss", ENABLE_DISTOGRAM_LOSS_OPTIONS)
     enable_lddt_loss = trial.suggest_categorical("enable_lddt_loss", ENABLE_LDDT_LOSS_OPTIONS)
 
-    # 2. Modify Configuration
-    # We edit the actual configuration file that main.py will read from.
+    # 2. Check for Duplicates / Fast-Forward
+    # Check against folder-based history
+    for past_run in EVALUATED_CONFIGS_FROM_FOLDERS:
+        if trial.params == past_run["params"]:
+            print(f"Fast-forwarding previously completed trial. Returning saved value: {past_run['value']}")
+            return past_run["value"]
+            
+    # Check against Optuna study database history (for actual duplicates during new search)
+    for past_trial in trial.study.trials:
+        if past_trial.state == optuna.trial.TrialState.COMPLETE and past_trial.params == trial.params and past_trial.number != trial.number:
+            raise optuna.exceptions.TrialPruned("Duplicate parameter combination (already in database).")
+    # 3. Modify Configuration
     config_path = PROJECT_ROOT / "configurations" / "cuda_configuration.yaml"
 
     with open(config_path, "r") as file_handle:
         config = yaml.safe_load(file_handle)
 
-    # Inject overrides (using the exact yaml keys defined in cuda_configuration.yaml)
     config["ExperimentConfiguration"]["learning_rate"] = learning_rate
     config["ExperimentConfiguration"]["number_iterations"] = TOTAL_ITERATIONS
     config["ExperimentConfiguration"]["information_dump"] = INFORMATION_DUMP_FREQUENCY
@@ -118,33 +158,51 @@ def objective(trial: optuna.Trial) -> float:
     with open(config_path, "w") as file_handle:
         yaml.dump(config, file_handle)
 
-    # 3. Run Training Loop
-    # We call main() which will now return the final mean_distance_delta
+    # 4. Run Training Loop
     final_distance = main.main()
 
-    # 4. Archive the full experiment folder to isolate runs
-    # The active experiment folder is constructed by the parent and name in the yaml
+    # 5. Archive the folder and calculate the NEXT trial number properly
     experiment_parent = Path(config["ExperimentConfiguration"]["experiment_parent_folder"])
     experiment_name = config["ExperimentConfiguration"]["experiment_name"]
     experiment_folder = experiment_parent / experiment_name
 
-    # We rename the entire experiment folder by appending the trial number
     if experiment_folder.exists():
-        # Dump the hyperparameter choices to a JSON file inside the folder before renaming
+        # Find the highest existing trial suffix to avoid overwriting old folders
+        max_idx = -1
+        for d in experiment_parent.iterdir():
+            if d.is_dir() and f"{experiment_name}_trial_" in d.name:
+                try:
+                    idx = int(d.name.split("_trial_")[-1])
+                    if idx > max_idx:
+                        max_idx = idx
+                except ValueError:
+                    continue
+        
+        next_trial_num = max_idx + 1
+
+        # Dump the hyperparameter choices
         hyper_params_file = experiment_folder / "hyper_parameter_configuration.json"
         with open(hyper_params_file, "w") as f:
             json.dump(trial.params, f, indent=4)
 
+        # Move with the dynamically calculated next trial number
         shutil.move(
             str(experiment_folder),
-            str(experiment_parent / f"{experiment_name}_trial_{trial.number}")
+            str(experiment_parent / f"{experiment_name}_trial_{next_trial_num}")
         )
+        
+        # Add to our local cache so future trials in this run don't duplicate it
+        EVALUATED_CONFIGS_FROM_FOLDERS.append({
+            "params": trial.params,
+            "value": final_distance
+        })
 
-    # Optuna will attempt to minimize this return value
     return final_distance
 
 
 if __name__ == "__main__":
+    # Scan disk for existing trials before starting the study
+    load_previous_configs()
     # Calculate total combinations in the search space
     total_combinations = (
             len(LEARNING_RATES) *
@@ -158,19 +216,36 @@ if __name__ == "__main__":
     print(f"Creating or loading Optuna study: {STUDY_NAME}")
     print(f"Total parameter combinations space: {total_combinations}")
 
-    # Optuna uses TPESampler by default for Bayesian Optimization
+    # Using a tuned TPESampler for less aggressive, broader exploration early on.
+    # n_startup_trials=50 acts as a random sampler for the first 50 runs to map the space.
+    # multivariate=True helps the Bayesian model look at combinations of parameters jointly.
+    tuned_sampler = optuna.samplers.TPESampler(
+        n_startup_trials=50,
+        multivariate=True,
+        seed=42
+    )
+
     study = optuna.create_study(
         study_name=STUDY_NAME,
         storage=DATABASE_URL,
         direction="minimize",
+        sampler=tuned_sampler,
         load_if_exists=True
     )
 
     print(f"Starting Hyperparameter Sweep.")
     print(f"Run 'optuna-dashboard {DATABASE_URL}' in another terminal to monitor progress interactively!")
 
-    # Optimize using Bayesian optimization (TPE). We cap the trials at total_combinations.
-    # TPE will intelligently adapt its search instead of blindly iterating.
+    # Fast-forward old runs into the new study if it's empty
+    if len(study.trials) == 0:
+        print("Injecting past runs into the new study to preserve history...")
+        for past_run in EVALUATED_CONFIGS_FROM_FOLDERS:
+            # We enqueue the parameters. Optuna will immediately sample them.
+            # Our objective function will intercept them and return the saved value instantly.
+            study.enqueue_trial(past_run["params"])
+
+    # Optimize using Bayesian optimization (TPE) capped at the total possible combinations.
+    # The pruning logic will ensure we never waste time on duplicated trials.
     study.optimize(objective, n_trials=total_combinations)
 
     print("\nSweep Completed! Best trial:")
