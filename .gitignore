@@ -44,6 +44,8 @@ full-checkpoint
 metrics_evolution.csv
 training_configuration.yaml
 *_samples.json
+hyper_parameter_configuration.json
+sweep_results.db
 
 # Preprocessing input
 *sample_*.pt
