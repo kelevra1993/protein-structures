@@ -129,10 +129,12 @@ def analyze_experiments():
     df_summary = df_summary[metric_cols + param_cols]
     
     print("\n--- Summary DataFrame ---")
+    df_summary = df_summary.sort_values(by=['avg_distance_delta', 'min_distance_delta'], ascending=[True, True])
     print(df_summary.to_string(index=False))
     
     # Export DataFrame to CSV for convenience
     csv_out_path = "experiment_summary.csv"
+
     df_summary.to_csv(csv_out_path, index=False)
     print(f"\nSummary data exported to: {csv_out_path}")
     
