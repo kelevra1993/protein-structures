@@ -46,6 +46,8 @@ training_configuration.yaml
 *_samples.json
 hyper_parameter_configuration.json
 sweep_results.db
+test_sample_predictions/
+test_evaluation_results.txt
 
 # Preprocessing input
 *sample_*.pt
