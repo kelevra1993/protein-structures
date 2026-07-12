@@ -10,7 +10,7 @@ from torch import nn
 from typing import Tuple, Union
 from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame_centers, chi_angles_mask,
                                  atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask,
-                                 alternative_position_mask)
+                                 alternative_position_mask, atom_types)
 from utilities.tensor_utilities import unsqueeze_tensor
 
 
@@ -725,12 +725,36 @@ def compute_initial_rigid_transform_matrices() -> torch.Tensor:
     return rigid_transforms
 
 
+# todo to be reviewed
 def reconstruct_carbon_from_phi(nitrogen: torch.Tensor, carbon_alpha: torch.Tensor, previous_carbon: torch.Tensor,
                                 carbon_alpha_carbon_length: torch.Tensor,
                                 nitrogen_carbon_alpha_carbon_angle: torch.Tensor,
                                 phi_dihedral_angle: torch.Tensor) -> torch.Tensor:
     """
     Reconstructs the Carbon atom using the phi dihedral angle.
+
+    In the global project context, this function is used to geometrically reconstruct the position 
+    of the Carbon atom of a given residue based on its Nitrogen and Carbon Alpha positions, along 
+    with the Carbon atom from the previous residue. It uses the phi dihedral angle and idealized 
+    bond lengths/angles to find the exact Cartesian coordinates without needing the true global frame.
+
+    Args:
+        nitrogen (torch.Tensor): Global position of the Nitrogen atom of the current residue.
+            Expected shape: `(..., 3)`.
+        carbon_alpha (torch.Tensor): Global position of the Carbon Alpha atom of the current residue.
+            Expected shape: `(..., 3)`.
+        previous_carbon (torch.Tensor): Global position of the Carbon atom from the previous residue.
+            Expected shape: `(..., 3)`.
+        carbon_alpha_carbon_length (torch.Tensor): The ideal bond length between Carbon Alpha and Carbon.
+            Expected shape: `(...)`.
+        nitrogen_carbon_alpha_carbon_angle (torch.Tensor): The ideal angle (in degrees) formed by N-CA-C.
+            Expected shape: `(...)`.
+        phi_dihedral_angle (torch.Tensor): The phi dihedral angle (in degrees).
+            Expected shape: `(...)`.
+
+    Returns:
+        torch.Tensor: The reconstructed global position of the Carbon atom.
+            Shape: `(..., 3)`.
     """
     device = nitrogen.device
     dtype = nitrogen.dtype
@@ -739,28 +763,33 @@ def reconstruct_carbon_from_phi(nitrogen: torch.Tensor, carbon_alpha: torch.Tens
     phi_tensor = torch.as_tensor(phi_dihedral_angle, device=device, dtype=dtype)
     bond_length_tensor = torch.as_tensor(carbon_alpha_carbon_length, device=device, dtype=dtype)
 
+    # Extract geometry variables and convert angles from degrees to radians
     angle_radians = torch.deg2rad(angle_tensor)
     phi_radians = torch.deg2rad(phi_tensor)
 
-    # ex points towards N (the previous atom in the structural direction for this reconstruction)
-    ex = nn.functional.normalize(nitrogen - carbon_alpha, dim=-1)
+    # Establish the local basis vectors for reconstruction
+    # basis_vector_x points towards N (the previous atom in the structural direction for this reconstruction)
+    basis_vector_x = nn.functional.normalize(nitrogen - carbon_alpha, dim=-1)
 
-    # ey is in the C(prev)-N-CA plane, pointing towards the previous carbon
-    vector_n_to_prev_c = previous_carbon - nitrogen
-    ey = vector_n_to_prev_c - ex * torch.sum(ex * vector_n_to_prev_c, dim=-1, keepdim=True)
-    ey = nn.functional.normalize(ey, dim=-1)
+    # basis_vector_y is in the C(prev)-N-CA plane, pointing towards the previous carbon, orthogonalized against basis_vector_x
+    vector_nitrogen_to_previous_carbon = previous_carbon - nitrogen
+    basis_vector_y = vector_nitrogen_to_previous_carbon - basis_vector_x * torch.sum(
+        basis_vector_x * vector_nitrogen_to_previous_carbon, dim=-1, keepdim=True)
+    basis_vector_y = nn.functional.normalize(basis_vector_y, dim=-1)
 
-    # ez is orthogonal
-    ez = torch.linalg.cross(ex, ey, dim=-1)
+    # basis_vector_z is orthogonal to both basis_vector_x and basis_vector_y, completing the right-handed coordinate system
+    basis_vector_z = torch.linalg.cross(basis_vector_x, basis_vector_y, dim=-1)
 
+    # Compute the local displacement components
     x_component = bond_length_tensor * torch.cos(angle_radians)
     y_component = bond_length_tensor * torch.sin(angle_radians) * torch.cos(phi_radians)
     z_component = -bond_length_tensor * torch.sin(angle_radians) * torch.sin(phi_radians)
 
-    local_vector = x_component * ex + y_component * ey + z_component * ez
+    # Combine the components to get the final local vector and translate it to the global frame
+    local_vector = x_component * basis_vector_x + y_component * basis_vector_y + z_component * basis_vector_z
     return carbon_alpha + local_vector
 
-
+# todo to be reviewed
 def build_global_transforms_from_peptide_linker(
         first_residue_backbone_frame: torch.Tensor,
         residue_angles: torch.Tensor,
@@ -768,24 +797,43 @@ def build_global_transforms_from_peptide_linker(
         sequence_amino_acid_labels: torch.Tensor) -> torch.Tensor:
     """
     Sequentially builds all 8 global transformation matrices using the peptide linker scalers.
+
+    In the global project context, this function is the core of the peptide linker reconstruction 
+    route. It takes the predicted backbone frame of the first residue and iteratively applies the 
+    predicted scalers to reconstruct the N, CA, and C atoms of the subsequent residue. Then, it 
+    computes the backbone frame for that new residue, effectively chaining rigid frames together 
+    without relying on the independent backbone updater.
+
+    Args:
+        first_residue_backbone_frame (torch.Tensor): The global backbone transformation matrix of the first residue.
+            Expected shape: `(..., 1, 4, 4)`.
+        residue_angles (torch.Tensor): The predicted residue torsion angles (unnormalized).
+            Expected shape: `(..., number_residues, 7, 2)`.
+        peptide_linker_scalers (torch.Tensor): The predicted geometric scalers connecting residues.
+            Expected shape: `(..., number_residues - 1, 4)`.
+        sequence_amino_acid_labels (torch.Tensor): The amino acid sequence labels.
+            Expected shape: `(..., number_residues)`.
+
+    Returns:
+        torch.Tensor: All 8 global transformation matrices for every residue.
+            Shape: `(..., number_residues, 8, 4, 4)`.
     """
     device = sequence_amino_acid_labels.device
     dtype = residue_angles.dtype
     number_residues = sequence_amino_acid_labels.shape[-1]
 
     # Precompute ideal geometry from constants
-    from utilities.constants import atom_local_positions, atom_types
     atom_local_positions_tensor = torch.tensor(atom_local_positions, device=device, dtype=dtype)
-    
+
     n_index = atom_types.index("N")
     c_index = atom_types.index("C")
-    
+
     ideal_n = atom_local_positions_tensor[:, n_index, 0, :]
     ideal_c = atom_local_positions_tensor[:, c_index, 0, :]
-    
+
     ideal_n_ca_lengths = torch.linalg.norm(ideal_n, dim=-1)
     ideal_ca_c_lengths = torch.linalg.norm(ideal_c, dim=-1)
-    
+
     # Angle is arccos(dot(N, C) / (|N||C|))
     dot_products = torch.sum(ideal_n * ideal_c, dim=-1)
     ideal_n_ca_c_angles = torch.rad2deg(torch.acos(dot_products / (ideal_n_ca_lengths * ideal_ca_c_lengths)))
@@ -793,69 +841,71 @@ def build_global_transforms_from_peptide_linker(
     all_global_transforms = []
     current_backbone_frame = first_residue_backbone_frame
 
-    for i in range(number_residues):
-        res_angles_i = residue_angles[..., i:i+1, :, :]
-        res_labels_i = sequence_amino_acid_labels[..., i:i+1]
-        
-        # 1. Compute all 8 global transforms for residue i
-        global_transforms_i = compute_global_transform_matrices(
+    for index in range(number_residues):
+        current_residue_angles = residue_angles[..., index:index + 1, :, :]
+        current_residue_labels = sequence_amino_acid_labels[..., index:index + 1]
+
+        # 1. Compute all 8 global transforms for residue index
+        current_global_transforms = compute_global_transform_matrices(
             transformation_matrix=current_backbone_frame.unsqueeze(-3),
-            residue_angles=res_angles_i,
-            sequence_amino_acid_labels=res_labels_i
+            residue_angles=current_residue_angles,
+            sequence_amino_acid_labels=current_residue_labels
         )
-        all_global_transforms.append(global_transforms_i)
-        
-        if i < number_residues - 1:
+        all_global_transforms.append(current_global_transforms)
+
+        if index < number_residues - 1:
             # 2. Reconstruct next residue's backbone frame
-            atoms_i, _, _ = compute_all_atom_coordinates(
+            current_atoms, _, _ = compute_all_atom_coordinates(
                 transformation_matrix=current_backbone_frame.unsqueeze(-3),
-                residue_angles=res_angles_i,
-                sequence_amino_acid_labels=res_labels_i
+                residue_angles=current_residue_angles,
+                sequence_amino_acid_labels=current_residue_labels
             )
-            atoms_i = atoms_i.squeeze(-3)
-            
-            ca_i = atoms_i[..., atom_types.index("CA"), :]
-            c_i = atoms_i[..., atom_types.index("C"), :]
-            o_i = atoms_i[..., atom_types.index("O"), :]
-            
-            scalers_i = peptide_linker_scalers[..., i, :]
-            
-            n_next = reconstruct_next_nitrogen_from_scalers(
-                carbon_alpha=ca_i, carbon=c_i, oxygen=o_i,
-                peptide_carbon_nitrogen_length=scalers_i[..., 2] * 1.32,
-                carbon_alpha_carbon_nitrogen_angle=scalers_i[..., 1] * 120.0,
-                next_nitrogen_elevation_angle=scalers_i[..., 0]
+            current_atoms = current_atoms.squeeze(-3)
+
+            current_carbon_alpha = current_atoms[..., atom_types.index("CA"), :]
+            current_carbon = current_atoms[..., atom_types.index("C"), :]
+            current_oxygen = current_atoms[..., atom_types.index("O"), :]
+
+            current_scalers = peptide_linker_scalers[..., index, :]
+
+            next_nitrogen = reconstruct_next_nitrogen_from_scalers(
+                carbon_alpha=current_carbon_alpha, carbon=current_carbon, oxygen=current_oxygen,
+                peptide_carbon_nitrogen_length=current_scalers[..., 2] * 1.32,
+                carbon_alpha_carbon_nitrogen_angle=current_scalers[..., 1] * 120.0,
+                next_nitrogen_elevation_angle=current_scalers[..., 0]
             )
-            
-            next_label = sequence_amino_acid_labels[..., i+1]
-            n_ca_length_next = ideal_n_ca_lengths[next_label]
-            
-            omega_cos, omega_sin = residue_angles[..., i+1, 0, 0], residue_angles[..., i+1, 0, 1]
-            omega_degrees = torch.rad2deg(torch.atan2(omega_sin, omega_cos))
-            
-            ca_next = reconstruct_next_carbon_alpha_from_scalers(
-                carbon_alpha=ca_i, carbon=c_i, next_nitrogen=n_next,
-                nitrogen_carbon_alpha_length=n_ca_length_next,
-                carbon_nitrogen_carbon_alpha_angle=scalers_i[..., 3] * 120.0,
-                omega_dihedral_angle=omega_degrees
+
+            next_residue_label = sequence_amino_acid_labels[..., index + 1]
+            next_nitrogen_carbon_alpha_length = ideal_n_ca_lengths[next_residue_label]
+
+            next_omega_cosine, next_omega_sine = residue_angles[..., index + 1, 0, 0], residue_angles[
+                ..., index + 1, 0, 1]
+            next_omega_degrees = torch.rad2deg(torch.atan2(next_omega_sine, next_omega_cosine))
+
+            next_carbon_alpha = reconstruct_next_carbon_alpha_from_scalers(
+                carbon_alpha=current_carbon_alpha, carbon=current_carbon, next_nitrogen=next_nitrogen,
+                nitrogen_carbon_alpha_length=next_nitrogen_carbon_alpha_length,
+                carbon_nitrogen_carbon_alpha_angle=current_scalers[..., 3] * 120.0,
+                omega_dihedral_angle=next_omega_degrees
             )
-            
-            ca_c_length_next = ideal_ca_c_lengths[next_label]
-            n_ca_c_angle_next = ideal_n_ca_c_angles[next_label]
-            
-            phi_cos, phi_sin = residue_angles[..., i+1, 1, 0], residue_angles[..., i+1, 1, 1]
-            phi_degrees = torch.rad2deg(torch.atan2(phi_sin, phi_cos))
-            
-            c_next = reconstruct_carbon_from_phi(
-                nitrogen=n_next, carbon_alpha=ca_next, previous_carbon=c_i,
-                carbon_alpha_carbon_length=ca_c_length_next,
-                nitrogen_carbon_alpha_carbon_angle=n_ca_c_angle_next,
-                phi_dihedral_angle=phi_degrees
+
+            next_carbon_alpha_carbon_length = ideal_ca_c_lengths[next_residue_label]
+            next_nitrogen_carbon_alpha_carbon_angle = ideal_n_ca_c_angles[next_residue_label]
+
+            next_phi_cosine, next_phi_sine = residue_angles[..., index + 1, 1, 0], residue_angles[..., index + 1, 1, 1]
+            next_phi_degrees = torch.rad2deg(torch.atan2(next_phi_sine, next_phi_cosine))
+
+            next_carbon = reconstruct_carbon_from_phi(
+                nitrogen=next_nitrogen, carbon_alpha=next_carbon_alpha, previous_carbon=current_carbon,
+                carbon_alpha_carbon_length=next_carbon_alpha_carbon_length,
+                nitrogen_carbon_alpha_carbon_angle=next_nitrogen_carbon_alpha_carbon_angle,
+                phi_dihedral_angle=next_phi_degrees
             )
-            
-            ex = c_next - ca_next
-            ey = n_next - ca_next
-            current_backbone_frame = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=ca_next)
+
+            basis_vector_x = next_carbon - next_carbon_alpha
+            basis_vector_y = next_nitrogen - next_carbon_alpha
+            current_backbone_frame = create_4x4_transform_matrix(ex=basis_vector_x, ey=basis_vector_y,
+                                                                 translation_vector=next_carbon_alpha)
 
     return torch.cat(all_global_transforms, dim=-4)
 
