@@ -7,10 +7,97 @@ File containing geometry utilities
 
 import torch
 from torch import nn
+from typing import Tuple, Union
 from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame_centers, chi_angles_mask,
                                  atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask,
                                  alternative_position_mask)
 from utilities.tensor_utilities import unsqueeze_tensor
+
+
+def compute_angle(point_a: torch.Tensor,
+                  point_b: torch.Tensor,
+                  point_c: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Computes the planar angle defined by three 3D points: A, B, and C, with A as the central vertex.
+
+    In the global project context, this utility is used during geometry construction or 
+    verification steps to measure or enforce ideal bond angles between atoms.
+
+    Args:
+        point_a (torch.Tensor): Coordinates of the central point. Expected shape: (..., 3).
+        point_b (torch.Tensor): Coordinates of the first outer point. Expected shape: (..., 3).
+        point_c (torch.Tensor): Coordinates of the second outer point. Expected shape: (..., 3).
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: 
+            - The calculated angle in radians. Shape: (...,)
+            - The calculated angle in degrees. Shape: (...,)
+    """
+    # 1. Compute vectors AB and AC
+    vector_ab = point_b - point_a
+    vector_ac = point_c - point_a
+
+    # 2. Compute the dot product row-wise
+    dot_product = torch.sum(vector_ab * vector_ac, dim=-1)
+
+    # 3. Compute vector magnitudes (norms)
+    norm_vector_ab = torch.linalg.norm(vector_ab, dim=-1)
+    norm_vector_ac = torch.linalg.norm(vector_ac, dim=-1)
+
+    # 4. Compute cosine with stability guards
+    cosine_theta = dot_product / (norm_vector_ab * norm_vector_ac + 1e-8)
+    cosine_theta = torch.clamp(cosine_theta, -1.0, 1.0)
+
+    # 5. Extract angle in radians
+    angle_radians = torch.acos(cosine_theta)
+    angle_degrees = torch.rad2deg(angle_radians)
+
+    return angle_radians, angle_degrees
+
+
+def adjust_vector_angle(point_a: torch.Tensor,
+                        point_b: torch.Tensor,
+                        point_c: torch.Tensor, target_angle_degrees: Union[float, torch.Tensor]) -> torch.Tensor:
+    """
+    Adjusts the angle of the vector AC relative to AB, preserving its magnitude and keeping it 
+    in the same plane defined by A, B, and C.
+
+    In the global project context, this utility is used for geometric reconstructions or enforcing 
+    idealized bond angles when missing atoms need to be synthesized based on analytical geometry rules.
+
+    Args:
+        point_a (torch.Tensor): Coordinates of the central origin point. Expected shape: (..., 3).
+        point_b (torch.Tensor): Coordinates of the reference point defining the first basis vector. Expected shape: (..., 3).
+        point_c (torch.Tensor): Coordinates of the point to be adjusted. Expected shape: (..., 3).
+        target_angle_degrees (float or torch.Tensor): The desired angle between AB and AC in degrees.
+
+    Returns:
+        torch.Tensor: The new absolute coordinates for point C. Shape: (..., 3).
+    """
+    # 1. Get the baseline vectors from origin A
+    vector_ab = point_b - point_a
+    vector_ac = point_c - point_a
+
+    # 2. Define the first basis vector aligned with AB
+    unit_vector_ab = vector_ab / torch.linalg.norm(vector_ab, dim=-1, keepdim=True)
+
+    # 3. Project AC onto the plane to find the orthogonal component
+    # Using Gram-Schmidt
+    dot_product = torch.sum(vector_ac * unit_vector_ab, dim=-1, keepdim=True)
+    orthogonal_vector_raw = vector_ac - dot_product * unit_vector_ab
+    unit_vector_orthogonal = orthogonal_vector_raw / torch.linalg.norm(orthogonal_vector_raw, dim=-1, keepdim=True)
+
+    # 4. Reconstruct the new vector with target angle
+    # Keeping the original length of AC
+    norm_vector_ac = torch.linalg.norm(vector_ac, dim=-1, keepdim=True)
+
+    target_angle_radians = torch.deg2rad(torch.tensor(target_angle_degrees))
+    new_vector_ac = norm_vector_ac * (
+            torch.cos(target_angle_radians) * unit_vector_ab + torch.sin(target_angle_radians) * unit_vector_orthogonal
+    )
+
+    # 5. Return the final absolute coordinates for the new point C
+    return point_a + new_vector_ac
 
 
 def create_3x3_rotation_matrix(ex: torch.Tensor, ey: torch.Tensor) -> torch.Tensor:
@@ -422,7 +509,6 @@ def approximate_next_nitrogen(carbon_alpha: torch.Tensor, carbon: torch.Tensor, 
     return nitrogen_next
 
 
-
 def compute_non_chi_transform_matrices() -> torch.Tensor:
     """
     Calculates the non-chi local frame transformations for all 21 residues (20 canonical + 1 unknown 'X').
@@ -467,7 +553,7 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
         pre_omega_ey = amino_acid_information["CA"] - amino_acid_information["C"]
 
         pre_omega_translation = amino_acid_information["C"]
-        
+
         pre_omega_transformation = create_4x4_transform_matrix(
             ex=pre_omega_ex,
             ey=pre_omega_ey,
@@ -637,7 +723,7 @@ def compute_global_transform_matrices(transformation_matrix: torch.Tensor, resid
     # These are computed relative to the backbone frame (Frame 0)
     for i, angle in enumerate([omega, phi, psi, chi1], start=1):
         rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
-        
+
         # global = backbone * local_initial * rotation
         frame = torch.matmul(
             backbone_frame,
@@ -649,7 +735,7 @@ def compute_global_transform_matrices(transformation_matrix: torch.Tensor, resid
     # These are computed hierarchically relative to the previous frame
     for i, angle in enumerate([chi2, chi3, chi4], start=5):
         rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
-        
+
         # global = previous_global * local_initial * rotation
         previous_frame = all_global_frames[i - 1]
         frame = torch.matmul(
@@ -827,7 +913,8 @@ def create_alternative_truth_positions(ground_truth_positions: torch.Tensor,
     device = sequence_amino_acid_labels.device
 
     # Shape becomes: (..., number_residues, 37)
-    alternative_indices = alternative_position_mask.to(device)[sequence_amino_acid_labels].to(ground_truth_positions.device)
+    alternative_indices = alternative_position_mask.to(device)[sequence_amino_acid_labels].to(
+        ground_truth_positions.device)
 
     # Expand the indices to cover the spatial dimension (x, y, z)
     # Shape becomes: (..., number_residues, 37, 3)
@@ -873,7 +960,8 @@ def create_alternative_truth_angles(ground_truth_angles: torch.Tensor,
 
     # Retrieve the scaler mask using the sequence labels
     # Shape becomes: (..., number_residues, 7, 2)
-    alternative_angle_scaler = alternative_angle_mask.to(device)[sequence_amino_acid_labels].to(ground_truth_angles.device)
+    alternative_angle_scaler = alternative_angle_mask.to(device)[sequence_amino_acid_labels].to(
+        ground_truth_angles.device)
 
     # Apply the scaler to the ground truth angles
     alternative_ground_truth_angles = ground_truth_angles * alternative_angle_scaler
