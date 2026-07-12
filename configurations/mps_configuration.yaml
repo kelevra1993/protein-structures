@@ -110,6 +110,8 @@ StructureModule:
   number_query_points: 4  # 4 for alphafold
   number_value_points: 8  # 8 for alphafold
   number_torsion_angles: 7  # 7 for alphafold
+  use_peptide_linker_module: true
+  peptide_linker_representation_embedding: 64
 
 LddtModule:
   intermediate_embedding: 32  # 128 for alphafold

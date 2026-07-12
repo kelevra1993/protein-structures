@@ -109,6 +109,8 @@ class Model(nn.Module):
             enable_side_chain_fape_loss=global_configuration.get('enable_side_chain_fape_loss'),
             enable_lddt_loss=global_configuration.get('enable_lddt_loss'),
             clamp_fape_threshold=global_configuration.get('clamp_fape_threshold'),
+            use_peptide_linker_module=structure_module_configuration.get('use_peptide_linker_module'),
+            peptide_linker_representation_embedding=structure_module_configuration.get('peptide_linker_representation_embedding'),
             device=self.device,
             dtype=self.dtype)
 
@@ -166,7 +168,8 @@ class Model(nn.Module):
         # Model outputs emanating from structure module
         model_outputs = {key: [] for key in
                          ["angles", "frames", "final_positions", "position_mask", "pseudo_beta_positions",
-                          "overall_fape_loss", "auxillary_loss", "predicted_lddt_loss", "true_lddt", "unclamped_fape"]}
+                          "overall_fape_loss", "auxillary_loss", "predicted_lddt_loss", "true_lddt", "unclamped_fape",
+                          "peptide_linker_scalers"]}
 
         # Initialisation of first tensors
         msa_shape = (batch_shape + (number_clusters, number_residues, self.msa_embedding))
@@ -229,7 +232,8 @@ class Model(nn.Module):
             sequence_amino_acid_labels = current_cycle_input_batch["sequence_labels"]
 
             (angles, frames, final_positions, position_mask, pseudo_beta_positions,
-             overall_fape_loss, auxillary_loss, predicted_lddt_loss, true_lddt, unclamped_fape) = self.structure_module(
+             overall_fape_loss, auxillary_loss, predicted_lddt_loss, true_lddt, unclamped_fape,
+             peptide_linker_scalers_list) = self.structure_module(
                 single_representation=single_representation_tensor,
                 pair_representation=pair_representation_tensor,
                 sequence_amino_acid_labels=sequence_amino_acid_labels,
@@ -255,10 +259,19 @@ class Model(nn.Module):
             model_outputs["auxillary_loss"].append(auxillary_loss)
             model_outputs["predicted_lddt_loss"].append(predicted_lddt_loss)
             model_outputs["true_lddt"].append(true_lddt)
+
+            # todo to be reviewed
+            if peptide_linker_scalers_list is not None:
+                # stack the scalers across iterations: shape (number_iterations, batch, num_residues-1, 4)
+                model_outputs["peptide_linker_scalers"].append(torch.stack(peptide_linker_scalers_list, dim=0))
             model_outputs["unclamped_fape"].append(unclamped_fape)
 
+
+        # todo to be reviewed
         # Stack all tensors emanating from different cycles
-        model_outputs = {key: torch.stack(value, dim=-1) for key, value in model_outputs.items()}
+        model_outputs = {key: torch.stack(value, dim=-1) if len(value) > 0 else None for key, value in model_outputs.items()}
+        # Remove None values
+        model_outputs = {k: v for k, v in model_outputs.items() if v is not None}
 
         # Compute distogram logits from the final pair representation and the distogram loss
         distogram_logits, distogram_probabilities = self.distogram_module(

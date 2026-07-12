@@ -120,7 +120,7 @@ class Structure:
         method (str, optional): Experimental method used to determine the structure, loaded from JSON record.
     """
 
-    def __init__(self, npz_path: str, record_path: Optional[str] = None,
+    def __init__(self, npz_path: str, record_path: Optional[str] = None, debug: bool = False,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
         Initializes the Structure object by loading and parsing an NPZ file.
@@ -128,6 +128,7 @@ class Structure:
         Args:
             npz_path (str): Path to the .npz file containing structured protein data.
             record_path (str, optional): Path to the corresponding JSON record file for metadata.
+            debug (bool): If True, enables extensive debugging checks and logs during parsing.
             device (torch.device, optional): The target device.
             dtype (torch.dtype, optional): The target data type.
         """
@@ -158,8 +159,9 @@ class Structure:
         (self.ground_truth_global_positions,
          self.ground_truth_local_positions,
          self.ground_truth_frames, self.ground_truth_angles,
-         self.ground_truth_peptide_linker_scalers) = self.compute_ground_truth_data(
-            device=self.device, dtype=self.dtype)
+         self.ground_truth_peptide_linker_scalers) = self.compute_ground_truth_data(debug=debug,
+                                                                                    device=self.device,
+                                                                                    dtype=self.dtype)
 
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
@@ -688,23 +690,22 @@ class Structure:
 
     def compute_ground_truth_data(self,
                                   device: torch.device, dtype: torch.dtype,
-                                  debug: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                                  debug: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        # todo docstring to be updated
-        Orchestrates the computation of ground truth positions, frames, and angles for all residues.
+        Orchestrates the computation of ground truth positions, frames, angles, and peptide linker scalers for all residues.
 
         Args:
         device (torch.device): Computation device.
         dtype (torch.dtype): Computation data type.
 
         Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
             - ground_truth_global_positions: (number_residues, 37, 3)
             - ground_truth_local_positions: (number_residues, 37, 3)
             - ground_truth_frames: (number_residues, 8, 4, 4)
             - ground_truth_angles: (number_residues, 7, 2)
+            - ground_truth_peptide_linker_scalers: (number_residues - 1, 4)
         """
-
         # - ground_truth_positions: (number_residues, 37, 3)
         ground_truth_local_positions = torch.zeros((self.number_residues, 37, 3), device=device, dtype=dtype)
         ground_truth_global_positions = torch.zeros((self.number_residues, 37, 3), device=device, dtype=dtype)
@@ -770,10 +771,12 @@ class Structure:
                 ground_truth_local_positions[residue_index, atom_index] = atom_data["local_position"]
                 ground_truth_global_positions[residue_index, atom_index] = atom_data["global_position"]
 
-            # We will create a variable called peptide_linker_scalers
-            # This variable contains three elements which are actually three scaler values with values between 0.5 and 1.5
-            # peptide_linker_scalers = [scaler_angle_OCN_from_120, scaler_peptide_bond_CN_from_1.32, scaler_angle_CNCA_from_120]
-            # these are actually what i will later make my model predict for the peptide linkage prediction to make training easier
+            # We define `peptide_linker_scalers`, a tensor of 4 invariant geometric scaling factors.
+            # Why: Instead of forcing the neural network to predict absolute 3D translations to place the next 
+            # residue, we make it predict these normalized geometric scalars. This constrains the network to physically 
+            # valid peptide bond formations via NeRF reconstructions, eliminating translation drift and making training easier.
+            # How: The scalers are experimental values divided by their canonical IDEAL geometry (e.g., length / 1.32). 
+            # This normalizes the network targets around 1.0 (or 0.0 for planar elevation), enabling highly stable learning.
             if residue_index < self.number_residues - 2:
                 # 8. Fetch raw geometric values for the peptide bond connecting to the next residue
                 carbon_alpha_carbon_nitrogen_angle = self.statistics["bond_angles"]["peptide_CA_C_N"][residue_index]
@@ -785,7 +788,8 @@ class Structure:
                 # and are normalized to fall generally between 0.5 and 1.5  for stable network prediction.
                 # scalers can be larger in the case of the elevation
 
-                # TODO Add small comment to explain what we are doing here
+                # Calculate the exact out-of-plane elevation angle of the next residue's Nitrogen
+                # relative to the previous residue's CA-C-O plane to capture experimental pyramidalization deviations.
                 next_residue_object = self.residues[residue_index + 1]
                 # Find required atoms in the next residue
                 next_atom_dictionary = self._get_residue_atom_dictionary(next_residue_object,

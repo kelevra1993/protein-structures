@@ -725,6 +725,141 @@ def compute_initial_rigid_transform_matrices() -> torch.Tensor:
     return rigid_transforms
 
 
+def reconstruct_carbon_from_phi(nitrogen: torch.Tensor, carbon_alpha: torch.Tensor, previous_carbon: torch.Tensor,
+                                carbon_alpha_carbon_length: torch.Tensor,
+                                nitrogen_carbon_alpha_carbon_angle: torch.Tensor,
+                                phi_dihedral_angle: torch.Tensor) -> torch.Tensor:
+    """
+    Reconstructs the Carbon atom using the phi dihedral angle.
+    """
+    device = nitrogen.device
+    dtype = nitrogen.dtype
+
+    angle_tensor = torch.as_tensor(nitrogen_carbon_alpha_carbon_angle, device=device, dtype=dtype)
+    phi_tensor = torch.as_tensor(phi_dihedral_angle, device=device, dtype=dtype)
+    bond_length_tensor = torch.as_tensor(carbon_alpha_carbon_length, device=device, dtype=dtype)
+
+    angle_radians = torch.deg2rad(angle_tensor)
+    phi_radians = torch.deg2rad(phi_tensor)
+
+    # ex points towards N (the previous atom in the structural direction for this reconstruction)
+    ex = nn.functional.normalize(nitrogen - carbon_alpha, dim=-1)
+
+    # ey is in the C(prev)-N-CA plane, pointing towards the previous carbon
+    vector_n_to_prev_c = previous_carbon - nitrogen
+    ey = vector_n_to_prev_c - ex * torch.sum(ex * vector_n_to_prev_c, dim=-1, keepdim=True)
+    ey = nn.functional.normalize(ey, dim=-1)
+
+    # ez is orthogonal
+    ez = torch.linalg.cross(ex, ey, dim=-1)
+
+    x_component = bond_length_tensor * torch.cos(angle_radians)
+    y_component = bond_length_tensor * torch.sin(angle_radians) * torch.cos(phi_radians)
+    z_component = -bond_length_tensor * torch.sin(angle_radians) * torch.sin(phi_radians)
+
+    local_vector = x_component * ex + y_component * ey + z_component * ez
+    return carbon_alpha + local_vector
+
+
+def build_global_transforms_from_peptide_linker(
+        first_residue_backbone_frame: torch.Tensor,
+        residue_angles: torch.Tensor,
+        peptide_linker_scalers: torch.Tensor,
+        sequence_amino_acid_labels: torch.Tensor) -> torch.Tensor:
+    """
+    Sequentially builds all 8 global transformation matrices using the peptide linker scalers.
+    """
+    device = sequence_amino_acid_labels.device
+    dtype = residue_angles.dtype
+    number_residues = sequence_amino_acid_labels.shape[-1]
+
+    # Precompute ideal geometry from constants
+    from utilities.constants import atom_local_positions, atom_types
+    atom_local_positions_tensor = torch.tensor(atom_local_positions, device=device, dtype=dtype)
+    
+    n_index = atom_types.index("N")
+    c_index = atom_types.index("C")
+    
+    ideal_n = atom_local_positions_tensor[:, n_index, 0, :]
+    ideal_c = atom_local_positions_tensor[:, c_index, 0, :]
+    
+    ideal_n_ca_lengths = torch.linalg.norm(ideal_n, dim=-1)
+    ideal_ca_c_lengths = torch.linalg.norm(ideal_c, dim=-1)
+    
+    # Angle is arccos(dot(N, C) / (|N||C|))
+    dot_products = torch.sum(ideal_n * ideal_c, dim=-1)
+    ideal_n_ca_c_angles = torch.rad2deg(torch.acos(dot_products / (ideal_n_ca_lengths * ideal_ca_c_lengths)))
+
+    all_global_transforms = []
+    current_backbone_frame = first_residue_backbone_frame
+
+    for i in range(number_residues):
+        res_angles_i = residue_angles[..., i:i+1, :, :]
+        res_labels_i = sequence_amino_acid_labels[..., i:i+1]
+        
+        # 1. Compute all 8 global transforms for residue i
+        global_transforms_i = compute_global_transform_matrices(
+            transformation_matrix=current_backbone_frame.unsqueeze(-3),
+            residue_angles=res_angles_i,
+            sequence_amino_acid_labels=res_labels_i
+        )
+        all_global_transforms.append(global_transforms_i)
+        
+        if i < number_residues - 1:
+            # 2. Reconstruct next residue's backbone frame
+            atoms_i, _, _ = compute_all_atom_coordinates(
+                transformation_matrix=current_backbone_frame.unsqueeze(-3),
+                residue_angles=res_angles_i,
+                sequence_amino_acid_labels=res_labels_i
+            )
+            atoms_i = atoms_i.squeeze(-3)
+            
+            ca_i = atoms_i[..., atom_types.index("CA"), :]
+            c_i = atoms_i[..., atom_types.index("C"), :]
+            o_i = atoms_i[..., atom_types.index("O"), :]
+            
+            scalers_i = peptide_linker_scalers[..., i, :]
+            
+            n_next = reconstruct_next_nitrogen_from_scalers(
+                carbon_alpha=ca_i, carbon=c_i, oxygen=o_i,
+                peptide_carbon_nitrogen_length=scalers_i[..., 2] * 1.32,
+                carbon_alpha_carbon_nitrogen_angle=scalers_i[..., 1] * 120.0,
+                next_nitrogen_elevation_angle=scalers_i[..., 0]
+            )
+            
+            next_label = sequence_amino_acid_labels[..., i+1]
+            n_ca_length_next = ideal_n_ca_lengths[next_label]
+            
+            omega_cos, omega_sin = residue_angles[..., i+1, 0, 0], residue_angles[..., i+1, 0, 1]
+            omega_degrees = torch.rad2deg(torch.atan2(omega_sin, omega_cos))
+            
+            ca_next = reconstruct_next_carbon_alpha_from_scalers(
+                carbon_alpha=ca_i, carbon=c_i, next_nitrogen=n_next,
+                nitrogen_carbon_alpha_length=n_ca_length_next,
+                carbon_nitrogen_carbon_alpha_angle=scalers_i[..., 3] * 120.0,
+                omega_dihedral_angle=omega_degrees
+            )
+            
+            ca_c_length_next = ideal_ca_c_lengths[next_label]
+            n_ca_c_angle_next = ideal_n_ca_c_angles[next_label]
+            
+            phi_cos, phi_sin = residue_angles[..., i+1, 1, 0], residue_angles[..., i+1, 1, 1]
+            phi_degrees = torch.rad2deg(torch.atan2(phi_sin, phi_cos))
+            
+            c_next = reconstruct_carbon_from_phi(
+                nitrogen=n_next, carbon_alpha=ca_next, previous_carbon=c_i,
+                carbon_alpha_carbon_length=ca_c_length_next,
+                nitrogen_carbon_alpha_carbon_angle=n_ca_c_angle_next,
+                phi_dihedral_angle=phi_degrees
+            )
+            
+            ex = c_next - ca_next
+            ey = n_next - ca_next
+            current_backbone_frame = create_4x4_transform_matrix(ex=ex, ey=ey, translation_vector=ca_next)
+
+    return torch.cat(all_global_transforms, dim=-4)
+
+
 def compute_global_transform_matrices(transformation_matrix: torch.Tensor, residue_angles: torch.Tensor,
                                       sequence_amino_acid_labels: torch.Tensor) -> torch.Tensor:
     """
