@@ -93,8 +93,7 @@ def adjust_vector_angle(point_a: torch.Tensor,
 
     target_angle_radians = torch.deg2rad(torch.tensor(target_angle_degrees))
     new_vector_ac = norm_vector_ac * (
-            torch.cos(target_angle_radians) * unit_vector_ab + torch.sin(target_angle_radians) * unit_vector_orthogonal
-    )
+            torch.cos(target_angle_radians) * unit_vector_ab + torch.sin(target_angle_radians) * unit_vector_orthogonal)
 
     # 5. Return the final absolute coordinates for the new point C
     return point_a + new_vector_ac
