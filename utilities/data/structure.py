@@ -1,7 +1,7 @@
 from typing import Optional, Tuple, Dict, Any
 import numpy as np
 import torch
-from utilities.os_utilities import read_json
+from utilities.os_utilities import read_json, print_dictionary
 
 from dataclasses import dataclass
 from utilities.constants import (xxx_to_index, index_to_xxx, atom_to_index, atom_frame_indices,
@@ -121,12 +121,12 @@ class Structure:
     def __init__(self, npz_path: str, record_path: Optional[str] = None, compute_statistics: bool = False,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
-        todo update with compute_statistics (minor change to docstring only one line)
         Initializes the Structure object by loading and parsing an NPZ file.
 
         Args:
             npz_path (str): Path to the .npz file containing structured protein data.
             record_path (str, optional): Path to the corresponding JSON record file for metadata.
+            compute_statistics (bool, optional): Whether to precompute internal backbone statistics. Defaults to False.
             device (torch.device, optional): The target device.
             dtype (torch.dtype, optional): The target data type.
         """
@@ -166,7 +166,7 @@ class Structure:
             device=self.device, dtype=self.dtype)
 
         self.compute_statistics = compute_statistics
-        self.statistics = None
+        self.statistics = {}
         # Compute global statistics for debugging
         if self.compute_statistics:
             self.statistics = self.compute_all_backbone_statistics()
@@ -801,7 +801,8 @@ class Structure:
         """
         statistics = {
             "bond_lengths": {"N_CA": [], "CA_C": [], "C_O": [], "peptide_C_N": []},
-            "bond_angles": {"N_CA_C": [], "CA_C_O": [], "peptide_CA_C_N": [], "peptide_C_N_CA": []},
+            "bond_angles": {"N_CA_C": [], "CA_C_O": [],
+                            "peptide_CA_C_N": [], "peptide_C_N_CA": [], "peptide_O_C_N": []},
             "dihedrals": {"omega": []}}
 
         number_residues = len(self.residues)
@@ -842,6 +843,7 @@ class Structure:
             peptide_carbon_nitrogen_length = None
             peptide_carbon_alpha_carbon_nitrogen_angle = None
             peptide_carbon_nitrogen_carbon_alpha_angle = None
+            peptide_oxygen_carbon_nitrogen_angle = None
 
             if residue_index < number_residues - 1:
                 next_atoms = self._get_residue_atom_dictionary(self.residues[residue_index + 1], self.atoms)
@@ -856,6 +858,9 @@ class Structure:
                 peptide_carbon_nitrogen_carbon_alpha_angle = compute_angle(point_a=carbon_position,
                                                                            point_b=next_carbon_alpha,
                                                                            center=next_nitrogen)[1].item()
+                peptide_oxygen_carbon_nitrogen_angle = compute_angle(point_a=oxygen_position,
+                                                                     point_b=next_nitrogen,
+                                                                     center=carbon_position)[1].item()
 
                 # Omega dihedral
                 dihedral_angle_result = compute_dihedral_angle(point_1=carbon_alpha_position,
@@ -867,11 +872,12 @@ class Structure:
             statistics["bond_lengths"]["peptide_C_N"].append(peptide_carbon_nitrogen_length)
             statistics["bond_angles"]["peptide_CA_C_N"].append(peptide_carbon_alpha_carbon_nitrogen_angle)
             statistics["bond_angles"]["peptide_C_N_CA"].append(peptide_carbon_nitrogen_carbon_alpha_angle)
+            statistics["bond_angles"]["peptide_O_C_N"].append(peptide_oxygen_carbon_nitrogen_angle)
             statistics["dihedrals"]["omega"].append(omega_angle)
 
         return statistics
 
-    def get_statistics(self, residue_index: int, compute_next_residue_statistics: bool = True) -> dict:
+    def get_statistics(self, residue_index: int, compute_next_residue_statistics: bool = True, debug=False) -> dict:
         """
         Retrieves the isolated structural statistics for a specific residue.
 
@@ -882,64 +888,45 @@ class Structure:
             residue_index (int): The index of the residue to inspect.
             compute_next_residue_statistics (bool, optional): Whether to append inter-residue 
                 measurements and the immediately adjacent (i+1) residue. Defaults to True.
+            debug (bool, optional): Whether to print additional debug information. Defaults to False.
 
         Returns:
             dict: A formatted dictionary containing the float values for bond lengths, 
                 bond angles, and dihedral angles.
         """
         statistics_reference = self.statistics
-        result = {
-            "current_residue": {
-                "bond_lengths": {
-                    "N_CA": statistics_reference["bond_lengths"]["N_CA"][residue_index],
-                    "CA_C": statistics_reference["bond_lengths"]["CA_C"][residue_index],
-                    "C_O": statistics_reference["bond_lengths"]["C_O"][residue_index]
-                },
-                "bond_angles": {
-                    "N_CA_C": statistics_reference["bond_angles"]["N_CA_C"][residue_index],
-                    "CA_C_O": statistics_reference["bond_angles"]["CA_C_O"][residue_index]
-                },
-                "dihedrals": {
-                    "phi": statistics_reference["dihedrals"]["phi"][residue_index]
-                }
-            }
-        }
+        result = {"current_residue": {
+            "bond_lengths": {
+                "N_CA": statistics_reference["bond_lengths"]["N_CA"][residue_index],
+                "CA_C": statistics_reference["bond_lengths"]["CA_C"][residue_index],
+                "C_O": statistics_reference["bond_lengths"]["C_O"][residue_index]},
+            "bond_angles": {
+                "N_CA_C": statistics_reference["bond_angles"]["N_CA_C"][residue_index],
+                "CA_C_O": statistics_reference["bond_angles"]["CA_C_O"][residue_index]}}}
 
         if compute_next_residue_statistics:
             if residue_index < self.number_residues - 1:
                 result["peptide_bond"] = {
-                    "bond_lengths": {
-                        "C_N": statistics_reference["bond_lengths"]["peptide_C_N"][residue_index]
-                    },
-                    "bond_angles": {
-                        "CA_C_N": statistics_reference["bond_angles"]["peptide_CA_C_N"][residue_index],
-                        "C_N_CA": statistics_reference["bond_angles"]["peptide_C_N_CA"][residue_index]
-                    },
-                    "dihedrals": {
-                        "psi": statistics_reference["dihedrals"]["psi"][residue_index],
-                        "omega": statistics_reference["dihedrals"]["omega"][residue_index]
-                    }
-                }
+                    "bond_lengths": {"C_N": statistics_reference["bond_lengths"]["peptide_C_N"][residue_index]},
+                    "bond_angles": {"CA_C_N": statistics_reference["bond_angles"]["peptide_CA_C_N"][residue_index],
+                                    "C_N_CA": statistics_reference["bond_angles"]["peptide_C_N_CA"][residue_index],
+                                    "O_C_N": statistics_reference["bond_angles"]["peptide_O_C_N"][residue_index]},
+                    "dihedrals": {"omega": statistics_reference["dihedrals"]["omega"][residue_index]}}
 
                 next_residue_index = residue_index + 1
                 result["next_residue"] = {
-                    "bond_lengths": {
-                        "N_CA": statistics_reference["bond_lengths"]["N_CA"][next_residue_index],
-                        "CA_C": statistics_reference["bond_lengths"]["CA_C"][next_residue_index],
-                        "C_O": statistics_reference["bond_lengths"]["C_O"][next_residue_index]
-                    },
-                    "bond_angles": {
-                        "N_CA_C": statistics_reference["bond_angles"]["N_CA_C"][next_residue_index],
-                        "CA_C_O": statistics_reference["bond_angles"]["CA_C_O"][next_residue_index]
-                    },
-                    "dihedrals": {
-                        "phi": statistics_reference["dihedrals"]["phi"][next_residue_index]
-                    }
-                }
+                    "bond_lengths": {"N_CA": statistics_reference["bond_lengths"]["N_CA"][next_residue_index],
+                                     "CA_C": statistics_reference["bond_lengths"]["CA_C"][next_residue_index],
+                                     "C_O": statistics_reference["bond_lengths"]["C_O"][next_residue_index]},
+                    "bond_angles": {"N_CA_C": statistics_reference["bond_angles"]["N_CA_C"][next_residue_index],
+                                    "CA_C_O": statistics_reference["bond_angles"]["CA_C_O"][next_residue_index]}}
             else:
                 result["peptide_bond"] = None
                 result["next_residue"] = None
 
+        if debug:
+            print_dictionary(result)
+            
         return result
 
     @staticmethod
