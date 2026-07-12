@@ -325,11 +325,12 @@ class Trainer:
                 Defaults to 100,000.
         """
         print(f"Running Training Benchmark On {number_iterations}")
+
+        # Convert to iterators
+        training_dataloader_iterator = iter(self.train_dataloader)
+
         for _ in tqdm(range(number_iterations)):
             try:
-                # Convert to iterators
-                training_dataloader_iterator = iter(self.train_dataloader)
-
                 # Initialize trackers
                 training_trackers = self.get_metric_trackers()
 
@@ -460,8 +461,6 @@ class Trainer:
             self.training_writer.close()
             if self.compute_validation_iteration:
                 self.validation_writer.close()
-
-            return getattr(self, 'latest_mean_distance_delta', 0.0)
 
     def run_test_evaluation(self, iteration: int):
         """
@@ -949,7 +948,7 @@ class Trainer:
         print(delta_string)
         print("=" * len(header_string) + "\n")
 
-        return round(float(np.mean(all_deltas)),4)
+        return round(float(np.mean(all_deltas)), 4)
 
     def log_distances(self, training_model_outputs: Dict[str, torch.Tensor],
                       training_batch_dictionary: Dict[str, torch.Tensor],
@@ -1041,7 +1040,7 @@ class Trainer:
         print(delta_string)
         print("=" * len(header_string) + "\n")
 
-        return round(float(np.mean(np.abs(all_deltas))),4) if all_deltas else 0.0
+        return round(float(np.mean(np.abs(all_deltas))), 4) if all_deltas else 0.0
 
     def extract_last_model_iteration(self) -> int:
         """
