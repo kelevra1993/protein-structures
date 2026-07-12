@@ -14,7 +14,8 @@ from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame
 from utilities.tensor_utilities import unsqueeze_tensor
 
 
-def compute_angle(point_a: torch.Tensor, point_b: torch.Tensor, center: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def compute_angle(point_a: torch.Tensor, point_b: torch.Tensor, center: torch.Tensor) -> Tuple[
+    torch.Tensor, torch.Tensor]:
     """
     Computes the planar angle defined by three 3D points, with center as the central vertex.
 
@@ -53,9 +54,9 @@ def compute_angle(point_a: torch.Tensor, point_b: torch.Tensor, center: torch.Te
     return angle_radians, angle_degrees
 
 
-def adjust_vector_angle(point_a: torch.Tensor, 
-                        point_b: torch.Tensor, 
-                        center: torch.Tensor, 
+def adjust_vector_angle(point_a: torch.Tensor,
+                        point_b: torch.Tensor,
+                        center: torch.Tensor,
                         target_angle_degrees: Union[float, torch.Tensor]) -> torch.Tensor:
     """
     Adjusts the angle of the vector between center and point_b relative to the vector 
@@ -92,10 +93,60 @@ def adjust_vector_angle(point_a: torch.Tensor,
 
     target_angle_radians = torch.deg2rad(torch.tensor(target_angle_degrees))
     new_vector_b = norm_vector_b * (
-        torch.cos(target_angle_radians) * unit_vector_a + torch.sin(target_angle_radians) * unit_vector_orthogonal)
+            torch.cos(target_angle_radians) * unit_vector_a + torch.sin(target_angle_radians) * unit_vector_orthogonal)
 
     # 5. Return the final absolute coordinates for the new point_b
     return center + new_vector_b
+
+
+def check_coplanarity(point_center: torch.Tensor, point_a: torch.Tensor, point_b: torch.Tensor,
+                      point_c: torch.Tensor, threshold: float = 1e-5) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Checks if four points are coplanar by computing the out-of-plane elevation angle.
+
+    In the global project context, this is a debugging utility to verify that reconstructed
+    or ground-truth atoms lie perfectly flat on a 2D plane (e.g., verifying that a peptide
+    bond or an aromatic ring is strictly planar).
+
+    Args:
+        point_center (torch.Tensor): Coordinates of the central point acting as the origin. Expected shape: (..., 3).
+        point_a (torch.Tensor): Coordinates of the first outer point to define the plane. Expected shape: (..., 3).
+        point_b (torch.Tensor): Coordinates of the second outer point to define the plane. Expected shape: (..., 3).
+        point_c (torch.Tensor): Coordinates of the third outer point to test against the plane. Expected shape: (..., 3).
+        threshold (float, optional): The numerical tolerance in degrees. Defaults to 1e-5.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: 
+            - A boolean tensor indicating True if the points are coplanar within the threshold. Shape: (...,).
+            - A float tensor representing the absolute out-of-plane elevation angle in degrees. Shape: (...,).
+    """
+    # 1. Construct vectors radiating from the center point
+    vector_a = point_a - point_center
+    vector_b = point_b - point_center
+    vector_c = point_c - point_center
+
+    # 2. Compute the unit normal to the plane defined by center, a, and b
+    plane_normal = torch.linalg.cross(vector_a, vector_b, dim=-1)
+    unit_plane_normal = plane_normal / (torch.linalg.norm(plane_normal, dim=-1, keepdim=True) + 1e-8)
+
+    # 3. Normalize vector_c to find its purely directional angle
+    unit_vector_c = vector_c / (torch.linalg.norm(vector_c, dim=-1, keepdim=True) + 1e-8)
+
+    # 4. Compute the dot product between unit_vector_c and the unit_plane_normal.
+    # The dot product of a unit vector with a plane's unit normal gives the sine of the elevation angle.
+    sine_elevation = torch.sum(unit_vector_c * unit_plane_normal, dim=-1)
+    
+    # Clip to [-1, 1] for numerical stability before arcsin
+    sine_elevation = torch.clamp(sine_elevation, min=-1.0, max=1.0)
+
+    # 5. Compute the absolute elevation angle in degrees
+    elevation_angle_radians = torch.arcsin(torch.abs(sine_elevation))
+    elevation_angle_degrees = torch.rad2deg(elevation_angle_radians).item()
+
+    # 6. Check if the elevation angle is below the threshold
+    is_coplanar = elevation_angle_degrees < threshold
+
+    return is_coplanar, elevation_angle_degrees
 
 
 def create_3x3_rotation_matrix(ex: torch.Tensor, ey: torch.Tensor) -> torch.Tensor:

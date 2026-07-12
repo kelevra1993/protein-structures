@@ -13,7 +13,7 @@ from utilities.geometry_utilities import (create_4x4_transform_matrix,
                                           apply_transformation_on_vector,
                                           compute_angle,
                                           compute_dihedral_angle,
-                                          make_transformation_matrix_around_ex, adjust_vector_angle)
+                                          make_transformation_matrix_around_ex, adjust_vector_angle, check_coplanarity)
 
 from utilities.tensor_utilities import print_tensor_list
 
@@ -158,7 +158,9 @@ class Structure:
          self.ground_truth_frames, self.ground_truth_angles,
          self.ground_truth_peptide_linker_scalers) = self.compute_ground_truth_data(
             device=self.device, dtype=self.dtype)
+        #todo to be removed
         exit()
+
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
         """
@@ -774,71 +776,41 @@ class Structure:
             # these are actually what i will later make my model predict for the peptide linkage prediction to make training easier
             if residue_index < self.number_residues - 2:
                 # 8. Fetch raw geometric values for the peptide bond connecting to the next residue
-                oxygen_carbon_nitrogen_angle = self.statistics["bond_angles"]["peptide_O_C_N"][residue_index]
+                carbon_alpha_carbon_nitrogen_angle = self.statistics["bond_angles"]["peptide_CA_C_N"][residue_index]
                 peptide_carbon_nitrogen_length = self.statistics["bond_lengths"]["peptide_C_N"][residue_index]
                 carbon_nitrogen_carbon_alpha_angle = self.statistics["bond_angles"]["peptide_C_N_CA"][residue_index]
 
                 # 1. Compute the scalers relative to idealized geometry
                 # Scaler values represent the deviation from idealized peptide bond geometries
-                # and are normalized to fall generally between 0.5 and 1.5 for stable network prediction.
-                scaler_oxygen_carbon_nitrogen_angle_from_120 = oxygen_carbon_nitrogen_angle / 120.0
+                # and are normalized to fall generally between 0.5 and 1.5  for stable network prediction.
+                # scalers can be larger in the case of the elevation
+
+                # TODO Add small comment to explain what we are doing here
+                next_residue_object = self.residues[residue_index + 1]
+                # Find required atoms in the next residue
+                next_atom_dictionary = self._get_residue_atom_dictionary(next_residue_object,
+                                                                         device=self.device, dtype=self.dtype)
+                coplanarity, nitrogen_elevation = check_coplanarity(
+                    point_a=atom_dictionary["O"]["global_position"],
+                    point_b=atom_dictionary["CA"]["global_position"],
+                    point_c=next_atom_dictionary["N"]["global_position"],
+                    point_center=atom_dictionary["C"]["global_position"])
+
+                scaler_next_nitrogen_elevation_from_5 = nitrogen_elevation / 5.0
+                scaler_carbon_alpha_carbon_nitrogen_angle_from_120 = carbon_alpha_carbon_nitrogen_angle / 120.0
                 scaler_peptide_carbon_nitrogen_bond_from_1_32 = peptide_carbon_nitrogen_length / 1.32
                 scaler_carbon_nitrogen_carbon_alpha_angle_from_120 = carbon_nitrogen_carbon_alpha_angle / 120.0
 
                 # 2. Assemble the predictor target list
-                peptide_linker_scalers = [scaler_oxygen_carbon_nitrogen_angle_from_120,
-                                          scaler_peptide_carbon_nitrogen_bond_from_1_32,
-                                          scaler_carbon_nitrogen_carbon_alpha_angle_from_120]
+                peptide_linker_scalers = [
+                    scaler_next_nitrogen_elevation_from_5,
+                    scaler_carbon_alpha_carbon_nitrogen_angle_from_120,
+                    scaler_peptide_carbon_nitrogen_bond_from_1_32,
+                    scaler_carbon_nitrogen_carbon_alpha_angle_from_120,
+                ]
 
                 ground_truth_peptide_linker_scalers[residue_index] = torch.tensor(peptide_linker_scalers,
-                                                                                  device=self.device,dtype=self.dtype)
-
-                print(omega_angle)
-                print(f"Residue {residue_object.name} : {np.round(peptide_linker_scalers, 6)}")
-                # print(f"Residue {residue_object.name} : {peptide_linker_scalers}")
-                # print(ground_truth_peptide_linker_scalers)
-
-
-                # TODO Test : Can we get back the position of Calpha from all of this ? with omega ?
-                exit()
-
-                # TODO DEBUGGING INFORMATION
-                # # Here we look at statistics and start implementing inductive bias
-                # residue_statistics = self.get_statistics(residue_index=residue_index, compute_next_residue_statistics=True)
-                #
-                # print(15 * "---")
-                #
-                # for key, value in residue_statistics["peptide_bond"]["bond_lengths"].items():
-                #     print(f"Peptide Bond Length {key} :: {value}")
-                # print(35 * "-")
-                # for key, value in residue_statistics["peptide_bond"]["bond_angles"].items():
-                #     print(f"Peptide Bond Angle {key} :: {value}")
-                # print(35 * "-")
-                # print(f"Peptide Bond Omega Angle :: {residue_statistics["peptide_bond"]["omega"]}")
-                # print(15 * "---")
-                # mean_peptide_bond_length = round(np.mean(self.statistics["bond_lengths"]["peptide_C_N"][:-1]), 4)
-                # std_peptide_bond_length = round(np.std(self.statistics["bond_lengths"]["peptide_C_N"][:-1]), 4)
-                # print(f"Mean Peptide Bond Length C->N : {mean_peptide_bond_length} Angstrom")
-                # print(f"STD Peptide Bond Length C->N : {std_peptide_bond_length} Angstrom")
-                # print(20 * "-")
-                # mean_peptide_bond_angle = round(np.mean(self.statistics["bond_angles"]["peptide_O_C_N"][:-1]), 4)
-                # std_peptide_bond_angle = round(np.std(self.statistics["bond_angles"]["peptide_O_C_N"][:-1]), 4)
-                # print(f"Mean Peptide Angle  O->C->N : {mean_peptide_bond_angle} Degrees")
-                # print(f"STD Peptide Angle  O->C->N : {std_peptide_bond_angle} Degrees")
-                # print(20 * "-")
-                # mean_peptide_bond_angle = round(np.mean(self.statistics["bond_angles"]["peptide_C_N_CA"][:-1]), 4)
-                # std_peptide_bond_angle = round(np.std(self.statistics["bond_angles"]["peptide_C_N_CA"][:-1]), 4)
-                # print(f"Mean Peptide Angle  C->N->CA : {mean_peptide_bond_angle} Degrees")
-                # print(f"STD Peptide Angle  C->N->CA : {std_peptide_bond_angle} Degrees")
-                # print(15 * "---")
-                #
-                # # statistics = {
-                # # "bond_lengths": {"N_CA": [], "CA_C": [], "C_O": [], "peptide_C_N": []},
-                # # "bond_angles": {"N_CA_C": [], "CA_C_O": [],
-                # #                 "peptide_CA_C_N": [], "peptide_C_N_CA": [], "peptide_O_C_N": []},
-                # # "dihedrals": {"omega": []}}
-                # exit()
-                # TODO DEBUGGING INFORMATION
+                                                                                  device=self.device, dtype=self.dtype)
 
             # Last Step For Debugging Frames
             if debug:
