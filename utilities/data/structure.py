@@ -118,7 +118,7 @@ class Structure:
         method (str, optional): Experimental method used to determine the structure, loaded from JSON record.
     """
 
-    def __init__(self, npz_path: str, record_path: Optional[str] = None, compute_statistics: bool = False,
+    def __init__(self, npz_path: str, record_path: Optional[str] = None,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
         Initializes the Structure object by loading and parsing an NPZ file.
@@ -126,7 +126,6 @@ class Structure:
         Args:
             npz_path (str): Path to the .npz file containing structured protein data.
             record_path (str, optional): Path to the corresponding JSON record file for metadata.
-            compute_statistics (bool, optional): Whether to precompute internal backbone statistics. Defaults to False.
             device (torch.device, optional): The target device.
             dtype (torch.dtype, optional): The target data type.
         """
@@ -143,15 +142,6 @@ class Structure:
         self.method = None
         self.device = device
         self.dtype = dtype
-        #########################################################
-        # TEMPORARY DEBUGGING STATISTICS
-        self.residue_distances = []
-        self.peptide_distances = []
-        self.peptide_angle = []
-        self.residue_mean_distances = 1.4579322735468547
-        self.peptide_mean_distances = 1.3233145
-        self.peptide_mean_angle = 120.43632559342818
-        #########################################################
 
         if record_path is not None:
             record_data = read_json(record_path)
@@ -159,18 +149,16 @@ class Structure:
             self.resolution = structure_meta.get("resolution")
             self.method = structure_meta.get("method")
 
+        # Compute Structure Statistics To Get Peptide Linker Scalers
+        self.statistics = self.compute_all_backbone_statistics()
+
         # Compute ground truth tensors once
         (self.ground_truth_global_positions,
          self.ground_truth_local_positions,
-         self.ground_truth_frames, self.ground_truth_angles) = self.compute_ground_truth_data(
+         self.ground_truth_frames, self.ground_truth_angles,
+         self.ground_truth_peptide_linker_scalers) = self.compute_ground_truth_data(
             device=self.device, dtype=self.dtype)
-
-        self.compute_statistics = compute_statistics
-        self.statistics = {}
-        # Compute global statistics for debugging
-        if self.compute_statistics:
-            self.statistics = self.compute_all_backbone_statistics()
-
+        exit()
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
         """
@@ -700,6 +688,7 @@ class Structure:
                                   device: torch.device, dtype: torch.dtype,
                                   debug: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
+        # todo docstring to be updated
         Orchestrates the computation of ground truth positions, frames, and angles for all residues.
 
         Args:
@@ -717,6 +706,7 @@ class Structure:
         # - ground_truth_positions: (number_residues, 37, 3)
         ground_truth_local_positions = torch.zeros((self.number_residues, 37, 3), device=device, dtype=dtype)
         ground_truth_global_positions = torch.zeros((self.number_residues, 37, 3), device=device, dtype=dtype)
+        ground_truth_peptide_linker_scalers = torch.ones((self.number_residues - 1, 3), device=device, dtype=dtype)
 
         # - ground_truth_frames: (number_residues, 8, 4, 4)
         ground_truth_frames = torch.eye(4, device=device, dtype=dtype).unsqueeze(0).unsqueeze(0).repeat(
@@ -778,25 +768,102 @@ class Structure:
                 ground_truth_local_positions[residue_index, atom_index] = atom_data["local_position"]
                 ground_truth_global_positions[residue_index, atom_index] = atom_data["global_position"]
 
+            # We will create a variable called peptide_linker_scalers
+            # This variable contains three elements which are actually three scaler values with values between 0.5 and 1.5
+            # peptide_linker_scalers = [scaler_angle_OCN_from_120, scaler_peptide_bond_CN_from_1.32, scaler_angle_CNCA_from_120]
+            # these are actually what i will later make my model predict for the peptide linkage prediction to make training easier
+            if residue_index < self.number_residues - 2:
+                # 8. Fetch raw geometric values for the peptide bond connecting to the next residue
+                oxygen_carbon_nitrogen_angle = self.statistics["bond_angles"]["peptide_O_C_N"][residue_index]
+                peptide_carbon_nitrogen_length = self.statistics["bond_lengths"]["peptide_C_N"][residue_index]
+                carbon_nitrogen_carbon_alpha_angle = self.statistics["bond_angles"]["peptide_C_N_CA"][residue_index]
+
+                # 1. Compute the scalers relative to idealized geometry
+                # Scaler values represent the deviation from idealized peptide bond geometries
+                # and are normalized to fall generally between 0.5 and 1.5 for stable network prediction.
+                scaler_oxygen_carbon_nitrogen_angle_from_120 = oxygen_carbon_nitrogen_angle / 120.0
+                scaler_peptide_carbon_nitrogen_bond_from_1_32 = peptide_carbon_nitrogen_length / 1.32
+                scaler_carbon_nitrogen_carbon_alpha_angle_from_120 = carbon_nitrogen_carbon_alpha_angle / 120.0
+
+                # 2. Assemble the predictor target list
+                peptide_linker_scalers = [scaler_oxygen_carbon_nitrogen_angle_from_120,
+                                          scaler_peptide_carbon_nitrogen_bond_from_1_32,
+                                          scaler_carbon_nitrogen_carbon_alpha_angle_from_120]
+
+                ground_truth_peptide_linker_scalers[residue_index] = torch.tensor(peptide_linker_scalers,
+                                                                                  device=self.device,dtype=self.dtype)
+
+                print(omega_angle)
+                print(f"Residue {residue_object.name} : {np.round(peptide_linker_scalers, 6)}")
+                # print(f"Residue {residue_object.name} : {peptide_linker_scalers}")
+                # print(ground_truth_peptide_linker_scalers)
+
+
+                # TODO Test : Can we get back the position of Calpha from all of this ? with omega ?
+                exit()
+
+                # TODO DEBUGGING INFORMATION
+                # # Here we look at statistics and start implementing inductive bias
+                # residue_statistics = self.get_statistics(residue_index=residue_index, compute_next_residue_statistics=True)
+                #
+                # print(15 * "---")
+                #
+                # for key, value in residue_statistics["peptide_bond"]["bond_lengths"].items():
+                #     print(f"Peptide Bond Length {key} :: {value}")
+                # print(35 * "-")
+                # for key, value in residue_statistics["peptide_bond"]["bond_angles"].items():
+                #     print(f"Peptide Bond Angle {key} :: {value}")
+                # print(35 * "-")
+                # print(f"Peptide Bond Omega Angle :: {residue_statistics["peptide_bond"]["omega"]}")
+                # print(15 * "---")
+                # mean_peptide_bond_length = round(np.mean(self.statistics["bond_lengths"]["peptide_C_N"][:-1]), 4)
+                # std_peptide_bond_length = round(np.std(self.statistics["bond_lengths"]["peptide_C_N"][:-1]), 4)
+                # print(f"Mean Peptide Bond Length C->N : {mean_peptide_bond_length} Angstrom")
+                # print(f"STD Peptide Bond Length C->N : {std_peptide_bond_length} Angstrom")
+                # print(20 * "-")
+                # mean_peptide_bond_angle = round(np.mean(self.statistics["bond_angles"]["peptide_O_C_N"][:-1]), 4)
+                # std_peptide_bond_angle = round(np.std(self.statistics["bond_angles"]["peptide_O_C_N"][:-1]), 4)
+                # print(f"Mean Peptide Angle  O->C->N : {mean_peptide_bond_angle} Degrees")
+                # print(f"STD Peptide Angle  O->C->N : {std_peptide_bond_angle} Degrees")
+                # print(20 * "-")
+                # mean_peptide_bond_angle = round(np.mean(self.statistics["bond_angles"]["peptide_C_N_CA"][:-1]), 4)
+                # std_peptide_bond_angle = round(np.std(self.statistics["bond_angles"]["peptide_C_N_CA"][:-1]), 4)
+                # print(f"Mean Peptide Angle  C->N->CA : {mean_peptide_bond_angle} Degrees")
+                # print(f"STD Peptide Angle  C->N->CA : {std_peptide_bond_angle} Degrees")
+                # print(15 * "---")
+                #
+                # # statistics = {
+                # # "bond_lengths": {"N_CA": [], "CA_C": [], "C_O": [], "peptide_C_N": []},
+                # # "bond_angles": {"N_CA_C": [], "CA_C_O": [],
+                # #                 "peptide_CA_C_N": [], "peptide_C_N_CA": [], "peptide_O_C_N": []},
+                # # "dihedrals": {"omega": []}}
+                # exit()
+                # TODO DEBUGGING INFORMATION
+
             # Last Step For Debugging Frames
             if debug:
                 self.frame_debugger(atom_dictionary=atom_dictionary, residue_name=residue_object.name,
                                     frame_to_consider=None, threshold=0.01)
 
-        return ground_truth_global_positions, ground_truth_local_positions, ground_truth_frames, ground_truth_angles
+        return (ground_truth_global_positions, ground_truth_local_positions, ground_truth_frames, ground_truth_angles,
+                ground_truth_peptide_linker_scalers)
 
-    def compute_all_backbone_statistics(self) -> Dict[str, Dict[str, list[float]]]:
+    def compute_all_backbone_statistics(self,
+                                        round_decimals: Optional[int] = 4) -> Dict[str, Dict[str, list[float]]]:
         """
         Computes all internal backbone coordinates (bond lengths, bond angles, and dihedral (only omega))
         for the entire protein structure.
 
-        In the global project context, this method provides the foundational ground-truth 
+        In the global project context, this method provides the foundational ground-truth
         statistics necessary to debug the model when training on internal coordinates
         rather than predicting direct Cartesian translations.
 
+        Args:
+            round_decimals (Optional[int]): Number of decimal places to round values to. If None, no rounding is performed. Defaults to 4.
+
         Returns:
-            Dict[str, Dict[str, list[float]]]: A dictionary containing dictionaries of lists. 
-                Each list has a length equal to `number_residues` and contains the float 
+            Dict[str, Dict[str, list[float]]]: A dictionary containing dictionaries of lists.
+                Each list has a length equal to `number_residues` and contains the float
                 value of the statistic for that residue (or None if uncomputable).
         """
         statistics = {
@@ -809,7 +876,7 @@ class Structure:
         for residue_index in range(number_residues):
 
             # 1. Fetch current residue atoms explicitly
-            residue_atoms = self._get_residue_atom_dictionary(self.residues[residue_index], self.atoms,
+            residue_atoms = self._get_residue_atom_dictionary(self.residues[residue_index],
                                                               device=self.device, dtype=self.dtype)
 
             nitrogen_position = residue_atoms["N"]["global_position"]
@@ -846,7 +913,8 @@ class Structure:
             peptide_oxygen_carbon_nitrogen_angle = None
 
             if residue_index < number_residues - 1:
-                next_atoms = self._get_residue_atom_dictionary(self.residues[residue_index + 1], self.atoms)
+                next_atoms = self._get_residue_atom_dictionary(self.residues[residue_index + 1],
+                                                               device=self.device, dtype=self.dtype)
                 next_nitrogen = next_atoms["N"]["global_position"]
                 next_carbon_alpha = next_atoms["CA"]["global_position"]
 
@@ -875,6 +943,13 @@ class Structure:
             statistics["bond_angles"]["peptide_O_C_N"].append(peptide_oxygen_carbon_nitrogen_angle)
             statistics["dihedrals"]["omega"].append(omega_angle)
 
+        # Rounding values for readability
+        if round_decimals is not None:
+            for category, metrics in statistics.items():
+                for metric_name, values in metrics.items():
+                    statistics[category][metric_name] = [
+                        round(val, round_decimals) if val is not None else None for val in values]
+
         return statistics
 
     def get_statistics(self, residue_index: int, compute_next_residue_statistics: bool = True, debug=False) -> dict:
@@ -886,12 +961,12 @@ class Structure:
 
         Args:
             residue_index (int): The index of the residue to inspect.
-            compute_next_residue_statistics (bool, optional): Whether to append inter-residue 
+            compute_next_residue_statistics (bool, optional): Whether to append inter-residue
                 measurements and the immediately adjacent (i+1) residue. Defaults to True.
             debug (bool, optional): Whether to print additional debug information. Defaults to False.
 
         Returns:
-            dict: A formatted dictionary containing the float values for bond lengths, 
+            dict: A formatted dictionary containing the float values for bond lengths,
                 bond angles, and dihedral angles.
         """
         statistics_reference = self.statistics
@@ -911,7 +986,7 @@ class Structure:
                     "bond_angles": {"CA_C_N": statistics_reference["bond_angles"]["peptide_CA_C_N"][residue_index],
                                     "C_N_CA": statistics_reference["bond_angles"]["peptide_C_N_CA"][residue_index],
                                     "O_C_N": statistics_reference["bond_angles"]["peptide_O_C_N"][residue_index]},
-                    "dihedrals": {"omega": statistics_reference["dihedrals"]["omega"][residue_index]}}
+                    "omega": statistics_reference["dihedrals"]["omega"][residue_index]}
 
                 next_residue_index = residue_index + 1
                 result["next_residue"] = {
@@ -926,7 +1001,7 @@ class Structure:
 
         if debug:
             print_dictionary(result)
-            
+
         return result
 
     @staticmethod
