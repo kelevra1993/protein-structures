@@ -118,7 +118,7 @@ class Structure:
         method (str, optional): Experimental method used to determine the structure, loaded from JSON record.
     """
 
-    def __init__(self, npz_path: str, record_path: Optional[str] = None,compute_statistics:bool=False,
+    def __init__(self, npz_path: str, record_path: Optional[str] = None, compute_statistics: bool = False,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
         todo update with compute_statistics (minor change to docstring only one line)
@@ -165,13 +165,11 @@ class Structure:
          self.ground_truth_frames, self.ground_truth_angles) = self.compute_ground_truth_data(
             device=self.device, dtype=self.dtype)
 
-
         self.compute_statistics = compute_statistics
         self.statistics = None
         # Compute global statistics for debugging
         if self.compute_statistics:
             self.statistics = self.compute_all_backbone_statistics()
-
 
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
@@ -789,7 +787,7 @@ class Structure:
 
     def compute_all_backbone_statistics(self) -> Dict[str, Dict[str, list[float]]]:
         """
-        Computes all internal backbone coordinates (bond lengths, bond angles, and dihedrals) 
+        Computes all internal backbone coordinates (bond lengths, bond angles, and dihedral (only omega))
         for the entire protein structure.
 
         In the global project context, this method provides the foundational ground-truth 
@@ -804,77 +802,73 @@ class Structure:
         statistics = {
             "bond_lengths": {"N_CA": [], "CA_C": [], "C_O": [], "peptide_C_N": []},
             "bond_angles": {"N_CA_C": [], "CA_C_O": [], "peptide_CA_C_N": [], "peptide_C_N_CA": []},
-            "dihedrals": {"phi": [], "psi": [], "omega": []}}
-        
+            "dihedrals": {"omega": []}}
+
         number_residues = len(self.residues)
         for residue_index in range(number_residues):
-            residue_atoms = self._get_residue_atom_dictionary(self.residues[residue_index], self.atoms)
-            
-            nitrogen_position = residue_atoms.get("N", {}).get("global_position")
-            carbon_alpha_position = residue_atoms.get("CA", {}).get("global_position")
-            carbon_position = residue_atoms.get("C", {}).get("global_position")
-            oxygen_position = residue_atoms.get("O", {}).get("global_position")
-            
-            def is_valid(position_tensor):
-                return position_tensor is not None and torch.sum(position_tensor) != 0.0
 
-            nitrogen_carbon_alpha_length = torch.linalg.norm(carbon_alpha_position - nitrogen_position).item() if is_valid(nitrogen_position) and is_valid(carbon_alpha_position) else None
-            carbon_alpha_carbon_length = torch.linalg.norm(carbon_position - carbon_alpha_position).item() if is_valid(carbon_alpha_position) and is_valid(carbon_position) else None
-            carbon_oxygen_length = torch.linalg.norm(oxygen_position - carbon_position).item() if is_valid(carbon_position) and is_valid(oxygen_position) else None
-            
+            # 1. Fetch current residue atoms explicitly
+            residue_atoms = self._get_residue_atom_dictionary(self.residues[residue_index], self.atoms,
+                                                              device=self.device, dtype=self.dtype)
+
+            nitrogen_position = residue_atoms["N"]["global_position"]
+            carbon_alpha_position = residue_atoms["CA"]["global_position"]
+            carbon_position = residue_atoms["C"]["global_position"]
+            oxygen_position = residue_atoms["O"]["global_position"]
+
+            # 2. Compute intra-residue bond lengths
+            nitrogen_carbon_alpha_length = torch.linalg.norm(carbon_alpha_position - nitrogen_position).item()
+            carbon_alpha_carbon_length = torch.linalg.norm(carbon_position - carbon_alpha_position).item()
+            carbon_oxygen_length = torch.linalg.norm(oxygen_position - carbon_position).item()
+
             statistics["bond_lengths"]["N_CA"].append(nitrogen_carbon_alpha_length)
             statistics["bond_lengths"]["CA_C"].append(carbon_alpha_carbon_length)
             statistics["bond_lengths"]["C_O"].append(carbon_oxygen_length)
-            
-            nitrogen_carbon_alpha_carbon_angle = compute_angle(nitrogen_position, carbon_alpha_position, carbon_position)[1].item() if is_valid(nitrogen_position) and is_valid(carbon_alpha_position) and is_valid(carbon_position) else None
-            carbon_alpha_carbon_oxygen_angle = compute_angle(carbon_alpha_position, carbon_position, oxygen_position)[1].item() if is_valid(carbon_alpha_position) and is_valid(carbon_position) and is_valid(oxygen_position) else None
-            
+
+            # 3. Compute intra-residue bond angles
+            nitrogen_carbon_alpha_carbon_angle = compute_angle(point_a=nitrogen_position,
+                                                               point_b=carbon_position,
+                                                               center=carbon_alpha_position)[1].item()
+
+            carbon_alpha_carbon_oxygen_angle = compute_angle(point_a=carbon_alpha_position,
+                                                             point_b=oxygen_position,
+                                                             center=carbon_position)[1].item()
+
             statistics["bond_angles"]["N_CA_C"].append(nitrogen_carbon_alpha_carbon_angle)
             statistics["bond_angles"]["CA_C_O"].append(carbon_alpha_carbon_oxygen_angle)
-            
-            phi_angle = None
-            if residue_index > 0:
-                previous_atoms = self._get_residue_atom_dictionary(self.residues[residue_index - 1], self.atoms)
-                previous_carbon = previous_atoms.get("C", {}).get("global_position")
-                if is_valid(previous_carbon) and is_valid(nitrogen_position) and is_valid(carbon_alpha_position) and is_valid(carbon_position):
-                    dihedral_angle_result = compute_dihedral_angle(previous_carbon, nitrogen_position, carbon_alpha_position, carbon_position)
-                    phi_angle = torch.rad2deg(torch.atan2(dihedral_angle_result[1], dihedral_angle_result[0])).item()
-            statistics["dihedrals"]["phi"].append(phi_angle)
-            
-            psi_angle = None
+
+            # 5. Compute peptide bond properties Omega (requires next residue)
             omega_angle = None
             peptide_carbon_nitrogen_length = None
             peptide_carbon_alpha_carbon_nitrogen_angle = None
             peptide_carbon_nitrogen_carbon_alpha_angle = None
-            
+
             if residue_index < number_residues - 1:
                 next_atoms = self._get_residue_atom_dictionary(self.residues[residue_index + 1], self.atoms)
-                next_nitrogen = next_atoms.get("N", {}).get("global_position")
-                next_carbon_alpha = next_atoms.get("CA", {}).get("global_position")
-                
-                if is_valid(carbon_position) and is_valid(next_nitrogen):
-                    peptide_carbon_nitrogen_length = torch.linalg.norm(next_nitrogen - carbon_position).item()
-                    
-                if is_valid(carbon_alpha_position) and is_valid(carbon_position) and is_valid(next_nitrogen):
-                    peptide_carbon_alpha_carbon_nitrogen_angle = compute_angle(carbon_alpha_position, carbon_position, next_nitrogen)[1].item()
-                    
-                if is_valid(carbon_position) and is_valid(next_nitrogen) and is_valid(next_carbon_alpha):
-                    peptide_carbon_nitrogen_carbon_alpha_angle = compute_angle(carbon_position, next_nitrogen, next_carbon_alpha)[1].item()
-                    
-                if is_valid(nitrogen_position) and is_valid(carbon_alpha_position) and is_valid(carbon_position) and is_valid(next_nitrogen):
-                    dihedral_angle_result = compute_dihedral_angle(nitrogen_position, carbon_alpha_position, carbon_position, next_nitrogen)
-                    psi_angle = torch.rad2deg(torch.atan2(dihedral_angle_result[1], dihedral_angle_result[0])).item()
-                    
-                if is_valid(carbon_alpha_position) and is_valid(carbon_position) and is_valid(next_nitrogen) and is_valid(next_carbon_alpha):
-                    dihedral_angle_result = compute_dihedral_angle(carbon_alpha_position, carbon_position, next_nitrogen, next_carbon_alpha)
-                    omega_angle = torch.rad2deg(torch.atan2(dihedral_angle_result[1], dihedral_angle_result[0])).item()
-                    
+                next_nitrogen = next_atoms["N"]["global_position"]
+                next_carbon_alpha = next_atoms["CA"]["global_position"]
+
+                # Inter-residue lengths and angles
+                peptide_carbon_nitrogen_length = torch.linalg.norm(next_nitrogen - carbon_position).item()
+                peptide_carbon_alpha_carbon_nitrogen_angle = compute_angle(point_a=carbon_alpha_position,
+                                                                           point_b=next_nitrogen,
+                                                                           center=carbon_position)[1].item()
+                peptide_carbon_nitrogen_carbon_alpha_angle = compute_angle(point_a=carbon_position,
+                                                                           point_b=next_carbon_alpha,
+                                                                           center=next_nitrogen)[1].item()
+
+                # Omega dihedral
+                dihedral_angle_result = compute_dihedral_angle(point_1=carbon_alpha_position,
+                                                               point_2=carbon_position,
+                                                               point_3=next_nitrogen,
+                                                               point_4=next_carbon_alpha)
+                omega_angle = torch.rad2deg(torch.atan2(dihedral_angle_result[1], dihedral_angle_result[0])).item()
+
             statistics["bond_lengths"]["peptide_C_N"].append(peptide_carbon_nitrogen_length)
             statistics["bond_angles"]["peptide_CA_C_N"].append(peptide_carbon_alpha_carbon_nitrogen_angle)
             statistics["bond_angles"]["peptide_C_N_CA"].append(peptide_carbon_nitrogen_carbon_alpha_angle)
-            statistics["dihedrals"]["psi"].append(psi_angle)
             statistics["dihedrals"]["omega"].append(omega_angle)
-            
+
         return statistics
 
     def get_statistics(self, residue_index: int, compute_next_residue_statistics: bool = True) -> dict:
@@ -910,7 +904,7 @@ class Structure:
                 }
             }
         }
-        
+
         if compute_next_residue_statistics:
             if residue_index < self.number_residues - 1:
                 result["peptide_bond"] = {
@@ -926,7 +920,7 @@ class Structure:
                         "omega": statistics_reference["dihedrals"]["omega"][residue_index]
                     }
                 }
-                
+
                 next_residue_index = residue_index + 1
                 result["next_residue"] = {
                     "bond_lengths": {
@@ -945,7 +939,7 @@ class Structure:
             else:
                 result["peptide_bond"] = None
                 result["next_residue"] = None
-                
+
         return result
 
     @staticmethod
