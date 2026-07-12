@@ -11,8 +11,11 @@ from utilities.constants import (xxx_to_index, index_to_xxx, atom_to_index, atom
 from utilities.geometry_utilities import (create_4x4_transform_matrix,
                                           invert_4x4_transform_matrix,
                                           apply_transformation_on_vector,
+                                          compute_angle,
                                           compute_dihedral_angle,
-                                          make_transformation_matrix_around_ex)
+                                          make_transformation_matrix_around_ex, adjust_vector_angle)
+
+from utilities.tensor_utilities import print_tensor_list
 
 
 @dataclass(frozen=True)
@@ -106,7 +109,6 @@ class Structure:
     for atoms, residues, and chains, while applying custom standardization logic.
 
     Attributes:
-        boltz_filter (np.ndarray): Boolean mask indicating which chains passed quality filters during preprocessing.
         atoms (list[Atom]): List of all atoms in the complex.
         residues (list[Residue]): List of all residues in the complex.
         chains (list[Chain]): List of all chains (protein strands, ligands, etc.) in the complex.
@@ -116,9 +118,10 @@ class Structure:
         method (str, optional): Experimental method used to determine the structure, loaded from JSON record.
     """
 
-    def __init__(self, npz_path: str, record_path: Optional[str] = None,
+    def __init__(self, npz_path: str, record_path: Optional[str] = None,compute_statistics:bool=False,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
+        todo update with compute_statistics (minor change to docstring only one line)
         Initializes the Structure object by loading and parsing an NPZ file.
 
         Args:
@@ -129,7 +132,6 @@ class Structure:
         """
         data = np.load(npz_path, allow_pickle=True)
 
-        self.boltz_filter = data['mask']
         self.atoms = self._get_atoms(data['atoms'])
         self.residues = self._get_residues(raw_residues=data['residues'])
         self.chains = self._get_chains(raw_chains=data['chains'])
@@ -141,6 +143,15 @@ class Structure:
         self.method = None
         self.device = device
         self.dtype = dtype
+        #########################################################
+        # TEMPORARY DEBUGGING STATISTICS
+        self.residue_distances = []
+        self.peptide_distances = []
+        self.peptide_angle = []
+        self.residue_mean_distances = 1.4579322735468547
+        self.peptide_mean_distances = 1.3233145
+        self.peptide_mean_angle = 120.43632559342818
+        #########################################################
 
         if record_path is not None:
             record_data = read_json(record_path)
@@ -153,6 +164,14 @@ class Structure:
          self.ground_truth_local_positions,
          self.ground_truth_frames, self.ground_truth_angles) = self.compute_ground_truth_data(
             device=self.device, dtype=self.dtype)
+
+
+        self.compute_statistics = compute_statistics
+        self.statistics = None
+        # Compute global statistics for debugging
+        if self.compute_statistics:
+            self.statistics = self.compute_all_backbone_statistics()
+
 
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
@@ -768,6 +787,136 @@ class Structure:
 
         return ground_truth_global_positions, ground_truth_local_positions, ground_truth_frames, ground_truth_angles
 
+    def compute_all_backbone_statistics(self) -> dict:
+
+        # Setup of global statistics that will be computed
+        statistics = {
+            "bond_lengths": {"N_CA": [], "CA_C": [], "C_O": [], "peptide_C_N": []},
+            "bond_angles": {"N_CA_C": [], "CA_C_O": [], "peptide_CA_C_N": [], "peptide_C_N_CA": []},
+            "dihedrals": {"phi": [], "psi": [], "omega": []}}
+        
+        number_residues = len(self.residues)
+        for i in range(number_residues):
+            res_atoms = self._get_residue_atom_dictionary(self.residues[i], self.atoms)
+            
+            n_pos = res_atoms.get("N", {}).get("global_position")
+            ca_pos = res_atoms.get("CA", {}).get("global_position")
+            c_pos = res_atoms.get("C", {}).get("global_position")
+            o_pos = res_atoms.get("O", {}).get("global_position")
+            
+            def is_valid(pos):
+                return pos is not None and torch.sum(pos) != 0.0
+
+            n_ca_len = torch.linalg.norm(ca_pos - n_pos).item() if is_valid(n_pos) and is_valid(ca_pos) else None
+            ca_c_len = torch.linalg.norm(c_pos - ca_pos).item() if is_valid(ca_pos) and is_valid(c_pos) else None
+            c_o_len = torch.linalg.norm(o_pos - c_pos).item() if is_valid(c_pos) and is_valid(o_pos) else None
+            
+            statistics["bond_lengths"]["N_CA"].append(n_ca_len)
+            statistics["bond_lengths"]["CA_C"].append(ca_c_len)
+            statistics["bond_lengths"]["C_O"].append(c_o_len)
+            
+            n_ca_c_ang = compute_angle(n_pos, ca_pos, c_pos)[1].item() if is_valid(n_pos) and is_valid(ca_pos) and is_valid(c_pos) else None
+            ca_c_o_ang = compute_angle(ca_pos, c_pos, o_pos)[1].item() if is_valid(ca_pos) and is_valid(c_pos) and is_valid(o_pos) else None
+            
+            statistics["bond_angles"]["N_CA_C"].append(n_ca_c_ang)
+            statistics["bond_angles"]["CA_C_O"].append(ca_c_o_ang)
+            
+            phi = None
+            if i > 0:
+                prev_atoms = self._get_residue_atom_dictionary(self.residues[i-1], self.atoms)
+                prev_c = prev_atoms.get("C", {}).get("global_position")
+                if is_valid(prev_c) and is_valid(n_pos) and is_valid(ca_pos) and is_valid(c_pos):
+                    dih = compute_dihedral_angle(prev_c, n_pos, ca_pos, c_pos)
+                    phi = torch.rad2deg(torch.atan2(dih[1], dih[0])).item()
+            statistics["dihedrals"]["phi"].append(phi)
+            
+            psi, omega, pep_c_n_len, pep_ca_c_n_ang, pep_c_n_ca_ang = None, None, None, None, None
+            if i < num_residues - 1:
+                next_atoms = self._get_residue_atom_dictionary(self.residues[i+1], self.atoms)
+                next_n = next_atoms.get("N", {}).get("global_position")
+                next_ca = next_atoms.get("CA", {}).get("global_position")
+                
+                if is_valid(c_pos) and is_valid(next_n):
+                    pep_c_n_len = torch.linalg.norm(next_n - c_pos).item()
+                    
+                if is_valid(ca_pos) and is_valid(c_pos) and is_valid(next_n):
+                    pep_ca_c_n_ang = compute_angle(ca_pos, c_pos, next_n)[1].item()
+                    
+                if is_valid(c_pos) and is_valid(next_n) and is_valid(next_ca):
+                    pep_c_n_ca_ang = compute_angle(c_pos, next_n, next_ca)[1].item()
+                    
+                if is_valid(n_pos) and is_valid(ca_pos) and is_valid(c_pos) and is_valid(next_n):
+                    dih = compute_dihedral_angle(n_pos, ca_pos, c_pos, next_n)
+                    psi = torch.rad2deg(torch.atan2(dih[1], dih[0])).item()
+                    
+                if is_valid(ca_pos) and is_valid(c_pos) and is_valid(next_n) and is_valid(next_ca):
+                    dih = compute_dihedral_angle(ca_pos, c_pos, next_n, next_ca)
+                    omega = torch.rad2deg(torch.atan2(dih[1], dih[0])).item()
+                    
+            statistics["bond_lengths"]["peptide_C_N"].append(pep_c_n_len)
+            statistics["bond_angles"]["peptide_CA_C_N"].append(pep_ca_c_n_ang)
+            statistics["bond_angles"]["peptide_C_N_CA"].append(pep_c_n_ca_ang)
+            statistics["dihedrals"]["psi"].append(psi)
+            statistics["dihedrals"]["omega"].append(omega)
+            
+        return statistics
+
+    def get_statistics(self, residue_index: int, compute_next_residue_statistics: bool = True) -> dict:
+        stats = self.statistics
+        result = {
+            "current_residue": {
+                "bond_lengths": {
+                    "N_CA": stats["bond_lengths"]["N_CA"][residue_index],
+                    "CA_C": stats["bond_lengths"]["CA_C"][residue_index],
+                    "C_O": stats["bond_lengths"]["C_O"][residue_index]
+                },
+                "bond_angles": {
+                    "N_CA_C": stats["bond_angles"]["N_CA_C"][residue_index],
+                    "CA_C_O": stats["bond_angles"]["CA_C_O"][residue_index]
+                },
+                "dihedrals": {
+                    "phi": stats["dihedrals"]["phi"][residue_index]
+                }
+            }
+        }
+        
+        if compute_next_residue_statistics:
+            if residue_index < self.number_residues - 1:
+                result["peptide_bond"] = {
+                    "bond_lengths": {
+                        "C_N": stats["bond_lengths"]["peptide_C_N"][residue_index]
+                    },
+                    "bond_angles": {
+                        "CA_C_N": stats["bond_angles"]["peptide_CA_C_N"][residue_index],
+                        "C_N_CA": stats["bond_angles"]["peptide_C_N_CA"][residue_index]
+                    },
+                    "dihedrals": {
+                        "psi": stats["dihedrals"]["psi"][residue_index],
+                        "omega": stats["dihedrals"]["omega"][residue_index]
+                    }
+                }
+                
+                next_idx = residue_index + 1
+                result["next_residue"] = {
+                    "bond_lengths": {
+                        "N_CA": stats["bond_lengths"]["N_CA"][next_idx],
+                        "CA_C": stats["bond_lengths"]["CA_C"][next_idx],
+                        "C_O": stats["bond_lengths"]["C_O"][next_idx]
+                    },
+                    "bond_angles": {
+                        "N_CA_C": stats["bond_angles"]["N_CA_C"][next_idx],
+                        "CA_C_O": stats["bond_angles"]["CA_C_O"][next_idx]
+                    },
+                    "dihedrals": {
+                        "phi": stats["dihedrals"]["phi"][next_idx]
+                    }
+                }
+            else:
+                result["peptide_bond"] = None
+                result["next_residue"] = None
+                
+        return result
+
     @staticmethod
     def frame_debugger(atom_dictionary: Dict[str, Dict],
                        residue_name: str,
@@ -812,3 +961,138 @@ class Structure:
                     print(f"Constant Local: {constant_position.round(4)}")
                     print(f"Delta: {difference.round(4)} | Norm: {difference_norm.round(4)}")
                     print(40 * '-')
+
+
+def visualize_frame_and_atoms(atom_positions: dict, frames, axis_scale: float = 1.0, connectivity_map: list = None):
+    """
+    Visualizes atoms and specific frames using Plotly for interactive 3D rendering.
+
+    Args:
+        atom_positions (dict): Dictionary formatted as {residue_index: {atom_name: [x, y, z]}}
+        frames (torch.Tensor, np.ndarray, or list): 4x4 transformation matrix or a list of them.
+        axis_scale (float): Scale factor for the basis vector lines.
+        connectivity_map (list of tuples): List of atom name pairs to connect, e.g., [("N", "CA"), ("CA", "C")].
+    """
+    import plotly.graph_objects as go
+
+    if not connectivity_map:
+        connectivity_map = [("N", "CA"), ("CA", "C"), ("CA", "CB"), ("C", "O")]
+    fig = go.Figure()
+
+    # Collect coordinates for atoms (markers and text)
+    x_coords, y_coords, z_coords, text_labels = [], [], [], []
+
+    # Collect coordinates for bonds (lines)
+    line_x, line_y, line_z = [], [], []
+
+    for residue_index, atoms in atom_positions.items():
+        clean_atoms = {}
+        for atom_name, coords in atoms.items():
+            if isinstance(coords, torch.Tensor):
+                coords = coords.detach().cpu().numpy()
+            clean_atoms[atom_name] = coords
+
+            x_coords.append(coords[0])
+            y_coords.append(coords[1])
+            z_coords.append(coords[2])
+            text_labels.append(f"Residue {residue_index} - {atom_name}")
+
+        if connectivity_map is not None:
+            # Draw specific bonds from the map
+            for atom1, atom2 in connectivity_map:
+                if atom1 in clean_atoms and atom2 in clean_atoms:
+                    c1, c2 = clean_atoms[atom1], clean_atoms[atom2]
+                    line_x.extend([c1[0], c2[0], None])
+                    line_y.extend([c1[1], c2[1], None])
+                    line_z.extend([c1[2], c2[2], None])
+        else:
+            # Fallback: connect atoms in the order they appear
+            for atom_name, coords in clean_atoms.items():
+                line_x.append(coords[0])
+                line_y.append(coords[1])
+                line_z.append(coords[2])
+            line_x.append(None)
+            line_y.append(None)
+            line_z.append(None)
+
+    # Plot bonds (lines)
+    if line_x:
+        fig.add_trace(go.Scatter3d(
+            x=line_x, y=line_y, z=line_z,
+            mode='lines',
+            line=dict(color='gray', width=3),
+            hoverinfo='none',
+            name='Bonds'
+        ))
+
+    # Plot atoms (markers+text)
+    fig.add_trace(go.Scatter3d(
+        x=x_coords, y=y_coords, z=z_coords,
+        mode='markers+text',
+        marker=dict(size=4, color='black'),
+        text=text_labels,
+        textposition="top center",
+        name='Atoms'
+    ))
+
+    # Ensure frames is a list
+    if isinstance(frames, torch.Tensor):
+        frames = frames.detach().cpu().numpy()
+        if frames.ndim == 2:
+            frames = [frames]
+    elif isinstance(frames, np.ndarray):
+        if frames.ndim == 2:
+            frames = [frames]
+    elif not isinstance(frames, (list, tuple)):
+        frames = [frames]
+
+    for i, frame in enumerate(frames):
+        if isinstance(frame, torch.Tensor):
+            frame = frame.detach().cpu().numpy()
+
+        # Extract origin and axes
+        origin = frame[:3, 3]
+        x_axis = origin + frame[:3, 0] * axis_scale
+        y_axis = origin + frame[:3, 1] * axis_scale
+        z_axis = origin + frame[:3, 2] * axis_scale
+
+        frame_name_suffix = f" {i}" if len(frames) > 1 else ""
+
+        # Plot axes
+        # X-axis (Red)
+        fig.add_trace(go.Scatter3d(
+            x=[origin[0], x_axis[0]], y=[origin[1], x_axis[1]], z=[origin[2], x_axis[2]],
+            mode='lines+text', line=dict(color='red', width=6),
+            text=["", f"ex{frame_name_suffix}"], textposition="middle right",
+            name=f'X-axis{frame_name_suffix}'
+        ))
+
+        # Y-axis (Green)
+        fig.add_trace(go.Scatter3d(
+            x=[origin[0], y_axis[0]], y=[origin[1], y_axis[1]], z=[origin[2], y_axis[2]],
+            mode='lines+text', line=dict(color='green', width=6),
+            text=["", f"ey{frame_name_suffix}"], textposition="top center",
+            name=f'Y-axis{frame_name_suffix}'
+        ))
+
+        # Z-axis (Blue)
+        fig.add_trace(go.Scatter3d(
+            x=[origin[0], z_axis[0]], y=[origin[1], z_axis[1]], z=[origin[2], z_axis[2]],
+            mode='lines+text', line=dict(color='blue', width=6),
+            text=["", f"ez{frame_name_suffix}"], textposition="top center",
+            name=f'Z-axis{frame_name_suffix}'
+        ))
+
+    # Set layout with equal aspect ratio
+    fig.update_layout(
+        scene=dict(
+            aspectmode='data',
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z'
+        ),
+        title="Interactive Frame and Atom Visualization",
+        margin=dict(l=0, r=0, b=0, t=30)
+    )
+
+    fig.show()
