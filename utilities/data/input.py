@@ -31,8 +31,10 @@ class ModelInput:
                  maximum_extra_msa_sequences: int,
                  mask_probability: float,
                  record_path: Optional[str] = None,
+                 compute_statistics:bool=False,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
+        todo update with compute_statistics (minor change to docstring only one line)
         Initializes a ModelInput object, representing a single protein complex for training or inference.
 
         This class serves as the primary data container, integrating structural information from NPZ files
@@ -70,7 +72,7 @@ class ModelInput:
 
         # Load the core physical structure
         self.structure = Structure(npz_path=structure_path, record_path=record_path,
-                                   device=self.device, dtype=self.dtype)
+                                   compute_statistics=compute_statistics, device=self.device, dtype=self.dtype)
 
         # Training specific parameters
         self.acceptance_slope_start = acceptance_slope_start
