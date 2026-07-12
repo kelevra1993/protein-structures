@@ -13,7 +13,9 @@ from utilities.geometry_utilities import (create_4x4_transform_matrix,
                                           apply_transformation_on_vector,
                                           compute_angle,
                                           compute_dihedral_angle,
-                                          make_transformation_matrix_around_ex, adjust_vector_angle, check_coplanarity)
+                                          make_transformation_matrix_around_ex, adjust_vector_angle, check_coplanarity,
+                                          reconstruct_next_nitrogen_from_scalers,
+                                          reconstruct_next_carbon_alpha_from_scalers)
 
 from utilities.tensor_utilities import print_tensor_list
 
@@ -158,8 +160,6 @@ class Structure:
          self.ground_truth_frames, self.ground_truth_angles,
          self.ground_truth_peptide_linker_scalers) = self.compute_ground_truth_data(
             device=self.device, dtype=self.dtype)
-        #todo to be removed
-        exit()
 
     @staticmethod
     def decode_atom_name(encoded_name: np.ndarray) -> str:
@@ -688,7 +688,7 @@ class Structure:
 
     def compute_ground_truth_data(self,
                                   device: torch.device, dtype: torch.dtype,
-                                  debug: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                                  debug: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         # todo docstring to be updated
         Orchestrates the computation of ground truth positions, frames, and angles for all residues.
@@ -708,7 +708,7 @@ class Structure:
         # - ground_truth_positions: (number_residues, 37, 3)
         ground_truth_local_positions = torch.zeros((self.number_residues, 37, 3), device=device, dtype=dtype)
         ground_truth_global_positions = torch.zeros((self.number_residues, 37, 3), device=device, dtype=dtype)
-        ground_truth_peptide_linker_scalers = torch.ones((self.number_residues - 1, 3), device=device, dtype=dtype)
+        ground_truth_peptide_linker_scalers = torch.ones((self.number_residues - 1, 4), device=device, dtype=dtype)
 
         # - ground_truth_frames: (number_residues, 8, 4, 4)
         ground_truth_frames = torch.eye(4, device=device, dtype=dtype).unsqueeze(0).unsqueeze(0).repeat(
@@ -791,8 +791,8 @@ class Structure:
                 next_atom_dictionary = self._get_residue_atom_dictionary(next_residue_object,
                                                                          device=self.device, dtype=self.dtype)
                 coplanarity, nitrogen_elevation = check_coplanarity(
-                    point_a=atom_dictionary["O"]["global_position"],
-                    point_b=atom_dictionary["CA"]["global_position"],
+                    point_a=atom_dictionary["CA"]["global_position"],
+                    point_b=atom_dictionary["O"]["global_position"],
                     point_c=next_atom_dictionary["N"]["global_position"],
                     point_center=atom_dictionary["C"]["global_position"])
 
@@ -811,6 +811,34 @@ class Structure:
 
                 ground_truth_peptide_linker_scalers[residue_index] = torch.tensor(peptide_linker_scalers,
                                                                                   device=self.device, dtype=self.dtype)
+
+                # DEBUGGING: Verify the mathematical reconstruction is lossless
+                if debug:
+                    reconstructed_next_nitrogen = reconstruct_next_nitrogen_from_scalers(
+                        carbon_alpha=atom_dictionary["CA"]["global_position"],
+                        carbon=atom_dictionary["C"]["global_position"],
+                        oxygen=atom_dictionary["O"]["global_position"],
+                        peptide_carbon_nitrogen_length=scaler_peptide_carbon_nitrogen_bond_from_1_32 * 1.32,
+                        carbon_alpha_carbon_nitrogen_angle=scaler_carbon_alpha_carbon_nitrogen_angle_from_120 * 120.0,
+                        next_nitrogen_elevation_angle=scaler_next_nitrogen_elevation_from_5 * 5.0)
+
+                    reconstructed_next_carbon_alpha = reconstruct_next_carbon_alpha_from_scalers(
+                        carbon_alpha=atom_dictionary["CA"]["global_position"],
+                        carbon=atom_dictionary["C"]["global_position"],
+                        next_nitrogen=reconstructed_next_nitrogen,
+                        nitrogen_carbon_alpha_length=self.statistics["bond_lengths"]["N_CA"][residue_index + 1],
+                        carbon_nitrogen_carbon_alpha_angle=scaler_carbon_nitrogen_carbon_alpha_angle_from_120 * 120.0,
+                        omega_dihedral_angle=self.statistics["dihedrals"]["omega"][residue_index])
+
+                    true_next_nitrogen = next_atom_dictionary["N"]["global_position"]
+                    n_error = torch.linalg.norm(reconstructed_next_nitrogen - true_next_nitrogen).item()
+
+                    true_next_carbon_alpha = next_atom_dictionary["CA"]["global_position"]
+                    reconstruction_error = torch.linalg.norm(
+                        reconstructed_next_carbon_alpha - true_next_carbon_alpha).item()
+
+                    print(
+                        f"[{residue_object.name}] N Error: {n_error:.6f} | CA Error: {reconstruction_error:.6f} Angstroms")
 
             # Last Step For Debugging Frames
             if debug:
@@ -999,7 +1027,7 @@ class Structure:
             if frame_to_consider is not None and frame_to_consider != atom_frame_index:
                 continue
 
-            if current_frame_used == atom_frame_index:
+            if current_frame_used == atom_frame_index and atom_name in rigid_group_atom_position_map[residue_name]:
                 local_position = atom_data["local_position"].numpy()
                 constant_position = rigid_group_atom_position_map[residue_name][atom_name].numpy()
                 difference = local_position - constant_position

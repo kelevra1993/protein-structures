@@ -135,16 +135,16 @@ def check_coplanarity(point_center: torch.Tensor, point_a: torch.Tensor, point_b
     # 4. Compute the dot product between unit_vector_c and the unit_plane_normal.
     # The dot product of a unit vector with a plane's unit normal gives the sine of the elevation angle.
     sine_elevation = torch.sum(unit_vector_c * unit_plane_normal, dim=-1)
-    
+
     # Clip to [-1, 1] for numerical stability before arcsin
     sine_elevation = torch.clamp(sine_elevation, min=-1.0, max=1.0)
 
-    # 5. Compute the absolute elevation angle in degrees
-    elevation_angle_radians = torch.arcsin(torch.abs(sine_elevation))
-    elevation_angle_degrees = torch.rad2deg(elevation_angle_radians).item()
+    # 5. Compute the signed elevation angle in degrees
+    elevation_angle_radians = torch.arcsin(sine_elevation)
+    elevation_angle_degrees = torch.rad2deg(elevation_angle_radians)
 
-    # 6. Check if the elevation angle is below the threshold
-    is_coplanar = elevation_angle_degrees < threshold
+    # 6. Check if the absolute elevation angle is below the threshold
+    is_coplanar = torch.abs(elevation_angle_degrees) < threshold
 
     return is_coplanar, elevation_angle_degrees
 
@@ -1016,3 +1016,129 @@ def create_alternative_truth_angles(ground_truth_angles: torch.Tensor,
     alternative_ground_truth_angles = ground_truth_angles * alternative_angle_scaler
 
     return alternative_ground_truth_angles
+
+
+def reconstruct_next_nitrogen_from_scalers(carbon_alpha: torch.Tensor, carbon: torch.Tensor,
+                                           oxygen: torch.Tensor,
+                                           peptide_carbon_nitrogen_length: Union[float, torch.Tensor],
+                                           carbon_alpha_carbon_nitrogen_angle: Union[float, torch.Tensor],
+                                           next_nitrogen_elevation_angle: Union[float, torch.Tensor]) -> torch.Tensor:
+    """
+    Reconstructs the global Cartesian coordinates of the next residue's Nitrogen atom
+    using the previous residue's backbone atoms and local internal coordinates.
+
+    Args:
+        carbon_alpha (torch.Tensor): Coordinates of the CA atom (current residue). Expected shape: (..., 3).
+        carbon (torch.Tensor): Coordinates of the C atom (current residue). Expected shape: (..., 3).
+        oxygen (torch.Tensor): Coordinates of the O atom (current residue). Expected shape: (..., 3).
+        peptide_carbon_nitrogen_length (Union[float, torch.Tensor]): The C-N bond length in Angstroms.
+        carbon_alpha_carbon_nitrogen_angle (Union[float, torch.Tensor]): The CA-C-N bond angle in degrees.
+        next_nitrogen_elevation_angle (Union[float, torch.Tensor]): The out-of-plane elevation angle in degrees.
+
+    Returns:
+        torch.Tensor: The reconstructed global coordinates of the next Nitrogen atom. Shape: (..., 3).
+    """
+    device = carbon.device
+    dtype = carbon.dtype
+
+    # 1. Convert inputs to tensors
+    angle_tensor = torch.as_tensor(carbon_alpha_carbon_nitrogen_angle, device=device, dtype=dtype)
+    elevation_tensor = torch.as_tensor(next_nitrogen_elevation_angle, device=device, dtype=dtype)
+    bond_length_tensor = torch.as_tensor(peptide_carbon_nitrogen_length, device=device, dtype=dtype)
+
+    angle_radians = torch.deg2rad(angle_tensor)
+    elevation_radians = torch.deg2rad(elevation_tensor)
+
+    # 2. Define the local orthonormal basis at C
+    # ex points towards CA
+    ex = nn.functional.normalize(carbon_alpha - carbon, dim=-1)
+
+    # ey is orthogonal to ex and lies in the CA-C-O plane, pointing roughly towards O
+    vector_carbon_to_oxygen = oxygen - carbon
+    ey = vector_carbon_to_oxygen - ex * torch.sum(ex * vector_carbon_to_oxygen, dim=-1, keepdim=True)
+    ey = nn.functional.normalize(ey, dim=-1)
+
+    # ez is orthogonal to both ex and ey, forming the normal to the CA-C-O plane
+    # We use cross(ex, ey) so that it strictly matches the plane_normal = cross(CA-C, O-C)
+    # from check_coplanarity, preserving the exact sign of the elevation angle!
+    ez = torch.linalg.cross(ex, ey, dim=-1)
+
+    # 3. Project the vector
+    # The bond angle CA-C-N is defined from ex. So x_component = cos(angle).
+    # Since ey points towards O, and N is on the opposite side, we use negative for the y_component.
+    # The elevation lifts it out of the plane via ez.
+    x_component = bond_length_tensor * torch.cos(angle_radians)
+    z_component = bond_length_tensor * torch.sin(elevation_radians)
+
+    # Calculate y_component using Pythagorean theorem (x^2 + y^2 + z^2 = r^2)
+    # y^2 = r^2 - x^2 - z^2
+    y_sq = (bond_length_tensor ** 2) - (x_component ** 2) - (z_component ** 2)
+    y_component = -torch.sqrt(torch.clamp(y_sq, min=1e-12))
+
+    local_vector = x_component * ex + y_component * ey + z_component * ez
+
+    # 4. Translate back to global coordinates
+    next_nitrogen = carbon + local_vector
+
+    return next_nitrogen
+
+
+def reconstruct_next_carbon_alpha_from_scalers(carbon_alpha: torch.Tensor, carbon: torch.Tensor,
+                                               next_nitrogen: torch.Tensor,
+                                               nitrogen_carbon_alpha_length: Union[float, torch.Tensor],
+                                               carbon_nitrogen_carbon_alpha_angle: Union[float, torch.Tensor],
+                                               omega_dihedral_angle: Union[float, torch.Tensor]) -> torch.Tensor:
+    """
+    Reconstructs the global Cartesian coordinates of the next residue's Carbon Alpha atom
+    using the previously reconstructed next Nitrogen and the standard NeRF formulation.
+
+    Args:
+        carbon_alpha (torch.Tensor): Coordinates of the CA atom (current residue). Expected shape: (..., 3).
+        carbon (torch.Tensor): Coordinates of the C atom (current residue). Expected shape: (..., 3).
+        next_nitrogen (torch.Tensor): Coordinates of the N atom (next residue). Expected shape: (..., 3).
+        nitrogen_carbon_alpha_length (Union[float, torch.Tensor]): The N-CA bond length in Angstroms.
+        carbon_nitrogen_carbon_alpha_angle (Union[float, torch.Tensor]): The C-N-CA bond angle in degrees.
+        omega_dihedral_angle (Union[float, torch.Tensor]): The CA-C-N-CA dihedral angle in degrees.
+
+    Returns:
+        torch.Tensor: The reconstructed global coordinates of the next Carbon Alpha atom. Shape: (..., 3).
+    """
+    device = carbon.device
+    dtype = carbon.dtype
+
+    # 1. Convert inputs to tensors
+    angle_tensor = torch.as_tensor(carbon_nitrogen_carbon_alpha_angle, device=device, dtype=dtype)
+    omega_tensor = torch.as_tensor(omega_dihedral_angle, device=device, dtype=dtype)
+    bond_length_tensor = torch.as_tensor(nitrogen_carbon_alpha_length, device=device, dtype=dtype)
+
+    angle_radians = torch.deg2rad(angle_tensor)
+    omega_radians = torch.deg2rad(omega_tensor)
+
+    # 2. Define the local orthonormal basis at next_N
+    # ex points towards C (the previous atom in the chain)
+    ex = nn.functional.normalize(carbon - next_nitrogen, dim=-1)
+
+    # ey is orthogonal to ex and lies in the CA-C-N plane, pointing towards CA
+    vector_nitrogen_to_carbon_alpha_previous = carbon_alpha - next_nitrogen
+    ey = vector_nitrogen_to_carbon_alpha_previous - ex * torch.sum(ex * vector_nitrogen_to_carbon_alpha_previous,
+                                                                   dim=-1, keepdim=True)
+    ey = nn.functional.normalize(ey, dim=-1)
+
+    # ez is orthogonal to both ex and ey
+    ez = torch.linalg.cross(ex, ey, dim=-1)
+
+    # 3. Project the vector
+    # The bond angle C-N-CA is defined from ex. So x_component = cos(angle).
+    # The dihedral angle omega rotates the atom around ex.
+    # The normal ez is antiparallel to the IUPAC n1 normal, which inverses the dihedral sine!
+    # Therefore, we strictly apply -sin(omega) to the z_component to correct the chirality.
+    x_component = bond_length_tensor * torch.cos(angle_radians)
+    y_component = bond_length_tensor * torch.sin(angle_radians) * torch.cos(omega_radians)
+    z_component = -bond_length_tensor * torch.sin(angle_radians) * torch.sin(omega_radians)
+
+    local_vector = x_component * ex + y_component * ey + z_component * ez
+
+    # 4. Translate back to global coordinates
+    next_carbon_alpha = next_nitrogen + local_vector
+
+    return next_carbon_alpha
