@@ -120,6 +120,7 @@ class Trainer:
             "auxillary_loss": "Auxillary Loss",
             "lddt_loss": "Local Distance Difference Test Loss",
             "distogram_loss": "Distogram Loss",
+            "peptide_linker_loss": "Peptide Linker Loss",
             "lddt_metric": "True lDDT Metric",
             "unclamped_fape": "Unclamped Physical FAPE Metric"
         }
@@ -487,7 +488,8 @@ class Trainer:
                 auxillary_loss = model_outputs['auxillary_loss'].mean().item()
                 lddt_loss = model_outputs['predicted_lddt_loss'].mean().item()
                 distogram_loss = model_outputs["distogram_loss"].item()
-                total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss
+                peptide_linker_loss = model_outputs.get("peptide_linker_loss", torch.tensor(0.0)).item()
+                total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss + peptide_linker_loss
                 lddt_metric = model_outputs["true_lddt"].mean().item()
                 unclamped_fape = model_outputs["unclamped_fape"].mean().item()
 
@@ -497,6 +499,7 @@ class Trainer:
                 test_trackers["auxillary_loss"] += auxillary_loss
                 test_trackers["lddt_loss"] += lddt_loss
                 test_trackers["distogram_loss"] += distogram_loss
+                test_trackers["peptide_linker_loss"] += peptide_linker_loss
                 test_trackers["lddt_metric"] += lddt_metric
                 test_trackers["unclamped_fape"] += unclamped_fape
 
@@ -642,8 +645,12 @@ class Trainer:
         # Get Distogram Loss
         distogram_loss = model_outputs["distogram_loss"]
 
+        # todo to be reviewed
+        # Get Peptide Linker Loss
+        peptide_linker_loss = model_outputs.get("peptide_linker_loss", torch.tensor(0.0, device=self.device, dtype=self.dtype))
+
         # Get full training loss
-        total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss
+        total_loss = fape_loss + auxillary_loss + lddt_loss + distogram_loss + peptide_linker_loss
 
         # Get the true lDDT metric (mean over residues and cycles)
         lddt_metric = model_outputs["true_lddt"].mean()
@@ -658,6 +665,7 @@ class Trainer:
             "auxillary_loss": auxillary_loss,
             "lddt_loss": lddt_loss,
             "distogram_loss": distogram_loss,
+            "peptide_linker_loss": peptide_linker_loss,
             "lddt_metric": lddt_metric,
             "unclamped_fape": unclamped_fape}
 

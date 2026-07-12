@@ -133,7 +133,6 @@ def test_compute_fape_loss_known_values():
                                   predicted_positions=pred_carbon_alpha_positions,
                                   ground_truth_transformation_matrix=gt_tr_m,
                                   ground_truth_positions=gt_carbon_alpha_positions,
-                                  length_scaler=2,
                                   epsilon=2e-4,
                                   distance_clamp=2.0)
 
@@ -158,10 +157,9 @@ def test_compute_fape_loss_identical_inputs():
                                   predicted_positions=pred_pos,
                                   ground_truth_transformation_matrix=pred_tr_m.clone(),
                                   ground_truth_positions=pred_pos.clone(),
-                                  length_scaler=length_scaler,
                                   epsilon=epsilon)
 
-    expected_loss_value = math.sqrt(epsilon) / length_scaler
+    expected_loss_value = math.sqrt(epsilon)
     expected_loss = torch.full((batch_size,), expected_loss_value)
 
     torch.testing.assert_close(fape_loss, expected_loss)
@@ -179,8 +177,7 @@ def test_compute_fape_loss_batch_shapes():
     loss_no_batch, _ = compute_fape_loss(predicted_transformation_matrix=tr_m_no_batch,
                                       predicted_positions=pos_no_batch,
                                       ground_truth_transformation_matrix=tr_m_no_batch.clone(),
-                                      ground_truth_positions=pos_no_batch.clone(),
-                                      length_scaler=length_scaler)
+                                      ground_truth_positions=pos_no_batch.clone())
     assert loss_no_batch.shape == ()
 
     # 1D batch shape
@@ -189,10 +186,9 @@ def test_compute_fape_loss_batch_shapes():
     pos_1d = pos_no_batch.unsqueeze(0).repeat(batch_size_1d, 1, 1)
 
     loss_1d, _ = compute_fape_loss(predicted_transformation_matrix=tr_m_1d,
-                                predicted_positions=pos_1d,
-                                ground_truth_transformation_matrix=tr_m_1d.clone(),
-                                ground_truth_positions=pos_1d.clone(),
-                                length_scaler=length_scaler)
+                                 predicted_positions=pos_1d,
+                                 ground_truth_transformation_matrix=tr_m_1d.clone(),
+                                 ground_truth_positions=pos_1d.clone())
     assert loss_1d.shape == (batch_size_1d,)
 
     # 2D batch shape
@@ -201,10 +197,9 @@ def test_compute_fape_loss_batch_shapes():
     pos_2d = pos_no_batch.unsqueeze(0).unsqueeze(0).repeat(batch_size_2d_1, batch_size_2d_2, 1, 1)
 
     loss_2d, _ = compute_fape_loss(predicted_transformation_matrix=tr_m_2d,
-                                predicted_positions=pos_2d,
-                                ground_truth_transformation_matrix=tr_m_2d.clone(),
-                                ground_truth_positions=pos_2d.clone(),
-                                length_scaler=length_scaler)
+                                 predicted_positions=pos_2d,
+                                 ground_truth_transformation_matrix=tr_m_2d.clone(),
+                                 ground_truth_positions=pos_2d.clone())
     assert loss_2d.shape == (batch_size_2d_1, batch_size_2d_2)
 
 
@@ -226,11 +221,10 @@ def test_compute_fape_loss_clamping():
                                   predicted_positions=pred_pos,
                                   ground_truth_transformation_matrix=tr_m,
                                   ground_truth_positions=gt_pos,
-                                  length_scaler=length_scaler,
                                   distance_clamp=distance_clamp)
 
-    # If clamped at distance_clamp, the mean should be distance_clamp / length_scaler
-    expected_loss = torch.full((batch_size,), distance_clamp / length_scaler)
+    # If clamped at distance_clamp, the mean should be distance_clamp
+    expected_loss = torch.full((batch_size,), distance_clamp)
 
     torch.testing.assert_close(fape_loss, expected_loss)
 

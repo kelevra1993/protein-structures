@@ -31,6 +31,7 @@ class ModelInput:
                  maximum_extra_msa_sequences: int,
                  mask_probability: float,
                  record_path: Optional[str] = None,
+                 debug: bool = False,
                  device: torch.device = torch.device("cpu"), dtype: torch.dtype = torch.float32):
         """
         Initializes a ModelInput object, representing a single protein complex for training or inference.
@@ -54,6 +55,7 @@ class ModelInput:
             maximum_cluster_sequences (int): Maximum number of unique sequences to retain for MSA clustering.
             maximum_extra_msa_sequences (int): Maximum number of sequences to retain for the extra MSA stack.
             mask_probability (float): Probability of masking a residue during MSA feature extraction.
+            debug (bool): If True, enables extensive debugging output during data loading and processing.
             device (torch.device): The target device for tensor computations.
             dtype (torch.dtype): The target data type for floating-point tensors.
         """
@@ -69,7 +71,7 @@ class ModelInput:
         self.distogram_bins = torch.linspace(start=2, end=22, steps=64, device=self.device, dtype=self.dtype)
 
         # Load the core physical structure
-        self.structure = Structure(npz_path=structure_path, record_path=record_path,
+        self.structure = Structure(npz_path=structure_path, record_path=record_path, debug=debug,
                                    device=self.device, dtype=self.dtype)
 
         # Training specific parameters

@@ -110,6 +110,7 @@ StructureModule:
   number_query_points: 4
   number_value_points: 8
   number_torsion_angles: 7
-
+  use_peptide_linker_module: true
+  peptide_linker_representation_embedding: 64
 LddtModule:
   intermediate_embedding: 128

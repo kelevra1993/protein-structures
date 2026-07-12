@@ -56,7 +56,8 @@ class TestStructure(unittest.TestCase):
         (recomputed_global_positions, 
          recomputed_local_positions, 
          recomputed_frames, 
-         recomputed_angles) = self.structure.compute_ground_truth_data(
+         recomputed_angles,
+         recomputed_peptide_linker_scalers) = self.structure.compute_ground_truth_data(
             device=self.device, dtype=self.dtype)
             
         torch.testing.assert_close(recomputed_global_positions, self.structure.ground_truth_global_positions)
