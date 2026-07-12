@@ -802,43 +802,26 @@ class Structure:
                 scaler_carbon_nitrogen_carbon_alpha_angle_from_120 = carbon_nitrogen_carbon_alpha_angle / 120.0
 
                 # 2. Assemble the predictor target list
-                peptide_linker_scalers = [
-                    scaler_next_nitrogen_elevation_from_5,
-                    scaler_carbon_alpha_carbon_nitrogen_angle_from_120,
-                    scaler_peptide_carbon_nitrogen_bond_from_1_32,
-                    scaler_carbon_nitrogen_carbon_alpha_angle_from_120,
-                ]
+                peptide_linker_scalers = [scaler_next_nitrogen_elevation_from_5,
+                                          scaler_carbon_alpha_carbon_nitrogen_angle_from_120,
+                                          scaler_peptide_carbon_nitrogen_bond_from_1_32,
+                                          scaler_carbon_nitrogen_carbon_alpha_angle_from_120]
 
                 ground_truth_peptide_linker_scalers[residue_index] = torch.tensor(peptide_linker_scalers,
                                                                                   device=self.device, dtype=self.dtype)
 
                 # DEBUGGING: Verify the mathematical reconstruction is lossless
                 if debug:
-                    reconstructed_next_nitrogen = reconstruct_next_nitrogen_from_scalers(
-                        carbon_alpha=atom_dictionary["CA"]["global_position"],
-                        carbon=atom_dictionary["C"]["global_position"],
-                        oxygen=atom_dictionary["O"]["global_position"],
-                        peptide_carbon_nitrogen_length=scaler_peptide_carbon_nitrogen_bond_from_1_32 * 1.32,
-                        carbon_alpha_carbon_nitrogen_angle=scaler_carbon_alpha_carbon_nitrogen_angle_from_120 * 120.0,
-                        next_nitrogen_elevation_angle=scaler_next_nitrogen_elevation_from_5 * 5.0)
-
-                    reconstructed_next_carbon_alpha = reconstruct_next_carbon_alpha_from_scalers(
-                        carbon_alpha=atom_dictionary["CA"]["global_position"],
-                        carbon=atom_dictionary["C"]["global_position"],
-                        next_nitrogen=reconstructed_next_nitrogen,
+                    self.peptide_linker_debugger(
+                        atom_dictionary=atom_dictionary,
+                        next_atom_dictionary=next_atom_dictionary,
+                        residue_name=residue_object.name,
+                        scaler_peptide_carbon_nitrogen_bond_from_1_32=scaler_peptide_carbon_nitrogen_bond_from_1_32,
+                        scaler_carbon_alpha_carbon_nitrogen_angle_from_120=scaler_carbon_alpha_carbon_nitrogen_angle_from_120,
+                        scaler_next_nitrogen_elevation_from_5=scaler_next_nitrogen_elevation_from_5,
+                        scaler_carbon_nitrogen_carbon_alpha_angle_from_120=scaler_carbon_nitrogen_carbon_alpha_angle_from_120,
                         nitrogen_carbon_alpha_length=self.statistics["bond_lengths"]["N_CA"][residue_index + 1],
-                        carbon_nitrogen_carbon_alpha_angle=scaler_carbon_nitrogen_carbon_alpha_angle_from_120 * 120.0,
                         omega_dihedral_angle=self.statistics["dihedrals"]["omega"][residue_index])
-
-                    true_next_nitrogen = next_atom_dictionary["N"]["global_position"]
-                    n_error = torch.linalg.norm(reconstructed_next_nitrogen - true_next_nitrogen).item()
-
-                    true_next_carbon_alpha = next_atom_dictionary["CA"]["global_position"]
-                    reconstruction_error = torch.linalg.norm(
-                        reconstructed_next_carbon_alpha - true_next_carbon_alpha).item()
-
-                    print(
-                        f"[{residue_object.name}] N Error: {n_error:.6f} | CA Error: {reconstruction_error:.6f} Angstroms")
 
             # Last Step For Debugging Frames
             if debug:
@@ -1003,6 +986,45 @@ class Structure:
             print_dictionary(result)
 
         return result
+
+    @staticmethod
+    def peptide_linker_debugger(atom_dictionary: Dict[str, Dict],
+                                next_atom_dictionary: Dict[str, Dict],
+                                residue_name: str,
+                                scaler_peptide_carbon_nitrogen_bond_from_1_32: float,
+                                scaler_carbon_alpha_carbon_nitrogen_angle_from_120: float,
+                                scaler_next_nitrogen_elevation_from_5: float,
+                                scaler_carbon_nitrogen_carbon_alpha_angle_from_120: float,
+                                nitrogen_carbon_alpha_length: float,
+                                omega_dihedral_angle: float) -> None:
+        """
+        Debugs the geometric reconstruction of the next residue's N and CA atoms.
+        """
+        reconstructed_next_nitrogen = reconstruct_next_nitrogen_from_scalers(
+            carbon_alpha=atom_dictionary["CA"]["global_position"],
+            carbon=atom_dictionary["C"]["global_position"],
+            oxygen=atom_dictionary["O"]["global_position"],
+            peptide_carbon_nitrogen_length=scaler_peptide_carbon_nitrogen_bond_from_1_32 * 1.32,
+            carbon_alpha_carbon_nitrogen_angle=scaler_carbon_alpha_carbon_nitrogen_angle_from_120 * 120.0,
+            next_nitrogen_elevation_angle=scaler_next_nitrogen_elevation_from_5 * 5.0
+        )
+
+        reconstructed_next_carbon_alpha = reconstruct_next_carbon_alpha_from_scalers(
+            carbon_alpha=atom_dictionary["CA"]["global_position"],
+            carbon=atom_dictionary["C"]["global_position"],
+            next_nitrogen=reconstructed_next_nitrogen,
+            nitrogen_carbon_alpha_length=nitrogen_carbon_alpha_length,
+            carbon_nitrogen_carbon_alpha_angle=scaler_carbon_nitrogen_carbon_alpha_angle_from_120 * 120.0,
+            omega_dihedral_angle=omega_dihedral_angle
+        )
+
+        true_next_nitrogen = next_atom_dictionary["N"]["global_position"]
+        n_error = torch.linalg.norm(reconstructed_next_nitrogen - true_next_nitrogen).item()
+
+        true_next_carbon_alpha = next_atom_dictionary["CA"]["global_position"]
+        reconstruction_error = torch.linalg.norm(reconstructed_next_carbon_alpha - true_next_carbon_alpha).item()
+
+        print(f"[{residue_name}] N Error: {n_error:.6f} | CA Error: {reconstruction_error:.6f} Angstroms")
 
     @staticmethod
     def frame_debugger(atom_dictionary: Dict[str, Dict],
