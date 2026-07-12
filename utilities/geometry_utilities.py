@@ -14,38 +14,36 @@ from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame
 from utilities.tensor_utilities import unsqueeze_tensor
 
 
-def compute_angle(point_a: torch.Tensor,
-                  point_b: torch.Tensor,
-                  point_c: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def compute_angle(point_a: torch.Tensor, point_b: torch.Tensor, center: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Computes the planar angle defined by three 3D points: A, B, and C, with A as the central vertex.
+    Computes the planar angle defined by three 3D points, with center as the central vertex.
 
     In the global project context, this utility is used during geometry construction or 
     verification steps to measure or enforce ideal bond angles between atoms.
 
     Args:
-        point_a (torch.Tensor): Coordinates of the central point. Expected shape: (..., 3).
-        point_b (torch.Tensor): Coordinates of the first outer point. Expected shape: (..., 3).
-        point_c (torch.Tensor): Coordinates of the second outer point. Expected shape: (..., 3).
+        point_a (torch.Tensor): Coordinates of the first outer point. Expected shape: (..., 3).
+        point_b (torch.Tensor): Coordinates of the second outer point. Expected shape: (..., 3).
+        center (torch.Tensor): Coordinates of the central point. Expected shape: (..., 3).
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: 
             - The calculated angle in radians. Shape: (...,)
             - The calculated angle in degrees. Shape: (...,)
     """
-    # 1. Compute vectors AB and AC
-    vector_ab = point_b - point_a
-    vector_ac = point_c - point_a
+    # 1. Compute vectors from center to outer points
+    vector_a = point_a - center
+    vector_b = point_b - center
 
     # 2. Compute the dot product row-wise
-    dot_product = torch.sum(vector_ab * vector_ac, dim=-1)
+    dot_product = torch.sum(vector_a * vector_b, dim=-1)
 
     # 3. Compute vector magnitudes (norms)
-    norm_vector_ab = torch.linalg.norm(vector_ab, dim=-1)
-    norm_vector_ac = torch.linalg.norm(vector_ac, dim=-1)
+    norm_vector_a = torch.linalg.norm(vector_a, dim=-1)
+    norm_vector_b = torch.linalg.norm(vector_b, dim=-1)
 
     # 4. Compute cosine with stability guards
-    cosine_theta = dot_product / (norm_vector_ab * norm_vector_ac + 1e-8)
+    cosine_theta = dot_product / (norm_vector_a * norm_vector_b + 1e-8)
     cosine_theta = torch.clamp(cosine_theta, -1.0, 1.0)
 
     # 5. Extract angle in radians
@@ -55,48 +53,49 @@ def compute_angle(point_a: torch.Tensor,
     return angle_radians, angle_degrees
 
 
-def adjust_vector_angle(point_a: torch.Tensor,
-                        point_b: torch.Tensor,
-                        point_c: torch.Tensor, target_angle_degrees: Union[float, torch.Tensor]) -> torch.Tensor:
+def adjust_vector_angle(point_a: torch.Tensor, 
+                        point_b: torch.Tensor, 
+                        center: torch.Tensor, 
+                        target_angle_degrees: Union[float, torch.Tensor]) -> torch.Tensor:
     """
-    Adjusts the angle of the vector AC relative to AB, preserving its magnitude and keeping it 
-    in the same plane defined by A, B, and C.
+    Adjusts the angle of the vector between center and point_b relative to the vector 
+    between center and point_a, preserving its magnitude and keeping it in the same plane.
 
     In the global project context, this utility is used for geometric reconstructions or enforcing 
     idealized bond angles when missing atoms need to be synthesized based on analytical geometry rules.
 
     Args:
-        point_a (torch.Tensor): Coordinates of the central origin point. Expected shape: (..., 3).
-        point_b (torch.Tensor): Coordinates of the reference point defining the first basis vector. Expected shape: (..., 3).
-        point_c (torch.Tensor): Coordinates of the point to be adjusted. Expected shape: (..., 3).
-        target_angle_degrees (float or torch.Tensor): The desired angle between AB and AC in degrees.
+        point_a (torch.Tensor): Coordinates of the reference point defining the first basis vector. Expected shape: (..., 3).
+        point_b (torch.Tensor): Coordinates of the point to be adjusted. Expected shape: (..., 3).
+        center (torch.Tensor): Coordinates of the central origin point. Expected shape: (..., 3).
+        target_angle_degrees (Union[float, torch.Tensor]): The desired angle between center->a and center->b in degrees.
 
     Returns:
-        torch.Tensor: The new absolute coordinates for point C. Shape: (..., 3).
+        torch.Tensor: The new absolute coordinates for point_b. Shape: (..., 3).
     """
-    # 1. Get the baseline vectors from origin A
-    vector_ab = point_b - point_a
-    vector_ac = point_c - point_a
+    # 1. Get the baseline vectors from origin center
+    vector_a = point_a - center
+    vector_b = point_b - center
 
-    # 2. Define the first basis vector aligned with AB
-    unit_vector_ab = vector_ab / torch.linalg.norm(vector_ab, dim=-1, keepdim=True)
+    # 2. Define the first basis vector aligned with vector_a
+    unit_vector_a = vector_a / torch.linalg.norm(vector_a, dim=-1, keepdim=True)
 
-    # 3. Project AC onto the plane to find the orthogonal component
+    # 3. Project vector_b onto the plane to find the orthogonal component
     # Using Gram-Schmidt
-    dot_product = torch.sum(vector_ac * unit_vector_ab, dim=-1, keepdim=True)
-    orthogonal_vector_raw = vector_ac - dot_product * unit_vector_ab
+    dot_product = torch.sum(vector_b * unit_vector_a, dim=-1, keepdim=True)
+    orthogonal_vector_raw = vector_b - dot_product * unit_vector_a
     unit_vector_orthogonal = orthogonal_vector_raw / torch.linalg.norm(orthogonal_vector_raw, dim=-1, keepdim=True)
 
     # 4. Reconstruct the new vector with target angle
-    # Keeping the original length of AC
-    norm_vector_ac = torch.linalg.norm(vector_ac, dim=-1, keepdim=True)
+    # Keeping the original length of vector_b
+    norm_vector_b = torch.linalg.norm(vector_b, dim=-1, keepdim=True)
 
     target_angle_radians = torch.deg2rad(torch.tensor(target_angle_degrees))
-    new_vector_ac = norm_vector_ac * (
-            torch.cos(target_angle_radians) * unit_vector_ab + torch.sin(target_angle_radians) * unit_vector_orthogonal)
+    new_vector_b = norm_vector_b * (
+        torch.cos(target_angle_radians) * unit_vector_a + torch.sin(target_angle_radians) * unit_vector_orthogonal)
 
-    # 5. Return the final absolute coordinates for the new point C
-    return point_a + new_vector_ac
+    # 5. Return the final absolute coordinates for the new point_b
+    return center + new_vector_b
 
 
 def create_3x3_rotation_matrix(ex: torch.Tensor, ey: torch.Tensor) -> torch.Tensor:
