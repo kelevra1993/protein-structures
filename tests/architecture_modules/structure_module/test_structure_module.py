@@ -52,7 +52,10 @@ def test_structure_module_forward():
         head_embedding_dimension=16,  # 16
         unclamp_fape_ratio=0.0,
         enable_side_chain_fape_loss=True,
-        clamp_fape_threshold=10.0
+        enable_lddt_loss=True,
+        clamp_fape_threshold=10.0,
+        use_peptide_linker_module=False,
+        peptide_linker_representation_embedding=64
     )
 
     # setup ground truth data
