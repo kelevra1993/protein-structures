@@ -6,7 +6,7 @@ from typing import Tuple, Optional
 from architecture_modules.lddt_module.lddt_module import LddtModule
 from architecture_modules.structure_module.invariant_point_attention_module import InvariantPointAttention
 from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_4x4_transform_matrix, \
-    turn_quaternion_to_3x3_matrix
+    turn_quaternion_to_3x3_matrix,build_global_transforms_from_peptide_linker
 
 # Here we will have to design this explicitly
 from utilities.constants import atom_types, canonical_amino_acid_residues, index_to_xxx, chi_angles_mask
@@ -501,7 +501,7 @@ class StructureModule(nn.Module):
         """
         number_residues = pair_representation.shape[-2]
         batch_dimension = single_representation.shape[:-2]
-        outputs = {'angles': [], 'frames': []}
+        outputs = {'angles': [], 'frames': [],'peptide_linker_scalers':[]}
         device = single_representation.device
         dtype = single_representation.dtype
 
@@ -578,25 +578,22 @@ class StructureModule(nn.Module):
             precomputed_global_transformation_matrices = None
             # todo this has to be reviewed...
             if self.use_peptide_linker_module:
-                from utilities.geometry_utilities import build_global_transforms_from_peptide_linker
+
                 peptide_linker_scalers = self.peptide_linker_predictor(
                     single_representation=single_representation,
                     initial_single_representation=initial_single_representation)
                 
-                if 'peptide_linker_scalers' not in outputs:
-                    outputs['peptide_linker_scalers'] = []
                 outputs['peptide_linker_scalers'].append(peptide_linker_scalers)
                 
                 # Note: transformation_matrix[..., 0:1, :, :] gets the backbone frame of the very first residue
-                # Wait! We need to make sure we don't accidentally update it with backbone_update, since we don't have it!
+                # We need to make sure we don't accidentally update it with backbone_update, since we don't have it!
                 # Actually, does the first residue ever move in the peptide linker route?
                 # If we don't use backbone_update, it stays at torch.eye(4)! That's mathematically perfectly fine for FAPE!
                 precomputed_global_transformation_matrices = build_global_transforms_from_peptide_linker(
                     first_residue_backbone_frame=transformation_matrix[..., 0:1, :, :],
                     residue_angles=residue_angles,
                     peptide_linker_scalers=peptide_linker_scalers,
-                    sequence_amino_acid_labels=sequence_amino_acid_labels
-                )
+                    sequence_amino_acid_labels=sequence_amino_acid_labels)
                 
                 # Replace the entire sequence of backbone frames
                 transformation_matrix = precomputed_global_transformation_matrices[..., 0, :, :]
