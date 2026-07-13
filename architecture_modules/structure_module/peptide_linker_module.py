@@ -97,6 +97,9 @@ class PeptideLinkerPredictor(nn.Module):
             out_features=self.peptide_linker_representation_embedding,
             device=self.device, dtype=self.dtype)
 
+        self.layer_normalizer = nn.LayerNorm(self.peptide_linker_representation_embedding,
+                                             device=self.device, dtype=self.dtype)
+
         self.resnet_layers = nn.ModuleList([
             PeptideLinkerResNetLayer(
                 peptide_linker_representation_embedding=self.peptide_linker_representation_embedding,
@@ -138,10 +141,14 @@ class PeptideLinkerPredictor(nn.Module):
         initial_embedded_representation = self.initial_single_representation_embedder(initial_single_representation)
         current_embedded_representation = self.current_single_representation_embedder(single_representation)
 
+        initial_embedded_representation = self.layer_normalizer(initial_embedded_representation)
+        current_embedded_representation = self.layer_normalizer(current_embedded_representation)
+
         hidden_representation = self.relu(initial_embedded_representation + current_embedded_representation)
 
         for layer in self.resnet_layers:
             hidden_representation = layer(hidden_representation)
+            hidden_representation = self.layer_normalizer(hidden_representation)
 
         raw_outputs = self.output_embedder(hidden_representation)
 

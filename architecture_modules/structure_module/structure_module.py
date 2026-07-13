@@ -12,6 +12,7 @@ from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_
 from utilities.constants import atom_types, canonical_amino_acid_residues, index_to_xxx, chi_angles_mask
 from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
     rename_symmetric_ground_truth_metrics, compute_local_distance_difference_test, compute_plddt_loss
+from architecture_modules.structure_module.peptide_linker_module import PeptideLinkerPredictor
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 
@@ -235,6 +236,26 @@ class AngleResNet(nn.Module):
         output = (self.current_single_representation_embedder(self.relu(single_representation)) +
                   self.initial_single_representation_embedder(self.relu(initial_single_representation)))
 
+
+        # TODO CONSIDER PUTTING LAYER NORMALIZERS HERE BEFORE THE ADDITION TO THE OUPTUT
+        """
+        SOMETHING LIKE :
+        initial_embedded_representation = self.initial_single_representation_embedder(initial_single_representation)
+        current_embedded_representation = self.current_single_representation_embedder(single_representation)
+
+        initial_embedded_representation = self.layer_normalizer(initial_embedded_representation)
+        current_embedded_representation = self.layer_normalizer(current_embedded_representation)
+        
+        hidden_representation = self.relu(initial_embedded_representation + current_embedded_representation)
+        
+        for layer in self.resnet_layers:
+            hidden_representation = layer(hidden_representation)
+            hidden_representation = self.layer_normalizer(hidden_representation)
+        
+        residue_angles_unstacked = self.torsion_angles_output_embedder(self.relu(hidden_representation))
+        """
+
+
         for layer in self.angle_resnet_layers:
             output = layer(output)
 
@@ -326,7 +347,6 @@ class StructureModule(nn.Module):
             device=self.device, dtype=self.dtype)
 
         if self.use_peptide_linker_module:
-            from architecture_modules.structure_module.peptide_linker_module import PeptideLinkerPredictor
             self.peptide_linker_predictor = PeptideLinkerPredictor(
                 single_representation_embedding=self.single_representation_embedding,
                 peptide_linker_representation_embedding=self.peptide_linker_representation_embedding,
@@ -376,6 +396,7 @@ class StructureModule(nn.Module):
         # Final positions : (..., number_residues, 37, 3)
         # Position Masks : (..., number_residues, 37)
         # Global Transformation Matrices : (..., number_residues, 37, 8, 4, 4)
+        # todo to be reviewed !!!
         if precomputed_global_transformation_matrices is not None:
             # We already have the rigid group frames from the sequential peptide linker.
             global_transformation_matrices = precomputed_global_transformation_matrices
@@ -586,6 +607,8 @@ class StructureModule(nn.Module):
                 peptide_linker_scalers = self.peptide_linker_predictor(
                     single_representation=single_representation,
                     initial_single_representation=initial_single_representation)
+                # TODO TO BE REMOVED
+                print_tensor_shape(peptide_linker_scalers,name="peptide_linker_scalers")
 
                 outputs['peptide_linker_scalers'].append(peptide_linker_scalers)
 
@@ -598,6 +621,7 @@ class StructureModule(nn.Module):
                     sequence_amino_acid_labels=sequence_amino_acid_labels)
 
                 # Replace the entire sequence of backbone frames
+                # todo we might need to check this ? Just to make sure that it is correct.
                 transformation_matrix = precomputed_global_transformation_matrices[..., 0, :, :]
             else:
                 # Update of the transformation matrix by right multiplication of current predicted transformation

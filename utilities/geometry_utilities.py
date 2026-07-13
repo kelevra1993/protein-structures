@@ -786,8 +786,11 @@ def reconstruct_carbon_from_phi(nitrogen: torch.Tensor, carbon_alpha: torch.Tens
     z_component = -bond_length_tensor * torch.sin(angle_radians) * torch.sin(phi_radians)
 
     # Combine the components to get the final local vector and translate it to the global frame
-    local_vector = x_component * basis_vector_x + y_component * basis_vector_y + z_component * basis_vector_z
+    local_vector = (x_component.unsqueeze(-1) * basis_vector_x + 
+                    y_component.unsqueeze(-1) * basis_vector_y + 
+                    z_component.unsqueeze(-1) * basis_vector_z)
     return carbon_alpha + local_vector
+
 
 # todo to be reviewed
 def build_global_transforms_from_peptide_linker(
@@ -828,13 +831,6 @@ def build_global_transforms_from_peptide_linker(
     n_index = atom_types.index("N")
     c_index = atom_types.index("C")
 
-    # todo recheck this
-    """
-    previously it was : 
-    ideal_n = atom_local_positions_tensor[:, n_index, 0, :]
-    ideal_c = atom_local_positions_tensor[:, c_index, 0, :]
-    but i removed it because it failed because atom_local_positions_tensor is of shape [21, 37, 3]
-    """
     ideal_n = atom_local_positions_tensor[:, n_index, :]
     ideal_c = atom_local_positions_tensor[:, c_index, :]
 
@@ -843,6 +839,9 @@ def build_global_transforms_from_peptide_linker(
     ideal_n_ca_lengths = torch.linalg.norm(ideal_n, dim=-1)
     ideal_ca_c_lengths = torch.linalg.norm(ideal_c, dim=-1)
 
+    # We precompute the ideal N-CA-C angle for each of the 21 amino acid types.
+    # This constant angle is strictly required later (in Step 2c) to physically reconstruct 
+    # the Carbon (C) atom's position relative to the Nitrogen (N) and Carbon Alpha (CA) atoms.
     # Angle is arccos(dot(N, C) / (|N||C|))
     dot_products = torch.sum(ideal_n * ideal_c, dim=-1)
     ideal_n_ca_c_angles = torch.rad2deg(torch.acos(dot_products / (ideal_n_ca_lengths * ideal_ca_c_lengths)))
@@ -851,46 +850,67 @@ def build_global_transforms_from_peptide_linker(
     current_backbone_frame = first_residue_backbone_frame
 
     for index in range(number_residues):
+        # We use index:index + 1 instead of just index to explicitly preserve the sequence dimension (length 1).
+        # This ensures current_residue_angles retains the shape (..., 1, 7, 2) rather than dropping to (..., 7, 2).
+        # This is strictly required because compute_global_transform_matrices and compute_all_atom_coordinates 
+        # both expect the sequence dimension to be present in their inputs.
         current_residue_angles = residue_angles[..., index:index + 1, :, :]
         current_residue_labels = sequence_amino_acid_labels[..., index:index + 1]
 
+
         # 1. Compute all 8 global transforms for residue index
+        # We must unsqueeze(-3) the current_backbone_frame from (..., 4, 4) to (..., 1, 4, 4) 
+        # so that its shape correctly aligns with the sequence dimension of the other inputs.
         current_global_transforms = compute_global_transform_matrices(
             transformation_matrix=current_backbone_frame.unsqueeze(-3),
             residue_angles=current_residue_angles,
-            sequence_amino_acid_labels=current_residue_labels
-        )
+            sequence_amino_acid_labels=current_residue_labels)
+
+        #todo check added comment if it makes sense (if so keep it, if not add comment that is clearer)
+        # Here we still haven't started adding the translations for the C-alpha
         all_global_transforms.append(current_global_transforms)
 
         if index < number_residues - 1:
             # 2. Reconstruct next residue's backbone frame
+            # Similar to step 1, we unsqueeze(-3) to temporarily add the sequence dimension 
+            # so the backbone frame shape aligns with the residue angles shape.
             current_atoms, _, _ = compute_all_atom_coordinates(
                 transformation_matrix=current_backbone_frame.unsqueeze(-3),
                 residue_angles=current_residue_angles,
-                sequence_amino_acid_labels=current_residue_labels
-            )
+                sequence_amino_acid_labels=current_residue_labels)
+
+            # Squeeze the sequence dimension back out to get shape (..., 37, 3) for atom extraction
             current_atoms = current_atoms.squeeze(-3)
 
+            # Extract the current residue's key backbone atoms and the predicted peptide linker scalers
             current_carbon_alpha = current_atoms[..., atom_types.index("CA"), :]
             current_carbon = current_atoms[..., atom_types.index("C"), :]
             current_oxygen = current_atoms[..., atom_types.index("O"), :]
 
             current_scalers = peptide_linker_scalers[..., index, :]
 
+            # Step 2a: Reconstruct the position of the next residue's Nitrogen (N) atom 
+            # using the predicted elevation and C-N angle scalers.
+            # TODO LATER IN THE CODE WE WILL MOVE THE 1.32 AND THE 120 and the 5 (elevation) TO THE CONSTANT.PY FILE so that
+            #  these are project wide constants to avoid any errors, we will also have to make sure that everywhere in the project that they are called
+            #  they will be got from the constant.py file.
             next_nitrogen = reconstruct_next_nitrogen_from_scalers(
                 carbon_alpha=current_carbon_alpha, carbon=current_carbon, oxygen=current_oxygen,
                 peptide_carbon_nitrogen_length=current_scalers[..., 2] * 1.32,
                 carbon_alpha_carbon_nitrogen_angle=current_scalers[..., 1] * 120.0,
-                next_nitrogen_elevation_angle=current_scalers[..., 0]
-            )
-
+                next_nitrogen_elevation_angle=current_scalers[..., 0])
+            print_tensor_list(next_nitrogen)
+            exit()
             next_residue_label = sequence_amino_acid_labels[..., index + 1]
             next_nitrogen_carbon_alpha_length = ideal_n_ca_lengths[next_residue_label]
 
+            # The omega torsion angle connects the current residue to the next residue
             next_omega_cosine, next_omega_sine = residue_angles[..., index + 1, 0, 0], residue_angles[
                 ..., index + 1, 0, 1]
             next_omega_degrees = torch.rad2deg(torch.atan2(next_omega_sine, next_omega_cosine))
 
+            # Step 2b: Reconstruct the position of the next residue's Carbon Alpha (CA) atom
+            # using ideal bond lengths, predicted angle scalers, and the predicted omega torsion.
             next_carbon_alpha = reconstruct_next_carbon_alpha_from_scalers(
                 carbon_alpha=current_carbon_alpha, carbon=current_carbon, next_nitrogen=next_nitrogen,
                 nitrogen_carbon_alpha_length=next_nitrogen_carbon_alpha_length,
@@ -901,15 +921,20 @@ def build_global_transforms_from_peptide_linker(
             next_carbon_alpha_carbon_length = ideal_ca_c_lengths[next_residue_label]
             next_nitrogen_carbon_alpha_carbon_angle = ideal_n_ca_c_angles[next_residue_label]
 
+            # The phi torsion angle dictates rotation around the N-CA bond
             next_phi_cosine, next_phi_sine = residue_angles[..., index + 1, 1, 0], residue_angles[..., index + 1, 1, 1]
             next_phi_degrees = torch.rad2deg(torch.atan2(next_phi_sine, next_phi_cosine))
 
+            # Step 2c: Reconstruct the position of the next residue's Carbon (C) atom
+            # using ideal residue-specific geometries and the predicted phi torsion.
             next_carbon = reconstruct_carbon_from_phi(
                 nitrogen=next_nitrogen, carbon_alpha=next_carbon_alpha, previous_carbon=current_carbon,
                 carbon_alpha_carbon_length=next_carbon_alpha_carbon_length,
                 nitrogen_carbon_alpha_carbon_angle=next_nitrogen_carbon_alpha_carbon_angle,
                 phi_dihedral_angle=next_phi_degrees)
 
+            # Step 2d: Construct the full 4x4 backbone coordinate frame for the next residue.
+            # The CA atom is the origin, with basis vectors defined by the N, CA, and C positions.
             basis_vector_x = next_carbon - next_carbon_alpha
             basis_vector_y = next_nitrogen - next_carbon_alpha
             current_backbone_frame = create_4x4_transform_matrix(ex=basis_vector_x, ey=basis_vector_y,
@@ -1329,7 +1354,9 @@ def reconstruct_next_carbon_alpha_from_scalers(carbon_alpha: torch.Tensor, carbo
     y_component = bond_length_tensor * torch.sin(angle_radians) * torch.cos(omega_radians)
     z_component = -bond_length_tensor * torch.sin(angle_radians) * torch.sin(omega_radians)
 
-    local_vector = x_component * ex + y_component * ey + z_component * ez
+    local_vector = (x_component.unsqueeze(-1) * ex + 
+                    y_component.unsqueeze(-1) * ey + 
+                    z_component.unsqueeze(-1) * ez)
 
     # 4. Translate back to global coordinates
     next_carbon_alpha = next_nitrogen + local_vector
