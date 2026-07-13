@@ -11,7 +11,7 @@ from typing import Tuple, Union
 from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame_centers, chi_angles_mask,
                                  atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask,
                                  alternative_position_mask, atom_types)
-from utilities.tensor_utilities import unsqueeze_tensor
+from utilities.tensor_utilities import unsqueeze_tensor, print_tensor_list, print_tensor_shape
 
 
 def compute_angle(point_a: torch.Tensor, point_b: torch.Tensor, center: torch.Tensor) -> Tuple[
@@ -822,15 +822,24 @@ def build_global_transforms_from_peptide_linker(
     dtype = residue_angles.dtype
     number_residues = sequence_amino_acid_labels.shape[-1]
 
-    # Precompute ideal geometry from constants
+    # Precompute ideal geometry from constants : Shape [21, 37, 3]
     atom_local_positions_tensor = torch.tensor(atom_local_positions, device=device, dtype=dtype)
 
     n_index = atom_types.index("N")
     c_index = atom_types.index("C")
 
+    # todo recheck this
+    """
+    previously it was : 
     ideal_n = atom_local_positions_tensor[:, n_index, 0, :]
     ideal_c = atom_local_positions_tensor[:, c_index, 0, :]
+    but i removed it because it failed because atom_local_positions_tensor is of shape [21, 37, 3]
+    """
+    ideal_n = atom_local_positions_tensor[:, n_index, :]
+    ideal_c = atom_local_positions_tensor[:, c_index, :]
 
+    # This is because CA is always defined as the origin of a given residue in terms of backbone position
+    # Tensor ideal_ca_c_lengths and ideal_ca_c_lengths are of shape  : [21]
     ideal_n_ca_lengths = torch.linalg.norm(ideal_n, dim=-1)
     ideal_ca_c_lengths = torch.linalg.norm(ideal_c, dim=-1)
 
@@ -899,8 +908,7 @@ def build_global_transforms_from_peptide_linker(
                 nitrogen=next_nitrogen, carbon_alpha=next_carbon_alpha, previous_carbon=current_carbon,
                 carbon_alpha_carbon_length=next_carbon_alpha_carbon_length,
                 nitrogen_carbon_alpha_carbon_angle=next_nitrogen_carbon_alpha_carbon_angle,
-                phi_dihedral_angle=next_phi_degrees
-            )
+                phi_dihedral_angle=next_phi_degrees)
 
             basis_vector_x = next_carbon - next_carbon_alpha
             basis_vector_y = next_nitrogen - next_carbon_alpha
