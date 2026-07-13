@@ -6,7 +6,7 @@ from typing import Tuple, Optional
 from architecture_modules.lddt_module.lddt_module import LddtModule
 from architecture_modules.structure_module.invariant_point_attention_module import InvariantPointAttention
 from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_4x4_transform_matrix, \
-    turn_quaternion_to_3x3_matrix,build_global_transforms_from_peptide_linker
+    turn_quaternion_to_3x3_matrix, build_global_transforms_from_peptide_linker
 
 # Here we will have to design this explicitly
 from utilities.constants import atom_types, canonical_amino_acid_residues, index_to_xxx, chi_angles_mask
@@ -255,10 +255,10 @@ class StructureModule(nn.Module):
                  number_iterations: int, angle_representation_embedding: int,
                  number_query_points: int, number_value_points: int,
                  number_heads: int, head_embedding_dimension: int,
-                 number_torsion_angles: int, device: torch.device, dtype: torch.dtype,
-                 unclamp_fape_ratio: float = 0.1, enable_side_chain_fape_loss: bool = True, 
-                 enable_lddt_loss: bool = True, clamp_fape_threshold: float = 10.0,
-                 use_peptide_linker_module: bool = False, peptide_linker_representation_embedding: int = 64):
+                 unclamp_fape_ratio: float, enable_side_chain_fape_loss: bool,
+                 enable_lddt_loss: bool, clamp_fape_threshold: float,
+                 use_peptide_linker_module: bool, peptide_linker_representation_embedding: int,
+                 number_torsion_angles: int, device: torch.device, dtype: torch.dtype):
         """
         Initializes the StructureModule.
 
@@ -350,7 +350,8 @@ class StructureModule(nn.Module):
             transformation_matrix: torch.Tensor,
             residue_angles: torch.Tensor,
             sequence_amino_acid_labels: torch.Tensor,
-            precomputed_global_transformation_matrices: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+            precomputed_global_transformation_matrices: torch.Tensor = None) -> tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Post-processes predicted frames and angles to obtain final 3D coordinates and global transformation matrices.
 
@@ -378,7 +379,7 @@ class StructureModule(nn.Module):
         if precomputed_global_transformation_matrices is not None:
             # We already have the rigid group frames from the sequential peptide linker.
             global_transformation_matrices = precomputed_global_transformation_matrices
-            
+
             # Reconstruct the 37 atom positions from the frames
             # Wait, compute_all_atom_coordinates expects the backbone transformation_matrix
             # and returns global_transformation_matrices alongside the positions.
@@ -393,28 +394,30 @@ class StructureModule(nn.Module):
             from utilities.constants import atom_frame_indices, atom_local_positions, atom_mask
             device = global_transformation_matrices.device
             dtype = global_transformation_matrices.dtype
-            
+
             atom_frame_indices_tensor = torch.tensor(atom_frame_indices, device=device, dtype=torch.long)
             atom_local_positions_tensor = torch.tensor(atom_local_positions, device=device, dtype=dtype)
             atom_mask_tensor = torch.tensor(atom_mask, device=device, dtype=dtype)
-            
+
             # [..., number_residues, 37, 8, 4, 4]
             # atom_frame_indices_tensor maps each of the 37 atoms to 1 of the 8 frames
             selected_frames = torch.gather(
-                global_transformation_matrices.unsqueeze(-4).expand(*global_transformation_matrices.shape[:-3], 37, 8, 4, 4),
+                global_transformation_matrices.unsqueeze(-4).expand(*global_transformation_matrices.shape[:-3], 37, 8,
+                                                                    4, 4),
                 dim=-3,
-                index=atom_frame_indices_tensor[sequence_amino_acid_labels].unsqueeze(-1).unsqueeze(-1).expand(*sequence_amino_acid_labels.shape, 37, 4, 4)
+                index=atom_frame_indices_tensor[sequence_amino_acid_labels].unsqueeze(-1).unsqueeze(-1).expand(
+                    *sequence_amino_acid_labels.shape, 37, 4, 4)
             )
-            
+
             # Apply local positions
             from utilities.geometry_utilities import apply_transformation_on_vector
             final_positions = apply_transformation_on_vector(
                 transformation_matrix=selected_frames,
                 vector=atom_local_positions_tensor[sequence_amino_acid_labels]
             )
-            
+
             position_mask = atom_mask_tensor[sequence_amino_acid_labels]
-            
+
         else:
             final_positions, position_mask, global_transformation_matrices = compute_all_atom_coordinates(
                 transformation_matrix=transformation_matrix,
@@ -501,7 +504,7 @@ class StructureModule(nn.Module):
         """
         number_residues = pair_representation.shape[-2]
         batch_dimension = single_representation.shape[:-2]
-        outputs = {'angles': [], 'frames': [],'peptide_linker_scalers':[]}
+        outputs = {'angles': [], 'frames': [], 'peptide_linker_scalers': []}
         device = single_representation.device
         dtype = single_representation.dtype
 
@@ -576,25 +579,24 @@ class StructureModule(nn.Module):
                                                initial_single_representation=initial_single_representation)
 
             precomputed_global_transformation_matrices = None
+            print(f"transformation matrix shape : {transformation_matrix.shape}")
             # todo this has to be reviewed...
             if self.use_peptide_linker_module:
 
                 peptide_linker_scalers = self.peptide_linker_predictor(
                     single_representation=single_representation,
                     initial_single_representation=initial_single_representation)
-                
+
                 outputs['peptide_linker_scalers'].append(peptide_linker_scalers)
-                
-                # Note: transformation_matrix[..., 0:1, :, :] gets the backbone frame of the very first residue
-                # We need to make sure we don't accidentally update it with backbone_update, since we don't have it!
-                # Actually, does the first residue ever move in the peptide linker route?
-                # If we don't use backbone_update, it stays at torch.eye(4)! That's mathematically perfectly fine for FAPE!
+
+                # Note: transformation_matrix[..., 0, :, :] gets the backbone frame of the very FIRST RESIDUE
+                # This is how we iteratively construct the other remaining frames from the first residue.
                 precomputed_global_transformation_matrices = build_global_transforms_from_peptide_linker(
-                    first_residue_backbone_frame=transformation_matrix[..., 0:1, :, :],
+                    first_residue_backbone_frame=transformation_matrix[..., 0, :, :],
                     residue_angles=residue_angles,
                     peptide_linker_scalers=peptide_linker_scalers,
                     sequence_amino_acid_labels=sequence_amino_acid_labels)
-                
+
                 # Replace the entire sequence of backbone frames
                 transformation_matrix = precomputed_global_transformation_matrices[..., 0, :, :]
             else:
@@ -682,30 +684,30 @@ class StructureModule(nn.Module):
         # We might initially want to ingore it and only launch it at later stages of refining structure.
         if self.enable_side_chain_fape_loss:
             for frame_index in range(8):
-    
+
                 # Get the Current Frame Matrix from (..., number_residues, 8, 4, 4) -> (..., number_residues, 4, 4)`
                 current_predicted_frame = global_transformation_matrices[..., frame_index, :, :]
                 current_ground_truth_frame = ground_truth_transformation_matrix[..., frame_index, :, :]
-    
+
                 # Go through all atom types
                 for atom_index in range(37):
-    
+
                     # Implementation of the mask of size (batch, number_residues)
                     current_position_masks = position_mask[..., atom_index]
-    
+
                     # If all the atom is not present for any residue in the batch, do not compute fape loss
                     if not current_position_masks.any():
                         continue
-    
+
                     # Get ground truth current positions
                     current_predicted_positions = final_positions[..., atom_index, :]
                     current_ground_truth_positions = ground_truth_positions[..., atom_index, :]
-    
+
                     # In AlphaFold 2, backbone FAPE uses backbone frames (frame 0) and backbone atoms (N, CA, C, CB, O)
                     # Atom types list indices: 0:N, 1:CA, 2:C, 3:CB, 4:O
                     is_backbone_fape = (frame_index == 0) and (atom_index in [0, 1, 2, 3, 4])
                     side_chain_distance_clamp = backbone_distance_clamp if is_backbone_fape else sidechain_distance_clamp
-    
+
                     # Call the loss with a mask
                     frame_atom_fape_loss, frame_atom_unclamped_fape = compute_fape_loss(
                         predicted_transformation_matrix=current_predicted_frame,
@@ -714,11 +716,11 @@ class StructureModule(nn.Module):
                         ground_truth_transformation_matrix=current_ground_truth_frame,
                         ground_truth_positions=current_ground_truth_positions,
                         distance_clamp=side_chain_distance_clamp)
-    
+
                     overall_fape_loss = overall_fape_loss + torch.mean(frame_atom_fape_loss)
                     unclamped_fape_metric = unclamped_fape_metric + torch.mean(frame_atom_unclamped_fape)
                     fape_loss_counter = fape_loss_counter + 1.0
-    
+
             # Average out the overall fape loss by the number of present positions
             overall_fape_loss = overall_fape_loss / fape_loss_counter
             unclamped_fape_metric = unclamped_fape_metric / fape_loss_counter
@@ -740,7 +742,10 @@ class StructureModule(nn.Module):
         else:
             predicted_lddt_loss = torch.tensor(0.0, device=device, dtype=dtype)
 
-        peptide_linker_scalers_list = outputs.get('peptide_linker_scalers', None)
-        
+        # todo to be re-reviewed !!!
+        peptide_linker_scalers_list = outputs.get('peptide_linker_scalers',
+                                                  None) if self.use_peptide_linker_module else None
+
         return (angles, frames, final_positions, position_mask, pseudo_beta_positions, overall_fape_loss,
-                auxillary_loss, predicted_lddt_loss, local_difference_distance_test, unclamped_fape_metric, peptide_linker_scalers_list)
+                auxillary_loss, predicted_lddt_loss, local_difference_distance_test, unclamped_fape_metric,
+                peptide_linker_scalers_list)
