@@ -570,8 +570,8 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
 
     backbone_group: Identity
     pre_omega_group:
-        ex: approximated N_{i+1} -> C
-        ey: CA -> C
+        ex: C -> approximated N_{i+1}
+        ey: C -> CA
         t:  C
     phi_group:
         ex: CA -> N
@@ -597,8 +597,7 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
         approximated_next_nitrogen = approximate_next_nitrogen(
             carbon_alpha=amino_acid_information["CA"],
             carbon=amino_acid_information["C"],
-            oxygen=amino_acid_information["O"]
-        )
+            oxygen=amino_acid_information["O"])
 
         pre_omega_ex = approximated_next_nitrogen - amino_acid_information["C"]
         pre_omega_ey = amino_acid_information["CA"] - amino_acid_information["C"]
@@ -608,8 +607,7 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
         pre_omega_transformation = create_4x4_transform_matrix(
             ex=pre_omega_ex,
             ey=pre_omega_ey,
-            translation_vector=pre_omega_translation
-        )
+            translation_vector=pre_omega_translation)
 
         phi_group_ex = amino_acid_information["N"] - amino_acid_information["CA"]
         # or even phi_group_ey = torch.tensor([1, 0, 0])
@@ -830,23 +828,24 @@ def build_global_transforms_from_peptide_linker(
     # Precompute ideal geometry from constants : Shape [21, 37, 3]
     atom_local_positions_tensor = torch.tensor(atom_local_positions, device=device, dtype=dtype)
 
-    n_index = atom_types.index("N")
-    c_index = atom_types.index("C")
+    nitrogen_index = atom_types.index("N")
+    carbon_index = atom_types.index("C")
 
-    ideal_n = atom_local_positions_tensor[:, n_index, :]
-    ideal_c = atom_local_positions_tensor[:, c_index, :]
+    ideal_nitrogen_local_position = atom_local_positions_tensor[:, nitrogen_index, :]
+    ideal_carbon_local_position = atom_local_positions_tensor[:, carbon_index, :]
 
     # This is because CA is always defined as the origin of a given residue in terms of backbone position
-    # Tensor ideal_ca_c_lengths and ideal_ca_c_lengths are of shape  : [21]
-    ideal_n_ca_lengths = torch.linalg.norm(ideal_n, dim=-1)
-    ideal_ca_c_lengths = torch.linalg.norm(ideal_c, dim=-1)
+    # Tensor ideal_carbon_alpha_carbon_lengths and ideal_nitrogen_carbon_alpha_lengths are of shape  : [21]
+    ideal_nitrogen_carbon_alpha_lengths = torch.linalg.norm(ideal_nitrogen_local_position, dim=-1)
+    ideal_carbon_alpha_carbon_lengths = torch.linalg.norm(ideal_carbon_local_position, dim=-1)
 
     # We precompute the ideal N-CA-C angle for each of the 21 amino acid types.
     # This constant angle is strictly required later (in Step 2c) to physically reconstruct 
     # the Carbon (C) atom's position relative to the Nitrogen (N) and Carbon Alpha (CA) atoms.
     # Angle is arccos(dot(N, C) / (|N||C|))
-    dot_products = torch.sum(ideal_n * ideal_c, dim=-1)
-    ideal_n_ca_c_angles = torch.rad2deg(torch.acos(dot_products / (ideal_n_ca_lengths * ideal_ca_c_lengths)))
+    dot_products = torch.sum(ideal_nitrogen_local_position * ideal_carbon_local_position, dim=-1)
+    ideal_nitrogen_carbon_alpha_carbon_angles = torch.rad2deg(torch.acos(
+        dot_products / (ideal_nitrogen_carbon_alpha_lengths * ideal_carbon_alpha_carbon_lengths)))
 
     all_global_transforms = []
     current_backbone_frame = first_residue_backbone_frame
@@ -900,7 +899,7 @@ def build_global_transforms_from_peptide_linker(
                 next_nitrogen_elevation_angle=current_scalers[..., 0] * next_nitrogen_elevation_angle_base)
 
             next_residue_label = sequence_amino_acid_labels[..., index + 1]
-            next_nitrogen_carbon_alpha_length = ideal_n_ca_lengths[next_residue_label]
+            next_nitrogen_carbon_alpha_length = ideal_nitrogen_carbon_alpha_lengths[next_residue_label]
 
             # The omega torsion angle connects the current residue to the next residue
             next_omega_cosine, next_omega_sine = residue_angles[..., index + 1, 0, 0], residue_angles[
@@ -915,8 +914,8 @@ def build_global_transforms_from_peptide_linker(
                 carbon_nitrogen_carbon_alpha_angle=current_scalers[..., 3] * carbon_nitrogen_carbon_alpha_angle_base,
                 omega_dihedral_angle=next_omega_degrees)
 
-            next_carbon_alpha_carbon_length = ideal_ca_c_lengths[next_residue_label]
-            next_nitrogen_carbon_alpha_carbon_angle = ideal_n_ca_c_angles[next_residue_label]
+            next_carbon_alpha_carbon_length = ideal_carbon_alpha_carbon_lengths[next_residue_label]
+            next_nitrogen_carbon_alpha_carbon_angle = ideal_nitrogen_carbon_alpha_carbon_angles[next_residue_label]
 
             # The phi torsion angle dictates rotation around the N-CA bond
             next_phi_cosine, next_phi_sine = residue_angles[..., index + 1, 1, 0], residue_angles[..., index + 1, 1, 1]
@@ -989,10 +988,7 @@ def compute_global_transform_matrices(transformation_matrix: torch.Tensor, resid
         rotation_matrix = make_transformation_matrix_around_ex(phi=angle)
 
         # global = backbone * local_initial * rotation
-        frame = torch.matmul(
-            backbone_frame,
-            torch.matmul(initial_sequence_frames[..., i, :, :], rotation_matrix)
-        )
+        frame = torch.matmul(backbone_frame, torch.matmul(initial_sequence_frames[..., i, :, :], rotation_matrix))
         all_global_frames.append(frame)
 
     # 3. Frames 5-7 (chi2, chi3, chi4)
