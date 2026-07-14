@@ -11,7 +11,8 @@ from typing import Tuple, Union
 from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame_centers, chi_angles_mask,
                                  atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask,
                                  alternative_position_mask, atom_types, peptide_carbon_nitrogen_length_base,
-                                 carbon_alpha_carbon_nitrogen_angle_base, next_nitrogen_elevation_angle_base)
+                                 carbon_alpha_carbon_nitrogen_angle_base, carbon_nitrogen_carbon_alpha_angle_base,
+                                 next_nitrogen_elevation_angle_base)
 from utilities.tensor_utilities import unsqueeze_tensor, print_tensor_list, print_tensor_shape
 
 
@@ -787,8 +788,8 @@ def reconstruct_carbon_from_phi(nitrogen: torch.Tensor, carbon_alpha: torch.Tens
     z_component = -bond_length_tensor * torch.sin(angle_radians) * torch.sin(phi_radians)
 
     # Combine the components to get the final local vector and translate it to the global frame
-    local_vector = (x_component.unsqueeze(-1) * basis_vector_x + 
-                    y_component.unsqueeze(-1) * basis_vector_y + 
+    local_vector = (x_component.unsqueeze(-1) * basis_vector_x +
+                    y_component.unsqueeze(-1) * basis_vector_y +
                     z_component.unsqueeze(-1) * basis_vector_z)
     return carbon_alpha + local_vector
 
@@ -858,7 +859,6 @@ def build_global_transforms_from_peptide_linker(
         current_residue_angles = residue_angles[..., index:index + 1, :, :]
         current_residue_labels = sequence_amino_acid_labels[..., index:index + 1]
 
-
         # 1. Compute all 8 global transforms for residue index
         # We must unsqueeze(-3) the current_backbone_frame from (..., 4, 4) to (..., 1, 4, 4) 
         # so that its shape correctly aligns with the sequence dimension of the other inputs.
@@ -912,9 +912,8 @@ def build_global_transforms_from_peptide_linker(
             next_carbon_alpha = reconstruct_next_carbon_alpha_from_scalers(
                 carbon_alpha=current_carbon_alpha, carbon=current_carbon, next_nitrogen=next_nitrogen,
                 nitrogen_carbon_alpha_length=next_nitrogen_carbon_alpha_length,
-                carbon_nitrogen_carbon_alpha_angle=current_scalers[..., 3] * 120.0,
-                omega_dihedral_angle=next_omega_degrees
-            )
+                carbon_nitrogen_carbon_alpha_angle=current_scalers[..., 3] * carbon_nitrogen_carbon_alpha_angle_base,
+                omega_dihedral_angle=next_omega_degrees)
 
             next_carbon_alpha_carbon_length = ideal_ca_c_lengths[next_residue_label]
             next_nitrogen_carbon_alpha_carbon_angle = ideal_n_ca_c_angles[next_residue_label]
@@ -1352,8 +1351,8 @@ def reconstruct_next_carbon_alpha_from_scalers(carbon_alpha: torch.Tensor, carbo
     y_component = bond_length_tensor * torch.sin(angle_radians) * torch.cos(omega_radians)
     z_component = -bond_length_tensor * torch.sin(angle_radians) * torch.sin(omega_radians)
 
-    local_vector = (x_component.unsqueeze(-1) * ex + 
-                    y_component.unsqueeze(-1) * ey + 
+    local_vector = (x_component.unsqueeze(-1) * ex +
+                    y_component.unsqueeze(-1) * ey +
                     z_component.unsqueeze(-1) * ez)
 
     # 4. Translate back to global coordinates
