@@ -467,3 +467,9 @@ for amino_acid, atoms_to_swap in position_symetry_atoms.items():
 
 # Variable containing atoms that might have ambiguous positions
 ambiguous_position_mask = torch.abs(alternative_position_mask - torch.arange(number_atom_types)).to(dtype=torch.bool)
+
+# Peptide linker reconstruction base scaler constants
+peptide_carbon_nitrogen_length_base = 1.32
+carbon_alpha_carbon_nitrogen_angle_base = 120.0
+carbon_nitrogen_carbon_alpha_angle_base = 120.0
+next_nitrogen_elevation_angle_base = 5.0
