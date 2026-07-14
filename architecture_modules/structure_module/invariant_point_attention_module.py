@@ -146,8 +146,7 @@ class InvariantPointAttention(nn.Module):
             (number_heads, head_embedding_dimension),
             (3, number_heads, number_query_points),
             (3, number_heads, number_query_points),
-            (3, number_heads, number_value_points)
-        ]
+            (3, number_heads, number_value_points)]
 
         out_shapes = [out.shape[:-1] + shape_add for out, shape_add in zip(embeddings, shape_adds)]
         embeddings = [out.view(out_shape) for out, out_shape in zip(embeddings, out_shapes)]
@@ -351,7 +350,7 @@ class InvariantPointAttention(nn.Module):
             transformation_matrix=transformation_matrix)
 
         # Step 4: Concatenate outputs and project to final single representation dimension
-        # Todo this is actually problematic not to normalise this before feeding it to the single_representation
+        # This output is later normalised when being added to the single_representation in the sturcture module.
         output_tensor = self.linear_out(torch.cat(tensors=(value_output,
                                                            value_point_output,
                                                            value_point_norm_output,

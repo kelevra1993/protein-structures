@@ -571,14 +571,13 @@ class StructureModule(nn.Module):
         # Equivalent to re-usage of layer
         for iteration in range(self.number_iterations):
             # IPA and it's normalizer
-            # TODO It would have been better to normalise the output of the invariant point attention before adding it
-            #  it is unusually large compared to the incoming single representation.
-            #  Very important when we will start training
-            single_representation = single_representation + self.invariant_point_attention(
+            invariant_point_attention_output = self.invariant_point_attention(
                 single_representation=single_representation,
                 pair_representation=pair_representation,
                 transformation_matrix=transformation_matrix)
-            single_representation = self.invariant_point_attention_layer_normalizer(single_representation)
+            
+            invariant_point_attention_output = self.invariant_point_attention_layer_normalizer(invariant_point_attention_output)
+            single_representation = single_representation + invariant_point_attention_output
 
             # Transition and it's normalizer(included in the transition layer)
             single_representation = self.structure_module_transition(single_representation)
