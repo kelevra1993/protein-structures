@@ -594,6 +594,8 @@ def compute_non_chi_transform_matrices() -> torch.Tensor:
         backbone_transformation = torch.eye(4)
 
         # Approximate N_{i+1} for the pre-omega frame
+        # Here we can actually do this because CA, C and O are in the same plane in the idealized coordinates
+        # before the rotations of non chi and chi angles.
         approximated_next_nitrogen = approximate_next_nitrogen(
             carbon_alpha=amino_acid_information["CA"],
             carbon=amino_acid_information["C"],
@@ -998,10 +1000,7 @@ def compute_global_transform_matrices(transformation_matrix: torch.Tensor, resid
 
         # global = previous_global * local_initial * rotation
         previous_frame = all_global_frames[i - 1]
-        frame = torch.matmul(
-            previous_frame,
-            torch.matmul(initial_sequence_frames[..., i, :, :], rotation_matrix)
-        )
+        frame = torch.matmul(previous_frame,torch.matmul(initial_sequence_frames[..., i, :, :], rotation_matrix))
         all_global_frames.append(frame)
 
     # Stack all frames along the rigid group dimension
