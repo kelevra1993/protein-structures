@@ -208,6 +208,9 @@ class AngleResNet(nn.Module):
                                                                 out_features=self.angle_representation_embedding,
                                                                 device=self.device, dtype=self.dtype)
 
+        self.layer_normalizer = nn.LayerNorm(normalized_shape=self.angle_representation_embedding,
+                                             device=self.device, dtype=self.dtype)
+
         self.angle_resnet_layers = nn.ModuleList([
             AngleResNetLayer(angle_representation_embedding=self.angle_representation_embedding,
                              device=self.device, dtype=self.dtype),
@@ -233,13 +236,6 @@ class AngleResNet(nn.Module):
             torch.Tensor: Predicted torsion angles as (cos, sin) pairs.
                 Shape: `(..., number_residues, number_torsion_angles, 2)`.
         """
-        output = (self.current_single_representation_embedder(self.relu(single_representation)) +
-                  self.initial_single_representation_embedder(self.relu(initial_single_representation)))
-
-
-        # TODO CONSIDER PUTTING LAYER NORMALIZERS HERE BEFORE THE ADDITION TO THE OUPTUT
-        """
-        SOMETHING LIKE :
         initial_embedded_representation = self.initial_single_representation_embedder(initial_single_representation)
         current_embedded_representation = self.current_single_representation_embedder(single_representation)
 
@@ -247,19 +243,12 @@ class AngleResNet(nn.Module):
         current_embedded_representation = self.layer_normalizer(current_embedded_representation)
         
         hidden_representation = self.relu(initial_embedded_representation + current_embedded_representation)
-        
-        for layer in self.resnet_layers:
-            hidden_representation = layer(hidden_representation)
-            hidden_representation = self.layer_normalizer(hidden_representation)
-        
-        residue_angles_unstacked = self.torsion_angles_output_embedder(self.relu(hidden_representation))
-        """
-
 
         for layer in self.angle_resnet_layers:
-            output = layer(output)
+            hidden_representation = layer(hidden_representation)
+            hidden_representation = self.layer_normalizer(hidden_representation)
 
-        residue_angles_unstacked = self.torsion_angles_output_embedder(self.relu(output))
+        residue_angles_unstacked = self.torsion_angles_output_embedder(self.relu(hidden_representation))
 
         residue_angles_chunks = torch.split(tensor=residue_angles_unstacked, split_size_or_sections=2, dim=-1)
         residue_angles = torch.stack(residue_angles_chunks, dim=-2)

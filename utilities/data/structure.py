@@ -779,7 +779,7 @@ class Structure:
             # valid peptide bond formations via NeRF reconstructions, eliminating translation drift and making training easier.
             # How: The scalers are experimental values divided by their canonical IDEAL geometry (e.g., length / peptide_carbon_nitrogen_length_base). 
             # This normalizes the network targets around 1.0 (or 0.0 for planar elevation), enabling highly stable learning.
-            if residue_index < self.number_residues - 2:
+            if residue_index < self.number_residues - 1:
                 # 8. Fetch raw geometric values for the peptide bond connecting to the next residue
                 carbon_alpha_carbon_nitrogen_angle = self.statistics["bond_angles"]["peptide_CA_C_N"][residue_index]
                 peptide_carbon_nitrogen_length = self.statistics["bond_lengths"]["peptide_C_N"][residue_index]
