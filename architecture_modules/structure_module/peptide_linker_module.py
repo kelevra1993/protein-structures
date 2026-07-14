@@ -135,7 +135,11 @@ class PeptideLinkerPredictor(nn.Module):
 
         Returns:
             torch.Tensor: The predicted geometric scalers for the peptide linker.
-                The last dimension contains: [elevation, ca_c_n_angle, c_n_length, c_n_ca_angle].
+                The last dimension contains 4 scalers (at indices 0 through 3 respectively):
+                - 0: next_nitrogen_elevation_angle (out-of-plane deviation multiplier)
+                - 1: carbon_alpha_carbon_nitrogen_angle (CA_i-C_i-N_{i+1} angle multiplier)
+                - 2: peptide_carbon_nitrogen_length (C_i-N_{i+1} bond length multiplier)
+                - 3: carbon_nitrogen_carbon_alpha_angle (C_i-N_{i+1}-CA_{i+1} angle multiplier)
                 Shape: `(..., number_residues, 4)`
         """
         initial_embedded_representation = self.initial_single_representation_embedder(initial_single_representation)

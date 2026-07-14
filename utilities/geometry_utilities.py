@@ -12,7 +12,7 @@ from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame
                                  atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask,
                                  alternative_position_mask, atom_types, peptide_carbon_nitrogen_length_base,
                                  carbon_alpha_carbon_nitrogen_angle_base, carbon_nitrogen_carbon_alpha_angle_base,
-                                 next_nitrogen_elevation_angle_base)
+                                 next_nitrogen_elevation_angle_base, index_to_xxx)
 from utilities.tensor_utilities import unsqueeze_tensor, print_tensor_list, print_tensor_shape
 
 
@@ -727,8 +727,9 @@ def compute_initial_rigid_transform_matrices() -> torch.Tensor:
     return rigid_transforms
 
 
-# todo to be reviewed
-def reconstruct_carbon_from_phi(nitrogen: torch.Tensor, carbon_alpha: torch.Tensor, previous_carbon: torch.Tensor,
+def reconstruct_carbon_from_phi(nitrogen: torch.Tensor,
+                                carbon_alpha: torch.Tensor,
+                                previous_carbon: torch.Tensor,
                                 carbon_alpha_carbon_length: torch.Tensor,
                                 nitrogen_carbon_alpha_carbon_angle: torch.Tensor,
                                 phi_dihedral_angle: torch.Tensor) -> torch.Tensor:
@@ -739,6 +740,21 @@ def reconstruct_carbon_from_phi(nitrogen: torch.Tensor, carbon_alpha: torch.Tens
     of the Carbon atom of a given residue based on its Nitrogen and Carbon Alpha positions, along 
     with the Carbon atom from the previous residue. It uses the phi dihedral angle and idealized 
     bond lengths/angles to find the exact Cartesian coordinates without needing the true global frame.
+
+    Algorithm Steps:
+    1. Define a local orthonormal basis centered at the Carbon Alpha (CA_i) atom.
+       - The X-axis points backwards towards the Nitrogen (N_i).
+       - The Y-axis lies in the C_{i-1}-N_i-CA_i plane, pointing towards the previous Carbon (C_{i-1}), and is orthogonalized against X.
+       - The Z-axis is the cross product of X and Y, completing the right-handed system.
+    2. Compute the local coordinate vector of the new Carbon (C_i) atom:
+       - The X component is derived entirely from the fixed N-CA-C bond angle.
+       - The Y and Z components define the rotation of C_i around the N_i-CA_i bond (the X-axis),
+        dictated precisely by the phi torsion angle.
+       - *Note on Z-component*: We apply `-sin(phi)` because our X-axis vector points backwards ($CA_i \rightarrow N_i$).
+        The standard IUPAC convention defines positive phi rotation looking forwards ($N_i \rightarrow CA_i$).
+         The reversed axis means we must flip the sign of the sine component to preserve correct molecular chirality!
+    3. Multiply the local X, Y, and Z scalar components against the 3D basis vectors to get the absolute displacement.
+    4. Translate the displacement vector back to the global origin (CA_i) to yield the final global coordinates of C_i.
 
     Args:
         nitrogen (torch.Tensor): Global position of the Nitrogen atom of the current residue.
@@ -794,7 +810,6 @@ def reconstruct_carbon_from_phi(nitrogen: torch.Tensor, carbon_alpha: torch.Tens
     return carbon_alpha + local_vector
 
 
-# todo to be reviewed
 def build_global_transforms_from_peptide_linker(
         first_residue_backbone_frame: torch.Tensor,
         residue_angles: torch.Tensor,
@@ -808,6 +823,19 @@ def build_global_transforms_from_peptide_linker(
     predicted scalers to reconstruct the N, CA, and C atoms of the subsequent residue. Then, it 
     computes the backbone frame for that new residue, effectively chaining rigid frames together 
     without relying on the independent backbone updater.
+    Algorithm Steps:
+    1. Initialize the sequence using the provided global backbone frame for the very first residue.
+    2. Iterate through each residue from i = 0 to N-1:
+        a. Compute all 8 global transformations (Backbone, Omega, Phi, Psi, Chi1-4) for residue i using its backbone frame.
+        b. Reconstruct the global 3D coordinates for the backbone atoms (CA, C, O) of residue i.
+        c. Reconstruct the Nitrogen atom (N_{i+1}) of the next residue by extending from C_i,
+         using the predicted peptide linker scalers (length, CA-C-N angle, and out-of-plane elevation).
+        d. Reconstruct the Carbon Alpha (CA_{i+1}) of the next residue by extending from N_{i+1},
+         using the predicted C-N-CA angle scaler and the predicted omega torsion angle.
+        e. Reconstruct the Carbon (C_{i+1}) of the next residue by extending from CA_{i+1},
+         using the ideal N-CA-C angle and the predicted phi torsion angle.
+        f. Mathematically construct the new local 4x4 backbone frame for residue i+1 using
+         N_{i+1}, CA_{i+1}, and C_{i+1}. This frame becomes the foundation for the next iteration.
 
     Args:
         first_residue_backbone_frame (torch.Tensor): The global backbone transformation matrix of the first residue.
@@ -894,6 +922,11 @@ def build_global_transforms_from_peptide_linker(
             # Step 2a: Reconstruct the position of the next residue's Nitrogen (N) atom 
             # using the predicted elevation and C-N angle scalers. We scale the predictions
             # with base geometries defined project-wide in constants.py.
+            # 4 structural scalars required for reconstructing the peptide backbone from residue `i` to `i+1`:
+            # 1. Elevation Angle Scaler (for determining the position of the next Nitrogen).
+            # 2. Angle Scaler (CA-C-N).
+            # 3. Bond Length Scaler (C-N).
+            # 4. Angle Scaler (C-N-CA).
             next_nitrogen = reconstruct_next_nitrogen_from_scalers(
                 carbon_alpha=current_carbon_alpha, carbon=current_carbon, oxygen=current_oxygen,
                 peptide_carbon_nitrogen_length=current_scalers[..., 2] * peptide_carbon_nitrogen_length_base,
@@ -904,9 +937,9 @@ def build_global_transforms_from_peptide_linker(
             next_nitrogen_carbon_alpha_length = ideal_nitrogen_carbon_alpha_lengths[next_residue_label]
 
             # The omega torsion angle connects the current residue to the next residue
-            next_omega_cosine, next_omega_sine = residue_angles[..., index + 1, 0, 0], residue_angles[
-                ..., index + 1, 0, 1]
-            next_omega_degrees = torch.rad2deg(torch.atan2(next_omega_sine, next_omega_cosine))
+            current_omega_cosine, current_omega_sine = residue_angles[..., index, 0, 0], residue_angles[
+                ..., index, 0, 1]
+            current_omega_degrees = torch.rad2deg(torch.atan2(current_omega_sine, current_omega_cosine))
 
             # Step 2b: Reconstruct the position of the next residue's Carbon Alpha (CA) atom
             # using ideal bond lengths, predicted angle scalers, and the predicted omega torsion.
@@ -914,7 +947,7 @@ def build_global_transforms_from_peptide_linker(
                 carbon_alpha=current_carbon_alpha, carbon=current_carbon, next_nitrogen=next_nitrogen,
                 nitrogen_carbon_alpha_length=next_nitrogen_carbon_alpha_length,
                 carbon_nitrogen_carbon_alpha_angle=current_scalers[..., 3] * carbon_nitrogen_carbon_alpha_angle_base,
-                omega_dihedral_angle=next_omega_degrees)
+                omega_dihedral_angle=current_omega_degrees)
 
             next_carbon_alpha_carbon_length = ideal_carbon_alpha_carbon_lengths[next_residue_label]
             next_nitrogen_carbon_alpha_carbon_angle = ideal_nitrogen_carbon_alpha_carbon_angles[next_residue_label]
@@ -1000,7 +1033,7 @@ def compute_global_transform_matrices(transformation_matrix: torch.Tensor, resid
 
         # global = previous_global * local_initial * rotation
         previous_frame = all_global_frames[i - 1]
-        frame = torch.matmul(previous_frame,torch.matmul(initial_sequence_frames[..., i, :, :], rotation_matrix))
+        frame = torch.matmul(previous_frame, torch.matmul(initial_sequence_frames[..., i, :, :], rotation_matrix))
         all_global_frames.append(frame)
 
     # Stack all frames along the rigid group dimension

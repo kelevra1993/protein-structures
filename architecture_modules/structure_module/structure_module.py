@@ -601,13 +601,7 @@ class StructureModule(nn.Module):
                 peptide_linker_scalers = self.peptide_linker_predictor(
                     single_representation=single_representation,
                     initial_single_representation=initial_single_representation)
-                ######################################################################
-                # TODO TO BE REMOVED
-                print("################################################################")
-                print_tensor_shape(peptide_linker_scalers, name="peptide_linker_scalers")
-                print("################################################################")
-                # TODO END TO BE REMOVED
-                ######################################################################
+
 
                 outputs['peptide_linker_scalers'].append(peptide_linker_scalers)
 
