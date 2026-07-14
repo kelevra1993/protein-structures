@@ -290,6 +290,8 @@ class StructureModule(nn.Module):
             enable_side_chain_fape_loss (bool): Whether to compute the all-atom/side-chain FAPE loss.
             enable_lddt_loss (bool): Whether to compute the pLDDT loss.
             clamp_fape_threshold (float): The distance threshold (in Angstroms) for FAPE clamping.
+            use_peptide_linker_module (bool): Whether to use the peptide linker predictor module.
+            peptide_linker_representation_embedding (int): Feature dimension of the peptide linker representation.
         """
         super().__init__()
 
@@ -373,6 +375,7 @@ class StructureModule(nn.Module):
                 Shape: `(..., number_residues, number_torsion_angles, 2)`.
             sequence_amino_acid_labels (torch.Tensor): Amino acid type indices.
                 Shape: `(..., number_residues)`.
+            precomputed_global_transformation_matrices (torch.Tensor, optional): Precomputed global transformations.
 
         Returns:
             tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -591,15 +594,20 @@ class StructureModule(nn.Module):
                                                initial_single_representation=initial_single_representation)
 
             precomputed_global_transformation_matrices = None
-            print(f"transformation matrix shape : {transformation_matrix.shape}")
+            print(f"Transformation matrix shape : {transformation_matrix.shape}")
             # todo this has to be reviewed...
             if self.use_peptide_linker_module:
 
                 peptide_linker_scalers = self.peptide_linker_predictor(
                     single_representation=single_representation,
                     initial_single_representation=initial_single_representation)
+                ######################################################################
                 # TODO TO BE REMOVED
+                print("################################################################")
                 print_tensor_shape(peptide_linker_scalers, name="peptide_linker_scalers")
+                print("################################################################")
+                # TODO END TO BE REMOVED
+                ######################################################################
 
                 outputs['peptide_linker_scalers'].append(peptide_linker_scalers)
 

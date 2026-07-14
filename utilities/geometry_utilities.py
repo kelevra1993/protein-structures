@@ -518,8 +518,8 @@ def approximate_next_nitrogen(carbon_alpha: torch.Tensor, carbon: torch.Tensor, 
     to a temporary global plane.
 
     Idealized parameters used:
-    - C-N bond length: ~1.329 Angstroms
-    - CA-C-N angle: ~116.2 degrees
+    - C-N bond length: ~1.32 Angstroms (from constants)
+    - CA-C-N angle: ~120.0 degrees (from constants)
 
     Args:
         carbon_alpha (torch.Tensor): Coordinates of CA_i.
@@ -544,12 +544,12 @@ def approximate_next_nitrogen(carbon_alpha: torch.Tensor, carbon: torch.Tensor, 
     ey = nn.functional.normalize(ey, dim=-1)
 
     # In this local plane, we want to place N_{i+1}.
-    # N_{i+1} sits at a distance of 1.329 from C.
-    # The angle CA-C-N is 116.2 degrees. Because O is on the +Y side and the geometry 
-    # is trigonal planar (~120 deg apart), N must be on the -Y side.
-    # Angle relative to ex (which points to CA) is -116.2 degrees.
-    angle_offset = torch.deg2rad(torch.tensor(-116.2, device=device, dtype=dtype))
-    bond_length = 1.329
+    # N_{i+1} sits at a distance of `peptide_carbon_nitrogen_length_base` from C.
+    # Because O is on the +Y side and the geometry is trigonal planar, N must be on the -Y side.
+    # Angle relative to ex (which points to CA) is -`carbon_alpha_carbon_nitrogen_angle_base`.
+    angle_offset = torch.deg2rad(torch.tensor(-carbon_alpha_carbon_nitrogen_angle_base,
+                                              device=device, dtype=dtype))
+    bond_length = peptide_carbon_nitrogen_length_base
 
     # Calculate the vector from C to N_{i+1}
     vector_carbon_to_next_nitrogen = bond_length * ((torch.cos(angle_offset) * ex) + (torch.sin(angle_offset) * ey))

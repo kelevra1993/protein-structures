@@ -699,6 +699,7 @@ class Structure:
         Args:
         device (torch.device): Computation device.
         dtype (torch.dtype): Computation data type.
+        debug (bool): If True, enables debugging checks and outputs. Defaults to False.
 
         Returns:
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
