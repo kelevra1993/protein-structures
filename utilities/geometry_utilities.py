@@ -10,7 +10,8 @@ from torch import nn
 from typing import Tuple, Union
 from utilities.constants import (rigid_group_atom_position_map, chi_angles_frame_centers, chi_angles_mask,
                                  atom_local_positions, atom_frame_indices, atom_mask, alternative_angle_mask,
-                                 alternative_position_mask, atom_types)
+                                 alternative_position_mask, atom_types, peptide_carbon_nitrogen_length_base,
+                                 carbon_alpha_carbon_nitrogen_angle_base, next_nitrogen_elevation_angle_base)
 from utilities.tensor_utilities import unsqueeze_tensor, print_tensor_list, print_tensor_shape
 
 
@@ -866,8 +867,8 @@ def build_global_transforms_from_peptide_linker(
             residue_angles=current_residue_angles,
             sequence_amino_acid_labels=current_residue_labels)
 
-        #todo check added comment if it makes sense (if so keep it, if not add comment that is clearer)
-        # Here we still haven't started adding the translations for the C-alpha
+        # Store the current residue's transformations. Note that these transformations are strictly based
+        # on the current backbone frame; translations required to place the next residue's C-alpha are applied later.
         all_global_transforms.append(current_global_transforms)
 
         if index < number_residues - 1:
@@ -890,17 +891,14 @@ def build_global_transforms_from_peptide_linker(
             current_scalers = peptide_linker_scalers[..., index, :]
 
             # Step 2a: Reconstruct the position of the next residue's Nitrogen (N) atom 
-            # using the predicted elevation and C-N angle scalers.
-            # TODO LATER IN THE CODE WE WILL MOVE THE 1.32 AND THE 120 and the 5 (elevation) TO THE CONSTANT.PY FILE so that
-            #  these are project wide constants to avoid any errors, we will also have to make sure that everywhere in the project that they are called
-            #  they will be got from the constant.py file.
+            # using the predicted elevation and C-N angle scalers. We scale the predictions
+            # with base geometries defined project-wide in constants.py.
             next_nitrogen = reconstruct_next_nitrogen_from_scalers(
                 carbon_alpha=current_carbon_alpha, carbon=current_carbon, oxygen=current_oxygen,
-                peptide_carbon_nitrogen_length=current_scalers[..., 2] * 1.32,
-                carbon_alpha_carbon_nitrogen_angle=current_scalers[..., 1] * 120.0,
-                next_nitrogen_elevation_angle=current_scalers[..., 0])
-            print_tensor_list(next_nitrogen)
-            exit()
+                peptide_carbon_nitrogen_length=current_scalers[..., 2] * peptide_carbon_nitrogen_length_base,
+                carbon_alpha_carbon_nitrogen_angle=current_scalers[..., 1] * carbon_alpha_carbon_nitrogen_angle_base,
+                next_nitrogen_elevation_angle=current_scalers[..., 0] * next_nitrogen_elevation_angle_base)
+
             next_residue_label = sequence_amino_acid_labels[..., index + 1]
             next_nitrogen_carbon_alpha_length = ideal_n_ca_lengths[next_residue_label]
 

@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from utilities.constants import (xxx_to_index, index_to_xxx, atom_to_index, atom_frame_indices,
                                  rigid_group_atom_position_map, chi_angles_mask,
                                  chi_angles_frame_centers, chi_dihedral_dictionary,
-                                 rigid_group_atom_positions)
+                                 rigid_group_atom_positions, peptide_carbon_nitrogen_length_base,
+                                 carbon_alpha_carbon_nitrogen_angle_base, carbon_nitrogen_carbon_alpha_angle_base,
+                                 next_nitrogen_elevation_angle_base)
 from utilities.geometry_utilities import (create_4x4_transform_matrix,
                                           invert_4x4_transform_matrix,
                                           apply_transformation_on_vector,
@@ -775,7 +777,7 @@ class Structure:
             # Why: Instead of forcing the neural network to predict absolute 3D translations to place the next 
             # residue, we make it predict these normalized geometric scalars. This constrains the network to physically 
             # valid peptide bond formations via NeRF reconstructions, eliminating translation drift and making training easier.
-            # How: The scalers are experimental values divided by their canonical IDEAL geometry (e.g., length / 1.32). 
+            # How: The scalers are experimental values divided by their canonical IDEAL geometry (e.g., length / peptide_carbon_nitrogen_length_base). 
             # This normalizes the network targets around 1.0 (or 0.0 for planar elevation), enabling highly stable learning.
             if residue_index < self.number_residues - 2:
                 # 8. Fetch raw geometric values for the peptide bond connecting to the next residue
@@ -800,16 +802,16 @@ class Structure:
                     point_c=next_atom_dictionary["N"]["global_position"],
                     point_center=atom_dictionary["C"]["global_position"])
 
-                scaler_next_nitrogen_elevation_from_5 = nitrogen_elevation / 5.0
-                scaler_carbon_alpha_carbon_nitrogen_angle_from_120 = carbon_alpha_carbon_nitrogen_angle / 120.0
-                scaler_peptide_carbon_nitrogen_bond_from_1_32 = peptide_carbon_nitrogen_length / 1.32
-                scaler_carbon_nitrogen_carbon_alpha_angle_from_120 = carbon_nitrogen_carbon_alpha_angle / 120.0
+                scaler_next_nitrogen_elevation = nitrogen_elevation / next_nitrogen_elevation_angle_base
+                scaler_carbon_alpha_carbon_nitrogen_angle = carbon_alpha_carbon_nitrogen_angle / carbon_alpha_carbon_nitrogen_angle_base
+                scaler_peptide_carbon_nitrogen_bond = peptide_carbon_nitrogen_length / peptide_carbon_nitrogen_length_base
+                scaler_carbon_nitrogen_carbon_alpha_angle = carbon_nitrogen_carbon_alpha_angle / carbon_nitrogen_carbon_alpha_angle_base
 
                 # 2. Assemble the predictor target list
-                peptide_linker_scalers = [scaler_next_nitrogen_elevation_from_5,
-                                          scaler_carbon_alpha_carbon_nitrogen_angle_from_120,
-                                          scaler_peptide_carbon_nitrogen_bond_from_1_32,
-                                          scaler_carbon_nitrogen_carbon_alpha_angle_from_120]
+                peptide_linker_scalers = [scaler_next_nitrogen_elevation,
+                                          scaler_carbon_alpha_carbon_nitrogen_angle,
+                                          scaler_peptide_carbon_nitrogen_bond,
+                                          scaler_carbon_nitrogen_carbon_alpha_angle]
 
                 ground_truth_peptide_linker_scalers[residue_index] = torch.tensor(peptide_linker_scalers,
                                                                                   device=self.device, dtype=self.dtype)
@@ -820,10 +822,10 @@ class Structure:
                         atom_dictionary=atom_dictionary,
                         next_atom_dictionary=next_atom_dictionary,
                         residue_name=residue_object.name,
-                        scaler_peptide_carbon_nitrogen_bond_from_1_32=scaler_peptide_carbon_nitrogen_bond_from_1_32,
-                        scaler_carbon_alpha_carbon_nitrogen_angle_from_120=scaler_carbon_alpha_carbon_nitrogen_angle_from_120,
-                        scaler_next_nitrogen_elevation_from_5=scaler_next_nitrogen_elevation_from_5,
-                        scaler_carbon_nitrogen_carbon_alpha_angle_from_120=scaler_carbon_nitrogen_carbon_alpha_angle_from_120,
+                        scaler_peptide_carbon_nitrogen_bond=scaler_peptide_carbon_nitrogen_bond,
+                        scaler_carbon_alpha_carbon_nitrogen_angle=scaler_carbon_alpha_carbon_nitrogen_angle,
+                        scaler_next_nitrogen_elevation=scaler_next_nitrogen_elevation,
+                        scaler_carbon_nitrogen_carbon_alpha_angle=scaler_carbon_nitrogen_carbon_alpha_angle,
                         nitrogen_carbon_alpha_length=self.statistics["bond_lengths"]["N_CA"][residue_index + 1],
                         omega_dihedral_angle=self.statistics["dihedrals"]["omega"][residue_index])
 
@@ -995,10 +997,10 @@ class Structure:
     def peptide_linker_debugger(atom_dictionary: Dict[str, Dict],
                                 next_atom_dictionary: Dict[str, Dict],
                                 residue_name: str,
-                                scaler_peptide_carbon_nitrogen_bond_from_1_32: float,
-                                scaler_carbon_alpha_carbon_nitrogen_angle_from_120: float,
-                                scaler_next_nitrogen_elevation_from_5: float,
-                                scaler_carbon_nitrogen_carbon_alpha_angle_from_120: float,
+                                scaler_peptide_carbon_nitrogen_bond: float,
+                                scaler_carbon_alpha_carbon_nitrogen_angle: float,
+                                scaler_next_nitrogen_elevation: float,
+                                scaler_carbon_nitrogen_carbon_alpha_angle: float,
                                 nitrogen_carbon_alpha_length: float,
                                 omega_dihedral_angle: float) -> None:
         """
@@ -1008,9 +1010,9 @@ class Structure:
             carbon_alpha=atom_dictionary["CA"]["global_position"],
             carbon=atom_dictionary["C"]["global_position"],
             oxygen=atom_dictionary["O"]["global_position"],
-            peptide_carbon_nitrogen_length=scaler_peptide_carbon_nitrogen_bond_from_1_32 * 1.32,
-            carbon_alpha_carbon_nitrogen_angle=scaler_carbon_alpha_carbon_nitrogen_angle_from_120 * 120.0,
-            next_nitrogen_elevation_angle=scaler_next_nitrogen_elevation_from_5 * 5.0
+            peptide_carbon_nitrogen_length=scaler_peptide_carbon_nitrogen_bond * peptide_carbon_nitrogen_length_base,
+            carbon_alpha_carbon_nitrogen_angle=scaler_carbon_alpha_carbon_nitrogen_angle * carbon_alpha_carbon_nitrogen_angle_base,
+            next_nitrogen_elevation_angle=scaler_next_nitrogen_elevation * next_nitrogen_elevation_angle_base
         )
 
         reconstructed_next_carbon_alpha = reconstruct_next_carbon_alpha_from_scalers(
@@ -1018,7 +1020,7 @@ class Structure:
             carbon=atom_dictionary["C"]["global_position"],
             next_nitrogen=reconstructed_next_nitrogen,
             nitrogen_carbon_alpha_length=nitrogen_carbon_alpha_length,
-            carbon_nitrogen_carbon_alpha_angle=scaler_carbon_nitrogen_carbon_alpha_angle_from_120 * 120.0,
+            carbon_nitrogen_carbon_alpha_angle=scaler_carbon_nitrogen_carbon_alpha_angle * carbon_nitrogen_carbon_alpha_angle_base,
             omega_dihedral_angle=omega_dihedral_angle
         )
 
