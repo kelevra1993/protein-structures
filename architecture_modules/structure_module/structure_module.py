@@ -5,13 +5,15 @@ from typing import Tuple, Optional
 
 from architecture_modules.lddt_module.lddt_module import LddtModule
 from architecture_modules.structure_module.invariant_point_attention_module import InvariantPointAttention
-from utilities.geometry_utilities import compute_all_atom_coordinates, assemble_4x4_transform_matrix, \
-    turn_quaternion_to_3x3_matrix, build_global_transforms_from_peptide_linker
+from utilities.geometry_utilities import (compute_all_atom_coordinates, assemble_4x4_transform_matrix,
+                                          turn_quaternion_to_3x3_matrix, build_global_transforms_from_peptide_linker)
 
 # Here we will have to design this explicitly
-from utilities.constants import atom_types, canonical_amino_acid_residues, index_to_xxx, chi_angles_mask
-from utilities.loss_utilities import compute_fape_loss, compute_torsion_angle_loss, \
-    rename_symmetric_ground_truth_metrics, compute_local_distance_difference_test, compute_plddt_loss
+from utilities.constants import (atom_types, canonical_amino_acid_residues, index_to_xxx, chi_angles_mask,
+                                 atom_frame_indices, atom_local_positions, atom_mask)
+from utilities.loss_utilities import (compute_fape_loss, compute_torsion_angle_loss,
+                                      rename_symmetric_ground_truth_metrics, compute_local_distance_difference_test,
+                                      compute_plddt_loss)
 from architecture_modules.structure_module.peptide_linker_module import PeptideLinkerPredictor
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
@@ -241,7 +243,7 @@ class AngleResNet(nn.Module):
 
         initial_embedded_representation = self.layer_normalizer(initial_embedded_representation)
         current_embedded_representation = self.layer_normalizer(current_embedded_representation)
-        
+
         hidden_representation = self.relu(initial_embedded_representation + current_embedded_representation)
 
         for layer in self.angle_resnet_layers:
@@ -401,7 +403,7 @@ class StructureModule(nn.Module):
             # Wait, the user said: "and for the process_outputs take into account the global_transformation_matrix if we have the peptide_linker activated"
             # Actually, compute_all_atom_coordinates can be modified, or we can just reconstruct atoms here.
             # I will just use the precomputed ones!
-            from utilities.constants import atom_frame_indices, atom_local_positions, atom_mask
+
             device = global_transformation_matrices.device
             dtype = global_transformation_matrices.dtype
 
@@ -575,8 +577,9 @@ class StructureModule(nn.Module):
                 single_representation=single_representation,
                 pair_representation=pair_representation,
                 transformation_matrix=transformation_matrix)
-            
-            invariant_point_attention_output = self.invariant_point_attention_layer_normalizer(invariant_point_attention_output)
+
+            invariant_point_attention_output = self.invariant_point_attention_layer_normalizer(
+                invariant_point_attention_output)
             single_representation = single_representation + invariant_point_attention_output
 
             # Transition and it's normalizer(included in the transition layer)
@@ -596,7 +599,7 @@ class StructureModule(nn.Module):
                     single_representation=single_representation,
                     initial_single_representation=initial_single_representation)
                 # TODO TO BE REMOVED
-                print_tensor_shape(peptide_linker_scalers,name="peptide_linker_scalers")
+                print_tensor_shape(peptide_linker_scalers, name="peptide_linker_scalers")
 
                 outputs['peptide_linker_scalers'].append(peptide_linker_scalers)
 
