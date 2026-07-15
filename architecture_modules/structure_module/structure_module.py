@@ -16,7 +16,7 @@ from utilities.loss_utilities import (compute_fape_loss, compute_torsion_angle_l
                                       compute_plddt_loss)
 from architecture_modules.structure_module.peptide_linker_module import PeptideLinkerPredictor
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
-
+from utilities.geometry_utilities import apply_transformation_on_vector
 
 class StructureModuleTransition(nn.Module):
     """
@@ -363,7 +363,7 @@ class StructureModule(nn.Module):
             transformation_matrix: torch.Tensor,
             residue_angles: torch.Tensor,
             sequence_amino_acid_labels: torch.Tensor,
-            precomputed_global_transformation_matrices: torch.Tensor = None) -> tuple[
+            precomputed_global_transformation_matrices: Optional[torch.Tensor] = None) -> tuple[
         torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Post-processes predicted frames and angles to obtain final 3D coordinates and global transformation matrices.
@@ -395,18 +395,6 @@ class StructureModule(nn.Module):
             # We already have the rigid group frames from the sequential peptide linker.
             global_transformation_matrices = precomputed_global_transformation_matrices
 
-            # Reconstruct the 37 atom positions from the frames
-            # Wait, compute_all_atom_coordinates expects the backbone transformation_matrix
-            # and returns global_transformation_matrices alongside the positions.
-            # To just build positions from global_transformation_matrices, we could write a helper,
-            # but compute_all_atom_coordinates internally just calls compute_global_transform_matrices.
-            # Since compute_all_atom_coordinates does both, we can just call it to get positions!
-            # Wait! The process_outputs method is completely bypassed if we already have the full structure...
-            # Actually, compute_all_atom_coordinates is fast. Let's just use it anyway, BUT supply the backbone frames!
-            # Wait, the user said: "and for the process_outputs take into account the global_transformation_matrix if we have the peptide_linker activated"
-            # Actually, compute_all_atom_coordinates can be modified, or we can just reconstruct atoms here.
-            # I will just use the precomputed ones!
-
             device = global_transformation_matrices.device
             dtype = global_transformation_matrices.dtype
 
@@ -414,22 +402,19 @@ class StructureModule(nn.Module):
             atom_local_positions_tensor = torch.tensor(atom_local_positions, device=device, dtype=dtype)
             atom_mask_tensor = torch.tensor(atom_mask, device=device, dtype=dtype)
 
+            # todo to be reviewed, we might want to do this differently for easier understanding !!!
             # [..., number_residues, 37, 8, 4, 4]
             # atom_frame_indices_tensor maps each of the 37 atoms to 1 of the 8 frames
             selected_frames = torch.gather(
                 global_transformation_matrices.unsqueeze(-4).expand(*global_transformation_matrices.shape[:-3], 37, 8,
-                                                                    4, 4),
-                dim=-3,
+                                                                    4, 4),dim=-3,
                 index=atom_frame_indices_tensor[sequence_amino_acid_labels].unsqueeze(-1).unsqueeze(-1).expand(
-                    *sequence_amino_acid_labels.shape, 37, 4, 4)
-            )
+                    *sequence_amino_acid_labels.shape, 37, 4, 4))
 
             # Apply local positions
-            from utilities.geometry_utilities import apply_transformation_on_vector
             final_positions = apply_transformation_on_vector(
                 transformation_matrix=selected_frames,
-                vector=atom_local_positions_tensor[sequence_amino_acid_labels]
-            )
+                vector=atom_local_positions_tensor[sequence_amino_acid_labels])
 
             position_mask = atom_mask_tensor[sequence_amino_acid_labels]
 
@@ -594,14 +579,11 @@ class StructureModule(nn.Module):
                                                initial_single_representation=initial_single_representation)
 
             precomputed_global_transformation_matrices = None
-            print(f"Transformation matrix shape : {transformation_matrix.shape}")
-            # todo this has to be reviewed...
             if self.use_peptide_linker_module:
 
                 peptide_linker_scalers = self.peptide_linker_predictor(
                     single_representation=single_representation,
                     initial_single_representation=initial_single_representation)
-
 
                 outputs['peptide_linker_scalers'].append(peptide_linker_scalers)
 
@@ -614,7 +596,6 @@ class StructureModule(nn.Module):
                     sequence_amino_acid_labels=sequence_amino_acid_labels)
 
                 # Replace the entire sequence of backbone frames
-                # todo we might need to check this ? Just to make sure that it is correct.
                 transformation_matrix = precomputed_global_transformation_matrices[..., 0, :, :]
             else:
                 # Update of the transformation matrix by right multiplication of current predicted transformation
@@ -637,7 +618,6 @@ class StructureModule(nn.Module):
                 ground_truth_positions=ground_truth_carbon_alpha_positions,
                 distance_clamp=backbone_distance_clamp)
 
-            #  DON'T FORGET TO RE-CHECK THE ANGLE NORM LOSS SCALER AND ADD IT TO TENSORBOARD
             # Be careful, ground truth angle should already be normalised in the form (cos(phi), sin(phi))
             iteration_torsion_angle_loss = compute_torsion_angle_loss(
                 predicted_unnormalised_angles=residue_angles,
@@ -667,6 +647,7 @@ class StructureModule(nn.Module):
         angles = torch.stack(outputs['angles'], dim=-4)
         frames = torch.stack(outputs['frames'], dim=-4)
 
+        # todo to be re-reviewed !!!
         # We only use the last residue angles (here they are not yet normalised)
         final_positions, position_mask, pseudo_beta_positions, global_transformation_matrices = self.process_outputs(
             transformation_matrix=transformation_matrix,
@@ -678,7 +659,6 @@ class StructureModule(nn.Module):
         # Since we are dealing with only heavy atoms and some residue present areas of 180 symetry rotation
         # the network can predict coordinates that are legit and therefore it should not be penalized,
         # therefore the ground truth has to change accordingly, but it has to be done at every prediction cycle
-
         for batch_index in range(batch_size):
             # Modify Ground Truth Positions And Frames Accordingly, by iterating through batches
             (ground_truth_positions[batch_index],
